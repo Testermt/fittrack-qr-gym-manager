@@ -555,50 +555,42 @@ async function handleReauthSubmit(e) {
   if (!pendingReauthAction) return;
 
   const user = auth.currentUser;
-  const isPasswordUser = user.providerData.some((p) => p.providerId === "password");
   const submitBtn = document.getElementById("reauthSubmitBtn");
   const errorEl = document.getElementById("reauthError");
   errorEl.classList.add("hidden");
 
   const originalLabel = submitBtn.textContent;
   submitBtn.disabled = true;
-  submitBtn.textContent = "Verifying…";
+  submitBtn.textContent = "Verifying device…";
 
   try {
-    // Step 1: Firebase Auth re-authentication (Password or Google popup)
-    if (isPasswordUser) {
-      const password = document.getElementById("reauthPasswordInput").value;
-      if (!password) throw { code: "auth/missing-password" };
-      const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
-      await user.reauthenticateWithCredential(credential);
-    } else {
-      const provider = new firebase.auth.GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      await user.reauthenticateWithPopup(provider);
-    }
-
-    // Step 2: DOUBLE PROTECTION — Force Device Passkey / Fingerprint verification!
-    const biometricSupported = await window.PublicKeyCredential && 
+    // Check if device passkey/biometric is available and registered
+    const biometricSupported = window.PublicKeyCredential && 
       await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
       
-    if (biometricSupported) {
-      const storedCredentialId = getStoredCredentialId(user.uid);
-      if (storedCredentialId) {
-        submitBtn.textContent = "Scan fingerprint…";
-        const challenge = crypto.getRandomValues(new Uint8Array(32));
-        const assertion = await navigator.credentials.get({
-          publicKey: {
-            challenge,
-            allowCredentials: [{ id: base64urlToBuffer(storedCredentialId), type: "public-key" }],
-            userVerification: "required",
-            timeout: 60000,
-          },
-        });
-        if (!assertion) throw new Error("Fingerprint verification cancelled");
-      }
+    if (!biometricSupported) {
+      throw new Error("Device lock is not supported on this browser/device.");
     }
 
-    // Both Google/Password AND Device Fingerprint verified successfully!
+    const storedCredentialId = getStoredCredentialId(user.uid);
+    if (!storedCredentialId) {
+      throw new Error("No device lock found. Please enable it from the header menu first.");
+    }
+
+    // Prompt for device screen lock / fingerprint / PIN
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        allowCredentials: [{ id: base64urlToBuffer(storedCredentialId), type: "public-key" }],
+        userVerification: "required",
+        timeout: 60000,
+      },
+    });
+
+    if (!assertion) throw new Error("Device verification cancelled");
+
+    // Device lock successfully passed! Now execute the action.
     const { type, member, btn } = pendingReauthAction;
     closeReauthModal();
 
@@ -608,14 +600,12 @@ async function handleReauthSubmit(e) {
       await executeMarkAsPaid(member, btn);
     }
   } catch (err) {
-    console.error("Re-authentication failed:", err);
-    let message = "Couldn't verify your identity. Please try again.";
+    console.error("Device verification failed:", err);
+    let message = "Couldn't verify your device lock. Please try again.";
     if (err.name === "NotAllowedError") {
-      message = "Fingerprint verification was cancelled or timed out.";
-    } else if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
-      message = "That password doesn't match. Please try again.";
-    } else if (err.code === "auth/missing-password") {
-      message = "Please enter your password to confirm.";
+      message = "Verification was cancelled or timed out.";
+    } else if (err.message) {
+      message = err.message;
     }
     errorEl.textContent = message;
     errorEl.classList.remove("hidden");
@@ -624,6 +614,7 @@ async function handleReauthSubmit(e) {
     submitBtn.textContent = originalLabel;
   }
 }
+
 
 
 async function executeMarkAsPaid(member, btn) {
