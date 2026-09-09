@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("gymNameLabelAdmin").textContent = GYM_SETTINGS.name;
 
   document.getElementById("loginForm").addEventListener("submit", handleLogin);
+  document.getElementById("forgotPasswordBtn").addEventListener("click", handleForgotPassword);
   document.getElementById("logoutBtn").addEventListener("click", () => auth.signOut());
   document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
 
@@ -32,6 +33,7 @@ async function handleLogin(e) {
   const btn = form.querySelector("button[type=submit]");
   const errorEl = document.getElementById("loginError");
   errorEl.classList.add("hidden");
+  hideResetMessage();
 
   btn.disabled = true;
   btn.textContent = "Signing in…";
@@ -44,6 +46,71 @@ async function handleLogin(e) {
     btn.disabled = false;
     btn.textContent = "Sign In";
   }
+}
+
+// -------------------------------------------------------- password reset --
+async function handleForgotPassword() {
+  const form = document.getElementById("loginForm");
+  const btn = document.getElementById("forgotPasswordBtn");
+  const errorEl = document.getElementById("loginError");
+  errorEl.classList.add("hidden");
+
+  const email = form.email.value.trim();
+
+  if (!email) {
+    form.email.focus();
+    showResetMessage("Please type your admin email above first, then tap 'Forgot password?' again.", "error");
+    return;
+  }
+
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+
+  try {
+    await auth.sendPasswordResetEmail(email);
+    showResetMessage(
+      `Password reset link sent to ${email}! Check your inbox (and spam folder) and follow the link to set a new password.`,
+      "success"
+    );
+  } catch (err) {
+    console.error(err);
+    let message = "Something went wrong sending the reset email. Please try again in a moment.";
+    if (err.code === "auth/invalid-email") {
+      message = "That doesn't look like a valid email address. Please double-check it and try again.";
+    } else if (err.code === "auth/user-not-found") {
+      message = "We couldn't find an admin account with that email. Please check with the gym owner for the correct login email.";
+    } else if (err.code === "auth/too-many-requests") {
+      message = "Too many attempts. Please wait a few minutes before trying again.";
+    }
+    showResetMessage(message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+function showResetMessage(message, kind) {
+  const el = document.getElementById("resetMessage");
+  el.textContent = message;
+  el.classList.remove(
+    "hidden",
+    "text-emerald-400",
+    "bg-emerald-500/10",
+    "border-emerald-500/30",
+    "text-rose-400",
+    "bg-rose-500/10",
+    "border-rose-500/30"
+  );
+  if (kind === "success") {
+    el.classList.add("text-emerald-400", "bg-emerald-500/10", "border-emerald-500/30");
+  } else {
+    el.classList.add("text-rose-400", "bg-rose-500/10", "border-rose-500/30");
+  }
+}
+
+function hideResetMessage() {
+  document.getElementById("resetMessage").classList.add("hidden");
 }
 
 function showLogin() {
@@ -102,6 +169,7 @@ function renderMemberTable() {
         <p class="font-medium text-slate-100">${escapeHtml(m.name)}</p>
         <p class="text-xs text-slate-500">+${GYM_SETTINGS.defaultCountryCode} ${m.phone}</p>
       </td>
+      <td class="py-3 pr-4 text-slate-300 max-w-[200px] truncate" title="${escapeHtml(m.address || "")}">${escapeHtml(m.address || "—")}</td>
       <td class="py-3 pr-4 text-slate-300">${plan.label}</td>
       <td class="py-3 pr-4 text-slate-300">${formatDate(m.expiryDate)}</td>
       <td class="py-3 pr-4">

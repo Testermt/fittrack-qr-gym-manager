@@ -15,6 +15,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("statusForm").addEventListener("submit", handleStatusCheck);
   document.getElementById("closeModalBtn").addEventListener("click", closeModal);
   document.getElementById("confirmPaymentBtn").addEventListener("click", confirmMockPayment);
+  document.getElementById("closeWelcomeModalBtn").addEventListener("click", closeWelcomeModal);
+  document.getElementById("rulesLangToggle").addEventListener("click", toggleRulesLang);
 });
 
 function initTabs() {
@@ -67,6 +69,71 @@ function hideBanner(elId) {
   document.getElementById(elId).classList.add("hidden");
 }
 
+/** Gym rules & guidelines in English and Hindi, keyed by language code. */
+const RULES_I18N = {
+  en: {
+    heading: (gymName) => `${gymName} Rules & Guidelines`,
+    toggleLabel: "🇮🇳 हिंदी",
+    items: [
+      { label: "Hygiene", text: "Bring your own towel and wipe down equipment before and after use." },
+      { label: "Equipment care", text: "Re-rack weights and return machines to their resting position after every set." },
+      { label: "Etiquette", text: "Respect others' space, keep phone calls outside the floor, and share equipment during peak hours." },
+      { label: "Timings", text: "Open Monday–Saturday, 6:00 AM – 10:00 PM. Closed on Sundays & public holidays." },
+    ],
+  },
+  hi: {
+    heading: (gymName) => `${gymName} के नियम और दिशा-निर्देश`,
+    toggleLabel: "🇬🇧 English",
+    items: [
+      { label: "स्वच्छता", text: "अपना तौलिया साथ लाएं और उपयोग से पहले और बाद में उपकरण को साफ करें।" },
+      { label: "उपकरणों की देखभाल", text: "हर सेट के बाद वज़न को वापस रैक में रखें और मशीनों को उनकी मूल स्थिति में लाएं।" },
+      { label: "शिष्टाचार", text: "दूसरों की जगह का सम्मान करें, फ़ोन कॉल जिम फ्लोर के बाहर करें, और व्यस्त समय में उपकरण साझा करें।" },
+      { label: "समय", text: "सोमवार–शनिवार सुबह 6:00 बजे से रात 10:00 बजे तक खुला। रविवार और सार्वजनिक अवकाश पर बंद।" },
+    ],
+  },
+};
+
+/** Renders the rules list + heading + toggle button label for the given language ("en" | "hi"). */
+function renderRulesList(lang) {
+  const data = RULES_I18N[lang];
+  document.getElementById("welcomeModalRulesTitle").textContent = data.heading(GYM_SETTINGS.name);
+
+  const list = document.getElementById("welcomeModalRulesList");
+  list.innerHTML = data.items
+    .map(
+      (item) => `
+        <li class="flex gap-2">
+          <span class="text-accent">•</span>
+          <span><span class="font-medium text-slate-300">${item.label}:</span> ${item.text}</span>
+        </li>
+      `
+    )
+    .join("");
+
+  const toggleBtn = document.getElementById("rulesLangToggle");
+  toggleBtn.textContent = data.toggleLabel;
+  toggleBtn.dataset.lang = lang;
+}
+
+/** Switches the rules list between English and Hindi. */
+function toggleRulesLang() {
+  const current = document.getElementById("rulesLangToggle").dataset.lang || "en";
+  renderRulesList(current === "en" ? "hi" : "en");
+}
+
+/** Opens the post-registration welcome & gym-rules modal with the new member's details. */
+function openWelcomeModal(name, planLabel, expiryDateStr) {
+  document.getElementById("welcomeModalTitle").textContent = `Welcome aboard, ${name}! 🎉`;
+  document.getElementById("welcomeModalSub").textContent =
+    `You're on the ${planLabel} plan — active until ${expiryDateStr}.`;
+  renderRulesList("en"); // always open fresh in English
+  document.getElementById("welcomeModal").classList.remove("hidden");
+}
+
+function closeWelcomeModal() {
+  document.getElementById("welcomeModal").classList.add("hidden");
+}
+
 /** Logs a check-in for today, but only once per member per day. */
 async function logCheckinIfNeeded(memberId, name, phone) {
   const today = toDateKey(new Date());
@@ -96,10 +163,11 @@ async function handleRegisterSubmit(e) {
   const name = form.name.value.trim();
   const phoneRaw = form.phone.value.trim();
   const phone = normalizePhone(phoneRaw);
+  const address = form.address.value.trim();
   const joinDate = form.joinDate.value;
   const planId = form.plan.value;
 
-  if (!name || phone.length < 7 || !joinDate || !planId) {
+  if (!name || phone.length < 7 || !address || !joinDate || !planId) {
     showBanner("registerBanner", "Please fill every field with a valid phone number.");
     return;
   }
@@ -121,6 +189,7 @@ async function handleRegisterSubmit(e) {
     await membersCol.doc(phone).set({
       name,
       phone,
+      address,
       joinDate,
       plan: planId,
       expiryDate,
@@ -134,12 +203,9 @@ async function handleRegisterSubmit(e) {
     form.reset();
     document.getElementById("joinDate").value = toDateKey(new Date());
     buildPlanPicker("planPicker", "plan");
+    hideBanner("registerBanner");
 
-    showBanner(
-      "registerBanner",
-      `Welcome, ${name}! You're registered on the ${plan.label} plan (expires ${formatDate(expiryDate)}). Please pay at the front desk or via the Check Status tab.`,
-      "success"
-    );
+    openWelcomeModal(name, plan.label, formatDate(expiryDate));
   } catch (err) {
     console.error(err);
     showBanner("registerBanner", "Something went wrong. Please try again or ask staff for help.");

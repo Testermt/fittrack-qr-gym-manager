@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#38BDF8">
+
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>FitTrack — Member Check-In & Registration</title>
@@ -77,6 +81,12 @@
           <label class="block text-sm font-medium text-slate-300 mb-1.5">Mobile number</label>
           <input name="phone" type="tel" required placeholder="e.g. 9876543210"
             class="w-full rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-300 mb-1.5">Address</label>
+          <textarea name="address" rows="2" required placeholder="e.g. 12 MG Road, Indiranagar, Bengaluru"
+            class="w-full rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent resize-none"></textarea>
         </div>
 
         <div>
@@ -173,6 +183,33 @@
       <button id="confirmPaymentBtn"
         class="w-full rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
         Confirm Mock Payment
+      </button>
+    </div>
+  </div>
+
+  <!-- ============= WELCOME & GYM RULES MODAL ============= -->
+  <div id="welcomeModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+    <div class="w-full max-w-sm rounded-2xl bg-panel border border-slate-700 p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+      <div class="text-center space-y-1">
+        <div class="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center text-3xl mx-auto mb-2">🎉</div>
+        <h2 id="welcomeModalTitle" class="text-xl font-bold text-slate-50"></h2>
+        <p id="welcomeModalSub" class="text-sm text-slate-400"></p>
+      </div>
+
+      <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <p id="welcomeModalRulesTitle" class="text-sm font-semibold text-slate-200"></p>
+          <button type="button" id="rulesLangToggle" data-lang="en"
+            class="shrink-0 text-xs font-medium rounded-full border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-accent hover:text-accent transition">
+            🇮🇳 हिंदी
+          </button>
+        </div>
+        <ul id="welcomeModalRulesList" class="space-y-2.5 text-sm text-slate-400"></ul>
+      </div>
+
+      <button id="closeWelcomeModalBtn" type="button"
+        class="w-full rounded-lg bg-accent text-slate-950 font-semibold py-3 hover:bg-sky-400 active:scale-[0.99] transition">
+        Let's Workout &amp; Go! 🚀
       </button>
     </div>
   </div>
