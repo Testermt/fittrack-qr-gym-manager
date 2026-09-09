@@ -32,6 +32,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+
 // Fetch Event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
   // Skip cross-origin requests like Firebase or CDN scripts
