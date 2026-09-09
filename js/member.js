@@ -3,21 +3,21 @@
 
 // ==================== GEOFENCING CONFIGURATION ====================
 // ==================== GEOFENCING CONFIGURATION ====================
-/*
+
 const GYM_LOCATION = {
   lat: 29.456545,           // Tera ghar/testing latitude
   lng: 77.717185,           // Tera ghar/testing longitude
   allowedRadiusMeters: 40   // Range in meters
 };
-*/
 
 
+/*
 const GYM_LOCATION = {
   lat: 29.456923,     // Tera ghar/testing latitude
   lng: 77.717848,           // Tera ghar/testing longitude
   allowedRadiusMeters: 20   // Range in meters
 };
-
+*/
 
 
 
