@@ -9,25 +9,42 @@ let unsubMembers = null;
 let unsubCheckins = null;
 let unsubPayments = null;
 
-// -------------------------------------------------- admin email whitelist --
+// ------------------------------------------------ Firestore admin check --
 // Google Sign-In lets ANY Google account complete Firebase authentication —
 // so without this check, a stranger who clicks "Sign in with Google" would
-// pass Firebase auth entirely. Only emails listed here are allowed through
-// the Google sign-in path.
+// pass Firebase auth entirely. No emails are hardcoded here: whether an
+// account is allowed through is looked up live in Firestore, in the
+// `admins` collection, keyed by the (lowercased) email address as the
+// document ID. Add or remove admins by adding/deleting a document there —
+// no redeploy needed.
 //
-// ⚠️ REPLACE THIS with your real admin email(s) before deploying.
+// ⚠️ IMPORTANT — this client-side check is only a UX gate. It must be
+// backed by matching firestore.rules, or a user could still read/write
+// data directly through the SDK without ever opening this page. Add rules
+// along these lines (adjust to your existing rules file):
 //
-// IMPORTANT: this is a client-side UX gate only. Real access control for
-// your data must also live in firestore.rules — its isAdmin() currently
-// just checks "is signed in", not "is this specific email". Ask to have
-// isAdmin() tightened to check request.auth.token.email against this same
-// list so a non-whitelisted account can't read data directly via the SDK
-// even if it bypassed this page entirely.
-const ADMIN_ALLOWED_EMAILS = ["owner@gym.com"];
-
-function isEmailWhitelisted(email) {
+//   match /admins/{adminEmail} {
+//     // Only readable by the signed-in user checking THEIR OWN admin doc —
+//     // "get" (single doc), not "list" (the whole collection), so nobody
+//     // can enumerate the admin list.
+//     allow get: if request.auth != null
+//                  && request.auth.token.email.lower() == adminEmail;
+//     allow write: if false; // manage admins from the Firebase Console only
+//   }
+//
+//   match /members/{doc=**} {
+//     allow read, write: if request.auth != null
+//       && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower()));
+//   }
+//   // repeat the exists(...) check for checkins/, payments/, settings/, etc.
+//
+// Always create admin docs with a lowercase email as the ID (e.g.
+// "owner@gym.com"), since this function normalizes to lowercase too.
+async function isVerifiedAdmin(email) {
   if (!email) return false;
-  return ADMIN_ALLOWED_EMAILS.some((allowed) => allowed.toLowerCase() === email.toLowerCase());
+  const docId = email.trim().toLowerCase();
+  const doc = await db.collection("admins").doc(docId).get();
+  return doc.exists;
 }
 
 const SCREENS = ["loginScreen", "deviceVerifyScreen", "biometricSetupScreen", "dashboardScreen"];
@@ -80,7 +97,24 @@ async function handleAuthenticatedUser(user) {
   const signedInWithGoogle = user.providerData.some((p) => p.providerId === "google.com");
 
   if (signedInWithGoogle) {
-    if (!isEmailWhitelisted(user.email)) {
+    // Show a "checking" state on the device-verify screen while we hit
+    // Firestore — this also covers page refreshes that restore a session,
+    // so revoking a Firestore admin doc takes effect on the very next load,
+    // not just at the next fresh sign-in.
+    showScreen("deviceVerifyScreen");
+    setDeviceVerifyStage("checkingAdmin");
+
+    let isAdmin = false;
+    try {
+      isAdmin = await isVerifiedAdmin(user.email);
+    } catch (err) {
+      console.error("Admin verification lookup failed:", err);
+      showAuthGateError("Couldn't verify admin access right now. Please check your connection and try again.");
+      await auth.signOut();
+      return;
+    }
+
+    if (!isAdmin) {
       showAuthGateError(`This Google account (${user.email}) isn't authorized as a gym admin.`);
       await auth.signOut();
       return;
@@ -90,7 +124,7 @@ async function handleAuthenticatedUser(user) {
     if (biometricSupported) {
       const storedCredentialId = getStoredCredentialId(user.uid);
       if (storedCredentialId) {
-        showScreen("deviceVerifyScreen");
+        setDeviceVerifyStage("biometric");
         await runDeviceVerification(user, storedCredentialId);
         return;
       }
@@ -102,6 +136,27 @@ async function handleAuthenticatedUser(user) {
   }
 
   showDashboard(user);
+}
+
+/** Switches the copy on the shared deviceVerifyScreen between its two uses. */
+function setDeviceVerifyStage(stage) {
+  const titleEl = document.getElementById("deviceVerifyTitle");
+  const subEl = document.getElementById("deviceVerifySub");
+  const errorEl = document.getElementById("deviceVerifyError");
+  const retryBtn = document.getElementById("deviceVerifyRetryBtn");
+  const resetBtn = document.getElementById("deviceVerifyResetBtn");
+
+  errorEl.classList.add("hidden");
+  retryBtn.classList.add("hidden");
+  resetBtn.classList.add("hidden");
+
+  if (stage === "checkingAdmin") {
+    titleEl.textContent = "Verifying admin access…";
+    subEl.textContent = "Checking your account against the gym's admin list in Firestore.";
+  } else {
+    titleEl.textContent = "Verifying this device…";
+    subEl.textContent = "Confirm with your fingerprint, face, or screen lock to continue.";
+  }
 }
 
 function showAuthGateError(message) {
