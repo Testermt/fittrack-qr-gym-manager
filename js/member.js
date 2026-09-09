@@ -260,6 +260,7 @@ async function logCheckinIfNeeded(memberId, name, phone) {
 
 
 // ------------------------------------------------------------ register --
+// ------------------------------------------------------------ register --
 async function handleRegisterSubmit(e) {
   e.preventDefault();
   hideBanner("registerBanner");
@@ -278,7 +279,7 @@ async function handleRegisterSubmit(e) {
     return;
   }
 
-  setBusy(submitBtn, true, "Registering…");
+  setBusy(submitBtn, true, "Registering");
   try {
     const existingDoc = await membersCol.doc(phone).get();
     if (existingDoc.exists) {
@@ -292,6 +293,7 @@ async function handleRegisterSubmit(e) {
     const plan = PLANS[planId];
     const expiryDate = addMonthsToDateKey(joinDate, plan.months);
 
+    // 1. Pehle member database mein save hoga
     await membersCol.doc(phone).set({
       name,
       phone,
@@ -304,19 +306,15 @@ async function handleRegisterSubmit(e) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Fire-and-forget: logCheckinIfNeeded never throws (see its own
-    // try/catch above), so this runs in the background without an await
-    // and without any chance of an unhandled rejection — its latency can
-    // never delay the welcome modal below.
-    logCheckinIfNeeded(phone, name, phone);
+    // 2. Ab yahan GPS check hoga  agar member gym ke andar hai, tabhi check-in hoga!
+    // Agar ghar par hai, toh geofencing isko block kar degi.
+    await logCheckinIfNeeded(phone, name, phone);
 
     form.reset();
     document.getElementById("joinDate").value = toDateKey(new Date());
     buildPlanPicker("planPicker", "plan");
     hideBanner("registerBanner");
 
-    // Fires the instant the member doc is saved — doesn't wait on the
-    // check-in log above.
     openWelcomeModal(name, plan.label, formatDate(expiryDate));
   } catch (err) {
     console.error(err);
