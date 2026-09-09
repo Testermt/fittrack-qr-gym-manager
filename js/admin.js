@@ -262,6 +262,7 @@ function showDashboard(user) {
   subscribeMembers();
   subscribeTodayCheckins();
   subscribeMonthlyRevenue();
+subscribeMonthlyHistory(); // <-- Yeh line yahan add karni hai taaki history load ho!
 }
 
 async function isPlatformAuthenticatorAvailable() {
