@@ -12,6 +12,9 @@ let unsubPayments = null;
 let currentMemberFilter = "all";
 let todayCheckedInIds = new Set();
 
+// Variable to track pending secure action for re-auth
+let pendingReauthAction = null;
+
 async function isVerifiedAdmin(email) {
   if (!email) return false;
   const docId = email.trim().toLowerCase();
@@ -48,6 +51,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     updateMemberFilterStyles();
   }
+
+  // Re-auth Modal Event Listeners
+  document.getElementById("reauthCancelBtn").addEventListener("click", closeReauthModal);
+  document.getElementById("reauthBackdrop").addEventListener("click", closeReauthModal);
+  document.getElementById("reauthForm").addEventListener("submit", handleReauthSubmit);
 
   document.getElementById("deviceVerifyRetryBtn").addEventListener("click", () => {
     const user = auth.currentUser;
@@ -239,6 +247,7 @@ function showLogin() {
   if (unsubMembers) unsubMembers();
   if (unsubCheckins) unsubCheckins();
   if (unsubPayments) unsubPayments();
+  closeReauthModal();
 }
 
 function showDashboard(user) {
@@ -415,7 +424,6 @@ function renderMemberTable() {
   const tbody = document.getElementById("memberTableBody");
   const emptyState = document.getElementById("memberEmptyState");
 
-  // Feature 3: Status Filters applied here alongside search query
   const filtered = allMembers.filter((m) => {
     if (query && !(m.name.toLowerCase().includes(query) || m.phone.includes(query))) return false;
     if (currentMemberFilter === "active" && daysUntil(m.expiryDate) < 0) return false;
@@ -452,7 +460,6 @@ function renderMemberTable() {
       </td>
       <td class="py-3 pr-0">
         <div class="flex flex-wrap gap-2 justify-end">
-          <!-- Feature 2: Manual Check-In Button -->
           <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
             class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
               alreadyCheckedIn ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-accent/15 text-accent hover:bg-accent/25"
@@ -461,7 +468,6 @@ function renderMemberTable() {
           ${!isPaid ? `<button data-action="mark-paid" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-success/15 text-success px-3 py-1.5 hover:bg-success/25 transition">Mark as Paid</button>` : ""}
           ${(!isActive || !isPaid) ? `<button data-action="whatsapp" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-emerald-500/15 text-emerald-400 px-3 py-1.5 hover:bg-emerald-500/25 transition">Send WhatsApp</button>` : ""}
           
-          <!-- Feature 1: Delete Button with confirmation -->
           <button data-action="delete" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-rose-500/15 text-rose-400 px-3 py-1.5 hover:bg-rose-500/25 transition">Delete</button>
         </div>
       </td>
@@ -487,17 +493,113 @@ document.getElementById("memberTableBody").addEventListener("click", (e) => {
   if (!member) return;
 
   if (btn.dataset.action === "check-in") manualCheckIn(member, btn);
-  if (btn.dataset.action === "mark-paid") markAsPaid(member, btn);
+  if (btn.dataset.action === "mark-paid") requestReauth("mark-paid", member, btn);
   if (btn.dataset.action === "whatsapp") sendWhatsAppReminder(member);
-  if (btn.dataset.action === "delete") deleteMemberWithConfirmation(member, btn);
+  if (btn.dataset.action === "delete") requestReauth("delete", member, btn);
 });
 
-async function markAsPaid(member, btn) {
-  const confirmed = confirm(`Mark payment as PAID for ${member.name}?`);
-  if (!confirmed) return;
+// ------------------------------------------------- re-auth confirmation --
+function requestReauth(type, member, btn) {
+  const user = auth.currentUser;
+  if (!user) return;
 
-  btn.disabled = true;
-  btn.textContent = "Saving…";
+  pendingReauthAction = { type, member, btn };
+  const isPasswordUser = user.providerData.some((p) => p.providerId === "password");
+
+  const titleEl = document.getElementById("reauthTitle");
+  const msgEl = document.getElementById("reauthMessage");
+  const passwordField = document.getElementById("reauthPasswordField");
+  const googleHint = document.getElementById("reauthGoogleHint");
+  const passwordInput = document.getElementById("reauthPasswordInput");
+  const submitBtn = document.getElementById("reauthSubmitBtn");
+  const errorEl = document.getElementById("reauthError");
+
+  errorEl.classList.add("hidden");
+  passwordInput.value = "";
+
+  if (type === "delete") {
+    titleEl.textContent = "Delete this member?";
+    msgEl.textContent = `This permanently deletes ${member.name}'s record from Firestore. Confirm your identity to continue.`;
+  } else {
+    titleEl.textContent = "Confirm payment update";
+    msgEl.textContent = `This marks ${member.name}'s payment as PAID. Confirm your identity to continue.`;
+  }
+
+  if (isPasswordUser) {
+    passwordField.classList.remove("hidden");
+    googleHint.classList.add("hidden");
+    submitBtn.textContent = "Confirm";
+    setTimeout(() => passwordInput.focus(), 50);
+  } else {
+    passwordField.classList.add("hidden");
+    googleHint.classList.remove("hidden");
+    submitBtn.textContent = "Confirm with Google";
+  }
+
+  document.getElementById("reauthModal").classList.remove("hidden");
+}
+
+function closeReauthModal() {
+  document.getElementById("reauthModal").classList.add("hidden");
+  pendingReauthAction = null;
+}
+
+async function handleReauthSubmit(e) {
+  e.preventDefault();
+  if (!pendingReauthAction) return;
+
+  const user = auth.currentUser;
+  const isPasswordUser = user.providerData.some((p) => p.providerId === "password");
+  const submitBtn = document.getElementById("reauthSubmitBtn");
+  const errorEl = document.getElementById("reauthError");
+  errorEl.classList.add("hidden");
+
+  const originalLabel = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Verifying…";
+
+  try {
+    if (isPasswordUser) {
+      const password = document.getElementById("reauthPasswordInput").value;
+      if (!password) throw { code: "auth/missing-password" };
+      const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
+      await user.reauthenticateWithCredential(credential);
+    } else {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await user.reauthenticateWithPopup(provider);
+    }
+
+    const { type, member, btn } = pendingReauthAction;
+    closeReauthModal();
+
+    if (type === "delete") {
+      await executeDeleteMember(member, btn);
+    } else if (type === "mark-paid") {
+      await executeMarkAsPaid(member, btn);
+    }
+  } catch (err) {
+    console.error("Re-authentication failed:", err);
+    let message = "Couldn't verify your identity. Please try again.";
+    if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+      message = "That password doesn't match. Please try again.";
+    } else if (err.code === "auth/missing-password") {
+      message = "Please enter your password to confirm.";
+    }
+    errorEl.textContent = message;
+    errorEl.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+}
+
+async function executeMarkAsPaid(member, btn) {
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+  }
   try {
     const plan = PLANS[member.plan] || { price: 0 };
     await membersCol.doc(member.id).update({
@@ -517,29 +619,32 @@ async function markAsPaid(member, btn) {
   } catch (err) {
     console.error(err);
     alert("Could not update payment status. Please try again.");
-    btn.disabled = false;
-    btn.textContent = "Mark as Paid";
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Mark as Paid";
+    }
   }
 }
 
-// Feature 1 Implementation: Direct secure confirmation delete
-async function deleteMemberWithConfirmation(member, btn) {
-  const confirmed = confirm(`Are you sure you want to permanently delete ${member.name} (${member.phone})? This action cannot be undone.`);
-  if (!confirmed) return;
-
-  btn.disabled = true;
-  btn.textContent = "Deleting…";
+async function executeDeleteMember(member, btn) {
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Deleting…";
+  }
   try {
     await membersCol.doc(member.id).delete();
   } catch (err) {
     console.error(err);
     alert("Could not delete member. Please try again.");
-    btn.disabled = false;
-    btn.textContent = "Delete";
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Delete";
+    }
   }
 }
 
-// Feature 2 Implementation: Manual Check-In
+// Manual Check-In
 async function manualCheckIn(member, btn) {
   if (todayCheckedInIds.has(member.id)) return;
 
