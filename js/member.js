@@ -192,13 +192,13 @@ function closeWelcomeModal() {
  * never surface as an unhandled promise rejection or block anything.
  */
 // ==================== STRICT GEOFENCED CHECK-IN ====================
+// ==================== UPDATED GEOFENCED CHECK-IN ====================
 async function logCheckinIfNeeded(memberId, name, phone) {
   if (!navigator.geolocation) {
     alert("Geolocation is not supported by your browser.");
-    return false;
+    return "error";
   }
 
-  // Promise ke andar GPS location fetch ko properly wrap kiya hai
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
@@ -209,25 +209,25 @@ async function logCheckinIfNeeded(memberId, name, phone) {
         console.log("Current User Lat/Lng:", userLat, userLng);
         console.log("Distance from Gym (Meters):", Math.round(distance));
 
-        // 1. STRICT RADIUS CHECK: Agar door hai, toh yahin rok do aur false return karo
+        // 1. Agar gym se door hai
         if (distance > GYM_LOCATION.allowedRadiusMeters) {
           alert(`Check-in blocked! You are ${Math.round(distance)} meters away from the gym. You must be inside the gym premises.`);
-          resolve(false);
+          resolve("out-of-range");
           return;
         }
 
-        // 2. CHECK ALREADY CHECKED-IN TODAY
+        // 2. Check already checked-in today
         const today = toDateKey(new Date());
         try {
           const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
           const alreadyCheckedInToday = snapshot.docs.some((doc) => doc.data().dateKey === today);
           
           if (alreadyCheckedInToday) {
-            resolve(false);
+            resolve("already-checked-in");
             return;
           }
 
-          // 3. FINAL SAVE: Sirf tab save hoga jab distance range ke andar hoga!
+          // 3. Success: Save check-in
           await checkinsCol.add({
             memberId,
             name,
@@ -237,16 +237,16 @@ async function logCheckinIfNeeded(memberId, name, phone) {
             method: "geofenced-gps",
           });
           
-          resolve(true);
+          resolve("success");
         } catch (err) {
           console.error("Firestore check-in error:", err);
-          resolve(false);
+          resolve("error");
         }
       },
       (error) => {
         console.error("GPS Error Code:", error.code, error.message);
         alert("GPS location access is mandatory to check in. Please turn on your phone's location.");
-        resolve(false);
+        resolve("error");
       },
       { 
         enableHighAccuracy: true, 
@@ -256,6 +256,7 @@ async function logCheckinIfNeeded(memberId, name, phone) {
     );
   });
 }
+
 
 
 
@@ -362,7 +363,7 @@ async function handleStatusCheck(e) {
   }
 }
 
-function renderStatusCard(member, justCheckedIn) {
+function renderStatusCard(member, checkinStatus) {
   const days = daysUntil(member.expiryDate);
   const isActive = days >= 0;
   const plan = PLANS[member.plan] || { label: member.plan };
@@ -389,10 +390,21 @@ function renderStatusCard(member, justCheckedIn) {
   payBadge.textContent = member.paymentStatus === "paid" ? "PAID" : "PAYMENT PENDING";
   payBadge.className = `badge ${member.paymentStatus === "paid" ? "badge-success" : "badge-warning"}`;
 
+  // Check-in status messages handling
   const checkinNote = document.getElementById("checkinNote");
-  checkinNote.textContent = justCheckedIn
-    ? "✓ Checked in for today. Have a great workout!"
-    : "You've already checked in today.";
+  if (checkinStatus === "success") {
+    checkinNote.textContent = " Checked in for today. Have a great workout!";
+    checkinNote.className = "text-sm text-emerald-400";
+  } else if (checkinStatus === "already-checked-in") {
+    checkinNote.textContent = "You've already checked in today.";
+    checkinNote.className = "text-sm text-slate-400";
+  } else if (checkinStatus === "out-of-range") {
+    checkinNote.textContent = " Go to gym for check-in.";
+    checkinNote.className = "text-sm text-amber-400";
+  } else {
+    checkinNote.textContent = "GPS location required for check-in.";
+    checkinNote.className = "text-sm text-rose-400";
+  }
 
   const renewSection = document.getElementById("renewSection");
   renewSection.classList.toggle("hidden", isActive && member.paymentStatus === "paid");
@@ -400,6 +412,7 @@ function renderStatusCard(member, justCheckedIn) {
     buildPlanPicker("renewPlanPicker", "renewPlan");
   }
 }
+
 
 document.getElementById("renewButton")?.addEventListener("click", () => {
   const planId = document.querySelector("input[name=renewPlan]:checked")?.value;
