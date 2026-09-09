@@ -103,12 +103,17 @@ async function handleAuthenticatedUser(user) {
     if (biometricSupported) {
       const storedCredentialId = getStoredCredentialId(user.uid);
       if (storedCredentialId) {
+        // Device lock already registered — force fingerprint verification prompt!
         setDeviceVerifyStage("biometric");
         await runDeviceVerification(user, storedCredentialId);
         return;
-      }
-      if (!hasSkippedBiometricSetup(user.uid)) {
+      } else {
+        // STRICT SECURITY: No fingerprint registered yet on this device.
+        // Force them to set it up right now — no "Skip" / "Not now" allowed!
         showScreen("biometricSetupScreen");
+        // Hide the skip button so they are forced to secure the device
+        const skipBtn = document.getElementById("biometricSetupSkipBtn");
+        if (skipBtn) skipBtn.classList.add("hidden");
         return;
       }
     }
@@ -116,6 +121,7 @@ async function handleAuthenticatedUser(user) {
 
   showDashboard(user);
 }
+
 
 function setDeviceVerifyStage(stage) {
   const titleEl = document.getElementById("deviceVerifyTitle");
