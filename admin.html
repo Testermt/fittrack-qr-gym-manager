@@ -43,10 +43,11 @@
 <body class="min-h-screen bg-base text-slate-200 antialiased">
 
   <!-- ============= LOGIN SCREEN ============= -->
+  <!-- ============= LOGIN SCREEN ============= -->
   <div id="loginScreen" class="min-h-screen flex items-center justify-center px-5">
     <div class="w-full max-w-sm">
       <div class="text-center mb-8">
-        <div class="w-12 h-12 rounded-xl bg-accent/15 flex items-center justify-center text-accent font-bold text-2xl mx-auto mb-3">⚡</div>
+        <div class="w-12 h-12 rounded-xl bg-accent/15 flex items-center justify-center text-accent font-bold text-2xl mx-auto mb-3"></div>
         <h1 id="gymNameLabelAdmin" class="text-lg font-semibold text-slate-50">FitTrack Gym</h1>
         <p class="text-sm text-slate-500">Admin Dashboard Sign-In</p>
       </div>
@@ -70,44 +71,12 @@
 
       <div id="googleSignInError" class="hidden text-sm text-rose-400 text-center mb-4"></div>
 
-      <div class="flex items-center gap-3 text-xs text-slate-600 mb-4">
-        <span class="flex-1 h-px bg-slate-800"></span>
-        <span>or continue with email</span>
-        <span class="flex-1 h-px bg-slate-800"></span>
-      </div>
-
-      <form id="loginForm" class="space-y-4 bg-panel border border-slate-800 rounded-xl p-6">
-        <div>
-          <label class="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
-          <input name="email" type="email" required placeholder="owner@gym.com"
-            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-slate-300 mb-1.5">Password</label>
-          <input name="password" type="password" required placeholder="••••••••"
-            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
-        </div>
-        <div id="loginError" class="hidden text-sm text-rose-400"></div>
-        <button type="submit"
-          class="w-full rounded-lg bg-accent text-slate-950 font-semibold py-2.5 hover:bg-sky-400 active:scale-[0.99] transition">
-          Sign In
-        </button>
-        <p class="text-center">
-          <button type="button" id="forgotPasswordBtn"
-            class="text-sm text-accent hover:text-sky-400 hover:underline transition">
-            Forgot password?
-          </button>
-        </p>
-      </form>
-
-      <div id="resetMessage" class="hidden text-sm rounded-lg border px-4 py-3 mt-4"></div>
-
-      <p class="text-xs text-slate-600 text-center mt-4">
+      <p class="text-xs text-slate-600 text-center mt-6">
         Google sign-in is checked against the <code class="text-slate-500">admins</code> collection in Firestore.
-        Email/password accounts are created in the Firebase Console → Authentication.
       </p>
     </div>
   </div>
+
 
   <!-- ============= DEVICE VERIFICATION SCREEN (post-Google-login gate) ============= -->
   <div id="deviceVerifyScreen" class="hidden min-h-screen flex items-center justify-center px-5">

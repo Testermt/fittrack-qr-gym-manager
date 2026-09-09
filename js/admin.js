@@ -561,36 +561,50 @@ async function handleReauthSubmit(e) {
 
   const originalLabel = submitBtn.textContent;
   submitBtn.disabled = true;
-  submitBtn.textContent = "Verifying device…";
+  submitBtn.textContent = "Verifying security…";
 
   try {
-    // Check if device passkey/biometric is available and registered
+    // Check if platform authenticator (fingerprint/face lock) is available
     const biometricSupported = window.PublicKeyCredential && 
       await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
       
-    if (!biometricSupported) {
-      throw new Error("Device lock is not supported on this browser/device.");
-    }
-
     const storedCredentialId = getStoredCredentialId(user.uid);
-    if (!storedCredentialId) {
-      throw new Error("No device lock found. Please enable it from the header menu first.");
+
+    if (biometricSupported && storedCredentialId) {
+      // SCENARIO A: Mobile / Biometric PC — Use Device Fingerprint/Passkey
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{ id: base64urlToBuffer(storedCredentialId), type: "public-key" }],
+          userVerification: "required",
+          timeout: 60000,
+        },
+      });
+      if (!assertion) throw new Error("Device verification cancelled");
+
+    } else {
+      // SCENARIO B: Desktop / PC without biometric — Fallback to Password Prompt securely
+      const passwordInput = document.getElementById("reauthPasswordInput");
+      // If password field was hidden, make it temporarily visible for desktop fallback
+      const passwordField = document.getElementById("reauthPasswordField");
+      
+      if (passwordField.classList.contains("hidden")) {
+        passwordField.classList.remove("hidden");
+        submitBtn.textContent = "Confirm Password";
+        submitBtn.disabled = false;
+        passwordInput.focus();
+        throw new Error("Biometric not available on this device. Please enter your password below:");
+      }
+
+      const password = passwordInput.value;
+      if (!password) throw { code: "auth/missing-password" };
+      
+      const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
+      await user.reauthenticateWithCredential(credential);
     }
 
-    // Prompt for device screen lock / fingerprint / PIN
-    const challenge = crypto.getRandomValues(new Uint8Array(32));
-    const assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        allowCredentials: [{ id: base64urlToBuffer(storedCredentialId), type: "public-key" }],
-        userVerification: "required",
-        timeout: 60000,
-      },
-    });
-
-    if (!assertion) throw new Error("Device verification cancelled");
-
-    // Device lock successfully passed! Now execute the action.
+    // Security check passed successfully! Execute the action.
     const { type, member, btn } = pendingReauthAction;
     closeReauthModal();
 
@@ -600,20 +614,27 @@ async function handleReauthSubmit(e) {
       await executeMarkAsPaid(member, btn);
     }
   } catch (err) {
-    console.error("Device verification failed:", err);
-    let message = "Couldn't verify your device lock. Please try again.";
+    console.error("Verification failed:", err);
+    let message = "Verification failed. Please try again.";
     if (err.name === "NotAllowedError") {
-      message = "Verification was cancelled or timed out.";
+      message = "Device verification was cancelled.";
+    } else if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+      message = "That password doesn't match.";
+    } else if (err.code === "auth/missing-password") {
+      message = "Please enter your password.";
     } else if (err.message) {
       message = err.message;
     }
     errorEl.textContent = message;
     errorEl.classList.remove("hidden");
   } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalLabel;
+    if (submitBtn.textContent !== "Confirm Password") {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
+    }
   }
 }
+
 
 
 
