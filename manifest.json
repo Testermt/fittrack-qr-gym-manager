@@ -2,7 +2,7 @@
   "name": "NeoFit Gym Manager",
   "short_name": "NeoFit",
   "description": "QR Code Check-in and Membership Management System",
-  "start_url": "/admin.html",
+  "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#090D16",
   "theme_color": "#38BDF8",
