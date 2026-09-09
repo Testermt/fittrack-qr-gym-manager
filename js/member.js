@@ -133,23 +133,42 @@ function closeWelcomeModal() {
   document.getElementById("welcomeModal").classList.add("hidden");
 }
 
-/** Logs a check-in for today, but only once per member per day. */
+/**
+ * Logs a check-in for today, but only once per member per day.
+ *
+ * Firestore indexing: this filters ONLY on `memberId` — a single-field
+ * equality query, which Firestore indexes automatically with zero setup —
+ * and then checks the date match in plain JavaScript instead of adding a
+ * second `.where("dateKey", "==", today)` clause. Chaining a second
+ * equality/range filter (or an `orderBy` on a different field) is exactly
+ * what triggers Firestore's "missing composite index" error, which
+ * requires manually creating an index in the Firebase Console before the
+ * query works. Keeping it to one filter avoids that entirely.
+ *
+ * Never throws: any failure (network, permissions, etc.) is caught and
+ * logged, and the function resolves with `false`. This makes it safe to
+ * call without awaiting — a caller can fire it and move on, and it will
+ * never surface as an unhandled promise rejection or block anything.
+ */
 async function logCheckinIfNeeded(memberId, name, phone) {
   const today = toDateKey(new Date());
-  const existing = await checkinsCol
-    .where("memberId", "==", memberId)
-    .where("dateKey", "==", today)
-    .limit(1)
-    .get();
-  if (!existing.empty) return false;
-  await checkinsCol.add({
-    memberId,
-    name,
-    phone,
-    dateKey: today,
-    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-  });
-  return true;
+  try {
+    const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
+    const alreadyCheckedInToday = snapshot.docs.some((doc) => doc.data().dateKey === today);
+    if (alreadyCheckedInToday) return false;
+
+    await checkinsCol.add({
+      memberId,
+      name,
+      phone,
+      dateKey: today,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    return true;
+  } catch (err) {
+    console.error("logCheckinIfNeeded failed:", err);
+    return false;
+  }
 }
 
 // ------------------------------------------------------------ register --
@@ -197,13 +216,19 @@ async function handleRegisterSubmit(e) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
 
-    await logCheckinIfNeeded(phone, name, phone);
+    // Fire-and-forget: logCheckinIfNeeded never throws (see its own
+    // try/catch above), so this runs in the background without an await
+    // and without any chance of an unhandled rejection — its latency can
+    // never delay the welcome modal below.
+    logCheckinIfNeeded(phone, name, phone);
 
     form.reset();
     document.getElementById("joinDate").value = toDateKey(new Date());
     buildPlanPicker("planPicker", "plan");
     hideBanner("registerBanner");
 
+    // Fires the instant the member doc is saved — doesn't wait on the
+    // check-in log above.
     openWelcomeModal(name, plan.label, formatDate(expiryDate));
   } catch (err) {
     console.error(err);
