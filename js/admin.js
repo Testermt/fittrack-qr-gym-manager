@@ -200,7 +200,6 @@ async function handleGoogleSignIn() {
   }
 }
 
-
 async function handleForgotPassword() {
   const form = document.getElementById("loginForm");
   const btn = document.getElementById("forgotPasswordBtn");
@@ -799,4 +798,62 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+let unsubAllPayments = null;
+
+// Isko subscribeDashboardHistory ya subscribeMembers ke sath call kar lena dashboard load hone par
+function subscribeMonthlyHistory() {
+  unsubAllPayments = paymentsCol.orderBy("timestamp", "desc").onSnapshot(
+    (snap) => {
+      const payments = snap.docs.map((d) => d.data());
+      const monthlyData = {};
+
+      payments.forEach((p) => {
+        // dateKey ya timestamp se month extract karna (e.g., "September 2026")
+        let monthKey = "Recent";
+        if (p.timestamp && p.timestamp.toDate) {
+          const date = p.timestamp.toDate();
+          monthKey = date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        } else if (p.dateKey) {
+          // Fallback agar dateKey format "YYYY-MM-DD" ho
+          const parts = p.dateKey.split("-");
+          if (parts.length >= 2) {
+            const date = new Date(parts[0], parts[1] - 1, 1);
+            monthKey = date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+          }
+        }
+
+        if (!monthlyData[monthKey]) {
+          monthlyData[monthKey] = { count: 0, total: 0 };
+        }
+        monthlyData[monthKey].count += 1;
+        monthlyData[monthKey].total += (p.amount || 0);
+      });
+
+      renderMonthlyHistory(monthlyData);
+    },
+    (err) => console.error("Monthly history listener error", err)
+  );
+}
+
+function renderMonthlyHistory(monthlyData) {
+  const tbody = document.getElementById("monthlyHistoryTableBody");
+  const emptyState = document.getElementById("historyEmptyState");
+  tbody.innerHTML = "";
+
+  const keys = Object.keys(monthlyData);
+  emptyState.classList.toggle("hidden", keys.length > 0);
+
+  keys.forEach((month) => {
+    const data = monthlyData[month];
+    const tr = document.createElement("tr");
+    tr.className = "border-b border-slate-800/70 hover:bg-slate-800/30 transition";
+    tr.innerHTML = `
+      <td class="py-3 pr-4 font-medium text-slate-100">${month}</td>
+      <td class="py-3 pr-4 text-slate-300">${data.count} payments</td>
+      <td class="py-3 pr-0 text-right font-semibold text-accent">${formatCurrency(data.total)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
 }

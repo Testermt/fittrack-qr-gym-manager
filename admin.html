@@ -168,6 +168,30 @@
 
       <div class="grid lg:grid-cols-3 gap-6">
 
+
+<!-- ============= MONTHLY REVENUE HISTORY SECTION ============= -->
+<section class="rounded-xl border border-slate-800 bg-panel p-5">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-semibold text-slate-100">Monthly Revenue History</h2>
+    <span class="text-xs text-slate-500">Past Records</span>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="text-sm">
+      <thead>
+        <tr class="text-left text-xs text-slate-500 uppercase border-b border-slate-800">
+          <th class="py-2 pr-4 font-medium">Month</th>
+          <th class="py-2 pr-4 font-medium">Total Transactions</th>
+          <th class="py-2 pr-0 font-medium text-right">Revenue</th>
+        </tr>
+      </thead>
+      <tbody id="monthlyHistoryTableBody"></tbody>
+    </table>
+    <p id="historyEmptyState" class="hidden text-sm text-slate-600 text-center py-6">No past payment history found.</p>
+  </div>
+</section>
+
+
+
         <!-- Live attendance -->
         <section class="lg:col-span-1 rounded-xl border border-slate-800 bg-panel p-5">
           <div class="flex items-center justify-between mb-4">
