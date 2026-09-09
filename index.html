@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FitTrack — Member Check-In & Registration</title>
+<meta name="description" content="Scan, check in, and manage your gym membership in seconds." />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          base: "#090D16",
+          panel: "#0F1524",
+          accent: "#38BDF8",
+          success: "#10B981",
+        },
+        fontFamily: {
+          sans: ["Inter", "system-ui", "sans-serif"],
+        },
+      },
+    },
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  body { font-family: "Inter", system-ui, sans-serif; background-color: #090D16; }
+  .tab-active { color: #38BDF8; border-color: #38BDF8; }
+  .badge { display: inline-flex; align-items: center; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.02em; }
+  .badge-success { background: rgba(16,185,129,0.15); color: #10B981; }
+  .badge-warning { background: rgba(251,191,36,0.15); color: #FBBF24; }
+  .badge-danger { background: rgba(244,63,94,0.15); color: #FB7185; }
+  .plan-card:has(input:checked) { border-color: #38BDF8; background-color: rgba(56,189,248,0.08); box-shadow: 0 0 0 1px #38BDF8 inset; }
+  input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; }
+</style>
+</head>
+<body class="min-h-screen bg-base text-slate-200 antialiased">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800/80 sticky top-0 bg-base/90 backdrop-blur z-10">
+    <div class="max-w-md mx-auto px-5 py-4 flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-accent/15 flex items-center justify-center text-accent font-bold text-lg">⚡</div>
+      <div>
+        <p id="gymNameLabel" class="font-semibold text-slate-50 leading-tight">FitTrack Gym</p>
+        <p class="text-xs text-slate-500 leading-tight">Member Check-In Portal</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-md mx-auto px-5 pb-16 pt-6">
+
+    <!-- Tabs -->
+    <div class="flex gap-6 border-b border-slate-800 mb-6 text-sm font-medium">
+      <button data-tab-target="register" class="tab-active pb-3 border-b-2 border-transparent text-slate-400 -mb-px transition">
+        New Member
+      </button>
+      <button data-tab-target="status" class="pb-3 border-b-2 border-transparent text-slate-400 -mb-px transition">
+        Check Status / Check-In
+      </button>
+    </div>
+
+    <!-- ============= REGISTER PANEL ============= -->
+    <section data-tab-panel="register">
+      <h1 class="text-xl font-bold text-slate-50 mb-1">Join the gym</h1>
+      <p class="text-sm text-slate-500 mb-6">Fill this out once at the front desk QR stand — takes under a minute.</p>
+
+      <form id="registerForm" class="space-y-5">
+        <div>
+          <label class="block text-sm font-medium text-slate-300 mb-1.5">Full name</label>
+          <input name="name" type="text" required placeholder="e.g. Priya Sharma"
+            class="w-full rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-300 mb-1.5">Mobile number</label>
+          <input name="phone" type="tel" required placeholder="e.g. 9876543210"
+            class="w-full rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-300 mb-1.5">Joining date</label>
+          <input id="joinDate" name="joinDate" type="date" required
+            class="w-full rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-300 mb-2">Membership plan</label>
+          <div id="planPicker" class="grid grid-cols-2 gap-3"></div>
+        </div>
+
+        <div id="registerBanner" class="hidden text-sm rounded-lg px-4 py-3 bg-slate-800/60"></div>
+
+        <button type="submit"
+          class="w-full rounded-lg bg-accent text-slate-950 font-semibold py-3 hover:bg-sky-400 active:scale-[0.99] transition">
+          Register &amp; Join
+        </button>
+      </form>
+    </section>
+
+    <!-- ============= STATUS / CHECK-IN PANEL ============= -->
+    <section data-tab-panel="status" class="hidden">
+      <h1 class="text-xl font-bold text-slate-50 mb-1">Check your status</h1>
+      <p class="text-sm text-slate-500 mb-6">Enter your mobile number to check in and view your membership.</p>
+
+      <form id="statusForm" class="flex gap-2 mb-4">
+        <input name="phone" type="tel" required placeholder="Registered mobile number"
+          class="flex-1 rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+        <button type="submit"
+          class="rounded-lg bg-accent text-slate-950 font-semibold px-5 hover:bg-sky-400 active:scale-[0.99] transition">
+          Go
+        </button>
+      </form>
+
+      <div id="statusBanner" class="hidden text-sm rounded-lg px-4 py-3 bg-slate-800/60 mb-4"></div>
+
+      <div id="statusCard" class="hidden rounded-xl border border-slate-700 bg-panel p-5 space-y-4">
+        <div class="flex items-start justify-between">
+          <div>
+            <p id="statusName" class="text-lg font-semibold text-slate-50"></p>
+            <p id="statusPhone" class="text-xs text-slate-500"></p>
+          </div>
+          <span id="statusBadge" class="badge"></span>
+        </div>
+
+        <p id="checkinNote" class="text-sm text-accent"></p>
+
+        <dl class="grid grid-cols-2 gap-y-3 text-sm border-t border-slate-800 pt-4">
+          <dt class="text-slate-500">Plan</dt>
+          <dd id="statusPlan" class="text-right text-slate-200 font-medium"></dd>
+          <dt class="text-slate-500">Joined</dt>
+          <dd id="statusJoin" class="text-right text-slate-200 font-medium"></dd>
+          <dt class="text-slate-500">Expires</dt>
+          <dd id="statusExpiry" class="text-right text-slate-200 font-medium"></dd>
+          <dt class="text-slate-500">Days remaining</dt>
+          <dd id="statusDays" class="text-right text-slate-200 font-medium"></dd>
+          <dt class="text-slate-500">Payment</dt>
+          <dd class="text-right"><span id="statusPayBadge" class="badge"></span></dd>
+        </dl>
+
+        <div id="renewSection" class="hidden border-t border-slate-800 pt-4 space-y-3">
+          <p class="text-sm font-medium text-slate-300">Renew your membership</p>
+          <div id="renewPlanPicker" class="grid grid-cols-2 gap-3"></div>
+          <button id="renewButton" type="button"
+            class="w-full rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
+            Pay Online (Mock Gateway)
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <p class="text-center text-xs text-slate-600 mt-10">
+      Having trouble? Ask a trainer at the front desk for help.
+    </p>
+  </main>
+
+  <!-- ============= MOCK PAYMENT MODAL ============= -->
+  <div id="paymentModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+    <div class="w-full max-w-sm rounded-2xl bg-panel border border-slate-700 p-6 space-y-5">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-slate-50">Mock Payment Gateway</h2>
+        <button id="closeModalBtn" class="text-slate-500 hover:text-slate-300 text-xl leading-none">&times;</button>
+      </div>
+      <div class="rounded-lg bg-slate-800/60 p-4 flex items-center justify-between">
+        <span class="text-sm text-slate-400" id="modalPlanLabel"></span>
+        <span class="text-xl font-bold text-slate-50" id="modalPlanPrice"></span>
+      </div>
+      <p class="text-xs text-slate-500">
+        This is a simulated checkout for demo purposes — no real payment is processed.
+        Swap this modal for Razorpay / Stripe / UPI in production.
+      </p>
+      <button id="confirmPaymentBtn"
+        class="w-full rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
+        Confirm Mock Payment
+      </button>
+    </div>
+  </div>
+
+  <!-- Firebase SDKs (compat — no build step needed) -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+
+  <script src="js/firebase-config.js"></script>
+  <script src="js/member.js"></script>
+</body>
+</html>

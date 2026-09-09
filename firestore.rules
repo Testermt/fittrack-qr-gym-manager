@@ -1,0 +1,72 @@
+rules_version = '2';
+
+// FitTrack QR Gym Manager — Firestore Security Rules
+// Paste into Firebase Console → Firestore Database → Rules → Publish.
+//
+// Model:
+//  - "members"  : public can create their own record (registration) and
+//                 read/update their own record by phone-number doc id
+//                 (status check + mock renewal). Only signed-in admins can
+//                 read/update ANY member (needed for the dashboard) or
+//                 delete records.
+//  - "checkins" : public can create (check-in) but never edit/delete.
+//                 Only admins can read the list (attendance log).
+//  - "payments" : public can create (mock online payment) but never edit
+//                 or delete. Only admins can read (revenue reporting).
+//
+// NOTE: Because the member portal is unauthenticated by design (anyone who
+// scans the QR code uses it), these rules intentionally allow anonymous
+// create/read-own access. For stricter production use, consider adding
+// Firebase App Check to block non-app traffic, and/or rate limiting via
+// Cloud Functions.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null;
+    }
+
+    match /members/{phone} {
+      // Anyone can register a brand-new member (doc id = their own phone).
+      allow create: if request.resource.data.phone == phone;
+
+      // Anyone can read their own record to check status (client already
+      // knows the phone number it is querying by, since it is the doc id).
+      allow get: if true;
+
+      // Admin dashboard needs to list every member.
+      allow list: if isAdmin();
+
+      // A member can update their own record (used by the mock "Pay
+      // Online" renewal flow). Admins can update any record (mark as
+      // paid, corrections, etc).
+      allow update: if isAdmin() || request.resource.data.phone == phone;
+
+      // Only admins can delete members.
+      allow delete: if isAdmin();
+    }
+
+    match /checkins/{checkinId} {
+      // Anyone scanning the QR code can log a check-in.
+      allow create: if request.resource.data.memberId is string
+                    && request.resource.data.dateKey is string;
+
+      // Only the admin dashboard reads the attendance log.
+      allow read: if isAdmin();
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      // Anyone can create a payment record (mock gateway confirmation).
+      allow create: if request.resource.data.memberId is string
+                    && request.resource.data.amount is number;
+
+      // Only the admin dashboard reads payment history / revenue.
+      allow read: if isAdmin();
+
+      allow update, delete: if isAdmin();
+    }
+  }
+}
