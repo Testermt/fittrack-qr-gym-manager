@@ -38,6 +38,196 @@
   .badge-danger { background: rgba(244,63,94,0.15); color: #FB7185; }
   .plan-card:has(input:checked) { border-color: #38BDF8; background-color: rgba(56,189,248,0.08); box-shadow: 0 0 0 1px #38BDF8 inset; }
   input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; }
+
+  /* ===================== Mascot: "Sparky" ===================== */
+    #mascotDock {
+    position: fixed;
+    right: 14px;
+    top: 14px; /* bottom: 14px ki jagah top: 14px kar diya */
+    z-index: 40;
+    display: flex;
+    align-items: flex-start; /* flex-end ki jagah flex-start */
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  #mascotDock * { pointer-events: auto; }
+
+  .mascot-bubble {
+    max-width: 190px;
+    background: #0F1524;
+    border: 1px solid rgba(56,189,248,0.35);
+    color: #E2E8F0;
+    font-size: 12.5px;
+    line-height: 1.35;
+    font-weight: 500;
+    padding: 9px 12px;
+    border-radius: 14px;
+    border-bottom-right-radius: 4px;
+    box-shadow: 0 8px 24px -8px rgba(0,0,0,0.6);
+    transform-origin: bottom right;
+    animation: mascot-bubble-pop 260ms cubic-bezier(.34,1.56,.64,1);
+  }
+  .mascot-bubble.is-hidden { display: none; }
+  @keyframes mascot-bubble-pop {
+    0% { opacity: 0; transform: scale(0.7) translateY(6px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  .mascot-btn {
+    width: 66px;
+    height: 66px;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 32% 28%, #16233A, #0B0F19 72%);
+    border: 1px solid rgba(56,189,248,0.4);
+    box-shadow: 0 6px 20px -6px rgba(56,189,248,0.35), 0 4px 14px -4px rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 160ms ease, box-shadow 160ms ease;
+    animation: mascot-float 3.2s ease-in-out infinite;
+  }
+  .mascot-btn:active { transform: scale(0.94); }
+  .mascot-btn.is-minimized { width: 40px; height: 40px; opacity: 0.85; }
+  .mascot-btn.is-minimized svg { transform: scale(0.62); }
+
+  @keyframes mascot-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+  }
+
+  #mascotChar { width: 46px; height: 50px; overflow: visible; }
+
+  /* Eyes / blink */
+  .mascot-pupil { transition: transform 200ms ease; }
+  .mascot-eyelid {
+    transform-origin: center;
+    animation: mascot-blink 4.6s ease-in-out infinite;
+  }
+  #mascotChar .mascot-eyelid.eye-r { animation-delay: 0.08s; }
+  @keyframes mascot-blink {
+    0%, 92%, 100% { transform: scaleY(0); }
+    95% { transform: scaleY(1); }
+  }
+
+  /* Antenna glow */
+  .mascot-antenna-tip {
+    animation: mascot-glow 1.8s ease-in-out infinite;
+  }
+  @keyframes mascot-glow {
+    0%, 100% { opacity: 0.75; r: 3.4; }
+    50% { opacity: 1; r: 4.2; }
+  }
+
+  /* Arms — rest state gently swings; wave/cheer override via [data-state] */
+  .mascot-arm-l, .mascot-arm-r { transform-origin: 50% 0%; }
+  .mascot-arm-r { animation: mascot-idle-sway 3.2s ease-in-out infinite; }
+
+  @keyframes mascot-idle-sway {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(-4deg); }
+  }
+  @keyframes mascot-wave {
+    0%, 100% { transform: rotate(-8deg); }
+    25% { transform: rotate(28deg); }
+    50% { transform: rotate(4deg); }
+    75% { transform: rotate(24deg); }
+  }
+  @keyframes mascot-cheer-arms {
+    0%, 100% { transform: rotate(-46deg); }
+    50% { transform: rotate(-58deg); }
+  }
+  @keyframes mascot-cheer-arms-l {
+    0%, 100% { transform: rotate(46deg); }
+    50% { transform: rotate(58deg); }
+  }
+
+  /* Mouths — cross-fade between expressions */
+  .mascot-mouth { opacity: 0; transition: opacity 180ms ease; }
+  .mascot-mouth.mouth-idle { opacity: 1; }
+  [data-state="welcome"] .mouth-idle,
+  [data-state="focus"] .mouth-idle,
+  [data-state="thinking"] .mouth-idle { opacity: 1; }
+  [data-state="cheer"] .mouth-idle,
+  [data-state="success"] .mouth-idle,
+  [data-state="error"] .mouth-idle { opacity: 0; }
+  [data-state="cheer"] .mouth-happy,
+  [data-state="success"] .mouth-happy { opacity: 1; }
+  [data-state="error"] .mouth-worried { opacity: 1; }
+  [data-state="thinking"] .mouth-idle { opacity: 0; }
+  [data-state="thinking"] .mouth-o { opacity: 1; }
+
+  .mascot-brow { opacity: 0; transition: opacity 180ms ease; }
+  [data-state="error"] .mascot-brow { opacity: 1; }
+
+  /* Body language per state */
+  [data-state="welcome"] .mascot-arm-r,
+  [data-state="focus"] .mascot-arm-r { animation: mascot-wave 900ms ease-in-out 2; }
+
+  [data-state="cheer"] #mascotChar,
+  [data-state="success"] #mascotChar { animation: mascot-hop 560ms ease-in-out infinite; }
+  [data-state="cheer"] .mascot-arm-r,
+  [data-state="success"] .mascot-arm-r { animation: mascot-cheer-arms 560ms ease-in-out infinite; }
+  [data-state="cheer"] .mascot-arm-l,
+  [data-state="success"] .mascot-arm-l { animation: mascot-cheer-arms-l 560ms ease-in-out infinite; }
+  @keyframes mascot-hop {
+    0%, 100% { transform: translateY(0) scale(1); }
+    40% { transform: translateY(-9px) scale(1.03); }
+    60% { transform: translateY(-9px) scale(1.03); }
+  }
+
+  [data-state="error"] .mascot-btn { animation: mascot-shake 420ms ease; }
+  @keyframes mascot-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-5px) rotate(-3deg); }
+    40% { transform: translateX(4px) rotate(3deg); }
+    60% { transform: translateX(-3px) rotate(-2deg); }
+    80% { transform: translateX(2px) rotate(2deg); }
+  }
+  [data-state="error"] .mascot-antenna-tip { animation: none; opacity: 0.4; }
+
+  [data-state="focus"] .mascot-pupil { transform: translateY(-0.6px) scale(1.08); }
+  [data-state="thinking"] .mascot-pupil.pupil-l { transform: translateX(-1px); }
+  [data-state="thinking"] .mascot-pupil.pupil-r { transform: translateX(1px); }
+
+  /* Confetti */
+  #mascotConfetti {
+    position: absolute;
+    inset: -40px -10px auto auto;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+    overflow: visible;
+  }
+  .confetti-piece {
+    position: absolute;
+    top: 0; left: 0;
+    width: 6px; height: 6px;
+    border-radius: 1px;
+    animation: confetti-burst 850ms cubic-bezier(.2,.7,.3,1) forwards;
+  }
+  @keyframes confetti-burst {
+    0% { transform: translate(0,0) rotate(0deg); opacity: 1; }
+    100% {
+      transform:
+        translate(var(--cx, 0px), var(--cy, -60px))
+        rotate(var(--cr, 180deg));
+      opacity: 0;
+    }
+  }
+
+  @media (max-width: 420px) {
+    #mascotDock { right: 10px; bottom: 10px; }
+    .mascot-bubble { max-width: 150px; font-size: 12px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mascot-btn, #mascotChar, .mascot-arm-l, .mascot-arm-r,
+    .mascot-eyelid, .mascot-antenna-tip, .mascot-bubble {
+      animation: none !important;
+    }
+  }
 </style>
 </head>
 <body class="min-h-screen bg-base text-slate-200 antialiased">
@@ -237,6 +427,71 @@
   </div>
 
 
+  <!-- ============= MASCOT: SPARKY ============= -->
+  <div id="mascotDock" aria-hidden="false">
+    <div id="mascotBubble" class="mascot-bubble is-hidden" role="status" aria-live="polite">
+      <p id="mascotBubbleText">Hey there! Ready to crush today's workout?</p>
+    </div>
+
+    <button id="mascotBtn" type="button" class="mascot-btn" data-state="idle" aria-label="Toggle Sparky, your Iron Pulse assistant">
+      <svg id="mascotChar" viewBox="0 0 120 140" xmlns="http://www.w3.org/2000/svg">
+        <!-- feet -->
+        <ellipse cx="60" cy="126" rx="20" ry="3" fill="#000" opacity="0.28"/>
+        <rect x="44" y="108" width="10" height="16" rx="4" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
+        <rect x="66" y="108" width="10" height="16" rx="4" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
+
+        <!-- left arm (holds dumbbell) -->
+        <g class="mascot-arm-l" style="transform-origin: 34px 74px;">
+          <rect x="24" y="70" width="10" height="26" rx="5" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
+          <g transform="translate(14,92)">
+            <rect x="0" y="4" width="16" height="4" rx="2" fill="#38BDF8"/>
+            <circle cx="1" cy="6" r="5.5" fill="#0F1524" stroke="#38BDF8" stroke-width="1.5"/>
+            <circle cx="17" cy="6" r="5.5" fill="#0F1524" stroke="#38BDF8" stroke-width="1.5"/>
+          </g>
+        </g>
+
+        <!-- right arm (waves / cheers) -->
+        <g class="mascot-arm-r" style="transform-origin: 86px 74px;">
+          <rect x="86" y="70" width="10" height="26" rx="5" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
+          <circle cx="91" cy="98" r="5.5" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
+        </g>
+
+        <!-- body -->
+        <rect x="35" y="62" width="50" height="48" rx="16" fill="#0F1524" stroke="#38BDF8" stroke-width="2"/>
+        <path d="M63 74 L54 90 L60 90 L57 100 L69 84 L62 84 Z" fill="#38BDF8"/>
+
+        <!-- head -->
+        <line x1="60" y1="16" x2="60" y2="26" stroke="#38BDF8" stroke-width="2"/>
+        <circle class="mascot-antenna-tip" cx="60" cy="13" r="3.4" fill="#10B981"/>
+        <circle cx="60" cy="44" r="24" fill="#0F1524" stroke="#38BDF8" stroke-width="2"/>
+
+        <!-- eyebrows (error state only) -->
+        <rect class="mascot-brow" x="45" y="34" width="10" height="2.4" rx="1.2" fill="#FB7185" transform="rotate(18 50 35)"/>
+        <rect class="mascot-brow" x="65" y="34" width="10" height="2.4" rx="1.2" fill="#FB7185" transform="rotate(-18 70 35)"/>
+
+        <!-- eyes -->
+        <g>
+          <circle cx="51" cy="44" r="5.2" fill="#E2E8F0"/>
+          <circle class="mascot-pupil pupil-l" cx="51" cy="44" r="2.6" fill="#0B1120"/>
+          <rect class="mascot-eyelid eye-l" x="45.8" y="38.8" width="10.4" height="10.4" fill="#0F1524"/>
+        </g>
+        <g>
+          <circle cx="69" cy="44" r="5.2" fill="#E2E8F0"/>
+          <circle class="mascot-pupil pupil-r" cx="69" cy="44" r="2.6" fill="#0B1120"/>
+          <rect class="mascot-eyelid eye-r" x="63.8" y="38.8" width="10.4" height="10.4" fill="#0F1524"/>
+        </g>
+
+        <!-- mouths (cross-faded by state) -->
+        <path class="mascot-mouth mouth-idle" d="M53 54 Q60 59 67 54" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <path class="mascot-mouth mouth-happy" d="M50 52 Q60 65 70 52" stroke="#10B981" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+        <path class="mascot-mouth mouth-worried" d="M52 57 Q56 53 60 57 Q64 53 68 57" stroke="#FB7185" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <ellipse class="mascot-mouth mouth-o" cx="60" cy="55" rx="3.4" ry="4.2" fill="#38BDF8"/>
+
+        <g id="mascotConfetti"></g>
+      </svg>
+    </button>
+  </div>
+
   <!-- Firebase SDKs (compat — no build step needed) -->
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
@@ -245,6 +500,205 @@
   <script src="js/firebase-config.js"></script>
   <script src="js/member.js"></script>
   
+  <!-- ============= MASCOT CONTROLLER (Sparky) ============= -->
+  <script>
+  (function () {
+    var dock = document.getElementById('mascotDock');
+    var btn = document.getElementById('mascotBtn');
+    var bubble = document.getElementById('mascotBubble');
+    var bubbleText = document.getElementById('mascotBubbleText');
+    var confettiHost = document.getElementById('mascotConfetti');
+    if (!dock || !btn) return;
+
+    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var revertTimer = null;
+    var minimized = false;
+
+    function say(text, opts) {
+      opts = opts || {};
+      bubbleText.textContent = text;
+      bubble.classList.remove('is-hidden');
+      bubble.classList.remove('mascot-bubble'); // reflow trick to restart pop animation
+      void bubble.offsetWidth;
+      bubble.classList.add('mascot-bubble');
+      if (opts.autohide !== false) {
+        clearTimeout(bubble._hideTimer);
+        bubble._hideTimer = setTimeout(function () {
+          bubble.classList.add('is-hidden');
+        }, opts.duration || 4200);
+      }
+    }
+
+    function setState(state, opts) {
+      opts = opts || {};
+      btn.dataset.state = state;
+      if (opts.message) say(opts.message, { duration: opts.duration });
+      if (opts.confetti && !reduceMotion) burstConfetti(opts.confettiCount || 12);
+
+      clearTimeout(revertTimer);
+      if (opts.revertAfter !== false) {
+        revertTimer = setTimeout(function () {
+          btn.dataset.state = 'idle';
+        }, opts.revertAfter || 2600);
+      }
+    }
+
+    function burstConfetti(count) {
+      var colors = ['#38BDF8', '#10B981', '#FBBF24', '#FB7185', '#818CF8'];
+      for (var i = 0; i < count; i++) {
+        var p = document.createElement('span');
+        p.className = 'confetti-piece';
+        var angle = Math.random() * Math.PI - Math.PI / 2 - Math.PI / 2;
+        var dist = 30 + Math.random() * 40;
+        p.style.setProperty('--cx', (Math.random() * 70 - 35) + 'px');
+        p.style.setProperty('--cy', (-40 - Math.random() * 45) + 'px');
+        p.style.setProperty('--cr', (Math.random() * 360) + 'deg');
+        p.style.background = colors[i % colors.length];
+        p.style.left = (10 + Math.random() * 30) + 'px';
+        p.style.top = (10 + Math.random() * 10) + 'px';
+        if (Math.random() > 0.5) p.style.borderRadius = '50%';
+        confettiHost.appendChild(p);
+        (function (el) {
+          setTimeout(function () { el.remove(); }, 900);
+        })(p);
+      }
+    }
+
+    // ---------- Minimize / restore on tap ----------
+    btn.addEventListener('click', function () {
+      minimized = !minimized;
+      btn.classList.toggle('is-minimized', minimized);
+      if (minimized) {
+        bubble.classList.add('is-hidden');
+      } else {
+        say("Still here for you! 💪", { duration: 2400 });
+      }
+    });
+
+    // ---------- Greeting on load ----------
+    var greetings = [
+      "Hey there! Ready to crush today's workout? 💪",
+      "Welcome to Iron Pulse! I'm Sparky ⚡ — let's get you set up.",
+      "Hi! Fill in your details and I'll cheer you on 🎉"
+    ];
+    setTimeout(function () {
+      setState('welcome', {
+        message: greetings[Math.floor(Math.random() * greetings.length)],
+        duration: 4600,
+        revertAfter: 2600
+      });
+    }, 500);
+
+    // ---------- Field focus reactions ----------
+    var fieldMessages = {
+      name: "Nice to meet you! What should I call you? 😊",
+      phone: "We'll only use this for check-in reminders 📱",
+      address: "Just so we know where our champions train from 🏡",
+      joinDate: "Pick your big day — let's mark the calendar! 📅"
+    };
+
+    document.addEventListener('focusin', function (e) {
+      var name = e.target && e.target.name;
+      if (name && fieldMessages[name]) {
+        setState('focus', { message: fieldMessages[name], revertAfter: 3200 });
+      } else if (e.target && e.target.id === 'joinDate' && fieldMessages.joinDate) {
+        setState('focus', { message: fieldMessages.joinDate, revertAfter: 3200 });
+      }
+    });
+
+    // ---------- Plan selection (register + renew pickers) ----------
+    function planCheerHandler(e) {
+      var card = e.target.closest ? e.target.closest('.plan-card, label') : null;
+      if (!card) return;
+      var label = (card.textContent || '').replace(/\s+/g, ' ').trim();
+      var short = label.length > 26 ? label.slice(0, 26) + '…' : label;
+      setState('cheer', {
+        message: short ? ("Awesome choice — " + short + "! 🔥") : "Great pick! 🔥",
+        confetti: true,
+        confettiCount: 10,
+        revertAfter: 1400
+      });
+    }
+    ['planPicker', 'renewPlanPicker'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('click', planCheerHandler);
+    });
+
+    // ---------- Form submit: quick "thinking" feedback ----------
+    var registerForm = document.getElementById('registerForm');
+    if (registerForm) {
+      registerForm.addEventListener('submit', function () {
+        setState('thinking', { message: 'Just a sec, saving your details…', revertAfter: 5000 });
+      });
+    }
+    var statusForm = document.getElementById('statusForm');
+    if (statusForm) {
+      statusForm.addEventListener('submit', function () {
+        setState('thinking', { message: 'Looking up your membership…', revertAfter: 5000 });
+      });
+    }
+
+    // ---------- Watch banners / modal for success or error ----------
+    var errorHints = /error|fail|invalid|already|wrong|not found|unable|try again/i;
+    var successHints = /success|welcome|registered|activated|checked in|confirmed/i;
+
+    function watchBanner(id, opts) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var obs = new MutationObserver(function () {
+        if (el.classList.contains('hidden')) return;
+        var text = (el.textContent || '').trim();
+        if (!text) return;
+        if (errorHints.test(text)) {
+          setState('error', { message: text.slice(0, 90), revertAfter: 4200 });
+        } else if (successHints.test(text)) {
+          setState('success', {
+            message: text.slice(0, 90),
+            confetti: true,
+            confettiCount: 16,
+            revertAfter: 3200
+          });
+        }
+      });
+      obs.observe(el, { attributes: true, attributeFilter: ['class'], childList: true, characterData: true, subtree: true });
+    }
+    watchBanner('registerBanner');
+    watchBanner('statusBanner');
+
+    var welcomeModal = document.getElementById('welcomeModal');
+    if (welcomeModal) {
+      var wObs = new MutationObserver(function () {
+        if (!welcomeModal.classList.contains('hidden')) {
+          setState('success', {
+            message: "You're all set — welcome to Iron Pulse! 💪🎉",
+            confetti: true,
+            confettiCount: 20,
+            revertAfter: 3600
+          });
+        }
+      });
+      wObs.observe(welcomeModal, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    var statusCard = document.getElementById('statusCard');
+    if (statusCard) {
+      var sObs = new MutationObserver(function () {
+        if (!statusCard.classList.contains('hidden')) {
+          var nameEl = document.getElementById('statusName');
+          var who = nameEl && nameEl.textContent ? nameEl.textContent.trim().split(' ')[0] : '';
+          setState('success', {
+            message: who ? ("Welcome back, " + who + "! Ready to train? 🔥") : "Welcome back! Ready to train? 🔥",
+            confetti: true,
+            confettiCount: 14,
+            revertAfter: 3200
+          });
+        }
+      });
+      sObs.observe(statusCard, { attributes: true, attributeFilter: ['class'] });
+    }
+  })();
+  </script>
+
   <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
