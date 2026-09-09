@@ -2,11 +2,13 @@
 
 
 // ==================== GEOFENCING CONFIGURATION ====================
+// ==================== GEOFENCING CONFIGURATION ====================
 const GYM_LOCATION = {
-  lat: 29.4727,             // Apne gym ka exact Latitude yahan set karein (e.g. Muzaffarnagar)
-  lng: 77.7085,             // Apne gym ka exact Longitude yahan set karein
-  allowedRadiusMeters: 40   // Maximum allowed range in meters (gym premises ke andar)
+  lat: 29.456545,           // Tera ghar/testing latitude
+  lng: 77.717185,           // Tera ghar/testing longitude
+  allowedRadiusMeters: 40   // Range in meters
 };
+
 
 // Haversine formula to calculate distance in meters
 function calculateDistance(lat1, lon1, lat2, lon2) {
