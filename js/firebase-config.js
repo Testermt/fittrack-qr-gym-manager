@@ -14,6 +14,7 @@
  * no build step. Open them directly or deploy the folder to any static
  * host (Firebase Hosting, Netlify, Vercel, GitHub Pages, etc.).
  */
+ 
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSy...",
