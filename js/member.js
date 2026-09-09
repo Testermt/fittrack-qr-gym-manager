@@ -261,6 +261,7 @@ async function logCheckinIfNeeded(memberId, name, phone) {
 
 // ------------------------------------------------------------ register --
 // ------------------------------------------------------------ register --
+// ------------------------------------------------------------ register --
 async function handleRegisterSubmit(e) {
   e.preventDefault();
   hideBanner("registerBanner");
@@ -293,7 +294,7 @@ async function handleRegisterSubmit(e) {
     const plan = PLANS[planId];
     const expiryDate = addMonthsToDateKey(joinDate, plan.months);
 
-    // 1. Pehle member database mein save hoga
+    // Sirf Member Profile Save Hogi (Registration ke waqt koi auto check-in nahi!)
     await membersCol.doc(phone).set({
       name,
       phone,
@@ -306,9 +307,7 @@ async function handleRegisterSubmit(e) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 2. Ab yahan GPS check hoga  agar member gym ke andar hai, tabhi check-in hoga!
-    // Agar ghar par hai, toh geofencing isko block kar degi.
-    await logCheckinIfNeeded(phone, name, phone);
+    //  yahan se await logCheckinIfNeeded() ko bilkul hata diya hai!
 
     form.reset();
     document.getElementById("joinDate").value = toDateKey(new Date());
@@ -323,6 +322,7 @@ async function handleRegisterSubmit(e) {
     setBusy(submitBtn, false);
   }
 }
+
 
 // --------------------------------------------------------- status check --
 let currentMember = null;
