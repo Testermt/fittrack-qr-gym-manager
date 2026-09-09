@@ -238,10 +238,15 @@ async function logCheckinIfNeeded(memberId, name, phone) {
         alert("Please enable GPS location permission on your phone to check in.");
         resolve(false);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      { 
+        enableHighAccuracy: true, 
+        timeout: 20000, 
+        maximumAge: 0  // <-- Yeh ensure karega ki browser cache use na kare, balki live GPS location nikaley!
+      }
     );
   });
 }
+
 
 
 // ------------------------------------------------------------ register --
