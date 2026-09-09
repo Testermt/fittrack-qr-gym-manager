@@ -4,21 +4,32 @@ rules_version = '2';
 // Paste into Firebase Console → Firestore Database → Rules → Publish.
 //
 // Model:
-//  - "members"  : public can create their own record (registration) and
-//                 read/update their own record by phone-number doc id
-//                 (status check + mock renewal). Only signed-in admins can
-//                 read/update ANY member (needed for the dashboard) or
-//                 delete records.
+//  - "members"  : public can create their own record once at registration
+//                 (payment always starts "pending" — a create request that
+//                 tries to set it to anything else is rejected) and read
+//                 their own record by phone-number doc id (status check).
+//                 Only a signed-in admin can update a member afterwards —
+//                 marking a plan "paid" or extending an expiry date is an
+//                 admin-only action, so nobody can grant themselves a paid
+//                 membership by calling Firestore directly.
 //  - "checkins" : public can create (check-in) but never edit/delete.
 //                 Only admins can read the list (attendance log).
-//  - "payments" : public can create (mock online payment) but never edit
-//                 or delete. Only admins can read (revenue reporting).
+//  - "payments" : only a signed-in admin can create/read payment records
+//                 (recorded after they verify a cash or UPI payment from
+//                 the dashboard). The public portal never writes here.
+//  - "settings" : holds gym-wide configuration such as the official UPI ID
+//                 used for online payments (settings/config). Public can
+//                 read it (so the member portal knows where to send a UPI
+//                 payment) but only a signed-in admin can create/update/
+//                 delete it — this is the single source of truth for the
+//                 payment destination, so it can never be tampered with
+//                 from the public-facing portal.
 //
 // NOTE: Because the member portal is unauthenticated by design (anyone who
 // scans the QR code uses it), these rules intentionally allow anonymous
-// create/read-own access. For stricter production use, consider adding
-// Firebase App Check to block non-app traffic, and/or rate limiting via
-// Cloud Functions.
+// create/read-own access where noted above. For stricter production use,
+// consider adding Firebase App Check to block non-app traffic, and/or rate
+// limiting via Cloud Functions.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -28,8 +39,12 @@ service cloud.firestore {
     }
 
     match /members/{phone} {
-      // Anyone can register a brand-new member (doc id = their own phone).
-      allow create: if request.resource.data.phone == phone;
+      // Anyone can register a brand-new member (doc id = their own phone),
+      // but every new record must start as payment-pending — a create
+      // request that tries to set paymentStatus to anything else (e.g.
+      // "paid") is rejected outright.
+      allow create: if request.resource.data.phone == phone
+                    && request.resource.data.paymentStatus == "pending";
 
       // Anyone can read their own record to check status (client already
       // knows the phone number it is querying by, since it is the doc id).
@@ -38,10 +53,11 @@ service cloud.firestore {
       // Admin dashboard needs to list every member.
       allow list: if isAdmin();
 
-      // A member can update their own record (used by the mock "Pay
-      // Online" renewal flow). Admins can update any record (mark as
-      // paid, corrections, etc).
-      allow update: if isAdmin() || request.resource.data.phone == phone;
+      // Only a signed-in admin can update a member after registration —
+      // marking payment as "paid", extending expiry, or changing plan is
+      // an admin-only action performed after they verify a real payment
+      // (cash or UPI). The public portal has no write path for this.
+      allow update: if isAdmin();
 
       // Only admins can delete members.
       allow delete: if isAdmin();
@@ -59,14 +75,26 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      // Anyone can create a payment record (mock gateway confirmation).
-      allow create: if request.resource.data.memberId is string
-                    && request.resource.data.amount is number;
-
-      // Only the admin dashboard reads payment history / revenue.
+      // Payment records are only ever written by a signed-in admin, after
+      // they verify a cash or UPI payment from the dashboard (see
+      // admin.js -> markAsPaid). The public portal never writes here —
+      // a member's UPI payment is confirmed in person, not self-reported.
+      allow create: if isAdmin();
       allow read: if isAdmin();
-
       allow update, delete: if isAdmin();
+    }
+
+    match /settings/{docId} {
+      // Public (including the unauthenticated member portal) can read
+      // gym-wide configuration — e.g. the official UPI ID used to build
+      // the "Pay via UPI" deep link — but can never write it.
+      allow get: if true;
+
+      // Only a signed-in admin can list, create, update, or delete
+      // settings documents. This is what makes the UPI ID tamper-proof:
+      // it can only ever be changed from an authenticated admin session.
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
   }
 }

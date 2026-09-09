@@ -78,3 +78,53 @@ function formatDate(dateKey) {
 function formatCurrency(amount) {
   return `${GYM_SETTINGS.currencySymbol}${Number(amount || 0).toLocaleString("en-IN")}`;
 }
+
+// ---- Payment settings (UPI ID) — fetched from Firestore, never hardcoded --
+//
+// The gym's official UPI ID lives in a single Firestore document:
+//   settings/config  ->  { upiId: "gymowner@okaxis", payeeName: "..." (optional) }
+//
+// This keeps the payment destination out of the client source code, so
+// changing it (or rotating it) never requires a redeploy — just edit the
+// document in the Firebase Console → Firestore Database → "settings"
+// collection → "config" document. `firestore.rules` restricts writes to
+// that document to signed-in admins only; the public portal is only ever
+// granted read access, so a member can look up where to pay but can never
+// change it.
+let _paymentSettingsCache = null;
+
+/** Fetches (and caches) { upiId, payeeName } from settings/config. */
+async function getPaymentSettings() {
+  if (_paymentSettingsCache) return _paymentSettingsCache;
+  try {
+    const snap = await db.collection("settings").doc("config").get();
+    const data = snap.exists ? snap.data() : {};
+    _paymentSettingsCache = {
+      upiId: (data.upiId || "").trim(),
+      payeeName: (data.payeeName || GYM_SETTINGS.name).trim(),
+    };
+  } catch (err) {
+    console.error("Failed to load payment settings:", err);
+    _paymentSettingsCache = { upiId: "", payeeName: GYM_SETTINGS.name };
+  }
+  return _paymentSettingsCache;
+}
+
+/**
+ * Builds a standard UPI deep link (upi://pay?...) that opens the user's
+ * installed UPI app (GPay, PhonePe, Paytm, BHIM, etc.) pre-filled with the
+ * payee, amount, and a note. Every value is percent-encoded individually
+ * (rather than relying on URLSearchParams' '+' for spaces) since some UPI
+ * apps parse the payee-name field strictly.
+ */
+function buildUpiLink({ upiId, payeeName, amount, note, transactionRef }) {
+  const parts = [
+    `pa=${encodeURIComponent(upiId)}`,
+    `pn=${encodeURIComponent(payeeName)}`,
+    `am=${encodeURIComponent(Number(amount).toFixed(2))}`,
+    `cu=INR`,
+  ];
+  if (note) parts.push(`tn=${encodeURIComponent(note)}`);
+  if (transactionRef) parts.push(`tr=${encodeURIComponent(transactionRef)}`);
+  return `upi://pay?${parts.join("&")}`;
+}

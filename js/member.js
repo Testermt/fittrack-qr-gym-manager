@@ -2,7 +2,6 @@
 
 const membersCol = db.collection("members");
 const checkinsCol = db.collection("checkins");
-const paymentsCol = db.collection("payments");
 
 // ---------------------------------------------------------------- setup --
 document.addEventListener("DOMContentLoaded", () => {
@@ -14,7 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("registerForm").addEventListener("submit", handleRegisterSubmit);
   document.getElementById("statusForm").addEventListener("submit", handleStatusCheck);
   document.getElementById("closeModalBtn").addEventListener("click", closeModal);
-  document.getElementById("confirmPaymentBtn").addEventListener("click", confirmMockPayment);
+  document.getElementById("copyUpiIdBtn").addEventListener("click", handleCopyUpiId);
   document.getElementById("closeWelcomeModalBtn").addEventListener("click", closeWelcomeModal);
   document.getElementById("rulesLangToggle").addEventListener("click", toggleRulesLang);
 });
@@ -297,15 +296,58 @@ document.getElementById("renewButton")?.addEventListener("click", () => {
   openPaymentModal(planId);
 });
 
-// -------------------------------------------------------- mock payment --
+// ------------------------------------------------------------ UPI payment --
 let pendingPaymentPlanId = null;
 
-function openPaymentModal(planId) {
+/**
+ * Opens the payment modal and builds a real upi://pay deep link using the
+ * gym's official UPI ID (fetched securely from Firestore settings/config —
+ * see js/firebase-config.js -> getPaymentSettings()). Tapping the resulting
+ * button launches the member's installed UPI app (GPay/PhonePe/Paytm/etc.)
+ * pre-filled with the exact amount. This app never marks a membership as
+ * paid on its own — see the on-screen note; only the gym admin can do that
+ * from the dashboard after verifying the payment (enforced in firestore.rules).
+ */
+async function openPaymentModal(planId) {
+  if (!currentMember) return;
   pendingPaymentPlanId = planId;
   const plan = PLANS[planId];
+
   document.getElementById("modalPlanLabel").textContent = plan.label;
   document.getElementById("modalPlanPrice").textContent = formatCurrency(plan.price);
+
+  const payLink = document.getElementById("upiPayLink");
+  const fallback = document.getElementById("upiIdFallback");
+  const unavailableNote = document.getElementById("upiUnavailableNote");
+
+  payLink.classList.add("hidden");
+  fallback.classList.add("hidden");
+  unavailableNote.classList.add("hidden");
+  payLink.removeAttribute("href");
+
   document.getElementById("paymentModal").classList.remove("hidden");
+
+  const settings = await getPaymentSettings();
+  if (!settings.upiId) {
+    unavailableNote.classList.remove("hidden");
+    return;
+  }
+
+  const note = `${GYM_SETTINGS.name} - ${plan.label} - ${currentMember.name}`;
+  const transactionRef = `${currentMember.id}-${Date.now()}`;
+  const upiLink = buildUpiLink({
+    upiId: settings.upiId,
+    payeeName: settings.payeeName,
+    amount: plan.price,
+    note,
+    transactionRef,
+  });
+
+  payLink.href = upiLink;
+  payLink.classList.remove("hidden");
+
+  document.getElementById("upiIdText").textContent = settings.upiId;
+  fallback.classList.remove("hidden");
 }
 
 function closeModal() {
@@ -313,43 +355,21 @@ function closeModal() {
   pendingPaymentPlanId = null;
 }
 
-async function confirmMockPayment() {
-  if (!currentMember || !pendingPaymentPlanId) return;
-  const btn = document.getElementById("confirmPaymentBtn");
-  setBusy(btn, true, "Processing…");
-
+/** Copies the fallback UPI ID to the clipboard so it can be pasted into any UPI app manually. */
+async function handleCopyUpiId() {
+  const upiId = document.getElementById("upiIdText").textContent;
+  if (!upiId) return;
+  const btn = document.getElementById("copyUpiIdBtn");
   try {
-    const plan = PLANS[pendingPaymentPlanId];
-    const today = toDateKey(new Date());
-    const isCurrentlyActive = daysUntil(currentMember.expiryDate) >= 0 && currentMember.paymentStatus === "paid";
-    const base = isCurrentlyActive ? currentMember.expiryDate : today;
-    const newExpiry = addMonthsToDateKey(base, plan.months);
-
-    await membersCol.doc(currentMember.id).update({
-      plan: pendingPaymentPlanId,
-      expiryDate: newExpiry,
-      paymentStatus: "paid",
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-
-    await paymentsCol.add({
-      memberId: currentMember.id,
-      name: currentMember.name,
-      phone: currentMember.phone,
-      plan: pendingPaymentPlanId,
-      amount: plan.price,
-      dateKey: today,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-
-    currentMember = { ...currentMember, plan: pendingPaymentPlanId, expiryDate: newExpiry, paymentStatus: "paid" };
-    closeModal();
-    renderStatusCard(currentMember, false);
-    showBanner("statusBanner", `Payment successful! Membership active until ${formatDate(newExpiry)}.`, "success");
+    await navigator.clipboard.writeText(upiId);
+    const original = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(() => {
+      btn.textContent = original;
+    }, 1500);
   } catch (err) {
-    console.error(err);
-    alert("Payment simulation failed. Please try again.");
-  } finally {
-    setBusy(btn, false);
+    console.error("Clipboard copy failed:", err);
+    // Clipboard API can be unavailable (e.g. non-HTTPS); the ID is still
+    // visible on screen for the member to select and copy manually.
   }
 }

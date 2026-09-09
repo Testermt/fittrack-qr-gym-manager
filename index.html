@@ -154,7 +154,7 @@
           <div id="renewPlanPicker" class="grid grid-cols-2 gap-3"></div>
           <button id="renewButton" type="button"
             class="w-full rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
-            Pay Online (Mock Gateway)
+            Pay Online via UPI
           </button>
         </div>
       </div>
@@ -165,25 +165,46 @@
     </p>
   </main>
 
-  <!-- ============= MOCK PAYMENT MODAL ============= -->
+  <!-- ============= UPI PAYMENT MODAL ============= -->
   <div id="paymentModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
     <div class="w-full max-w-sm rounded-2xl bg-panel border border-slate-700 p-6 space-y-5">
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-slate-50">Mock Payment Gateway</h2>
+        <h2 class="text-lg font-semibold text-slate-50">Pay via UPI</h2>
         <button id="closeModalBtn" class="text-slate-500 hover:text-slate-300 text-xl leading-none">&times;</button>
       </div>
+
       <div class="rounded-lg bg-slate-800/60 p-4 flex items-center justify-between">
         <span class="text-sm text-slate-400" id="modalPlanLabel"></span>
         <span class="text-xl font-bold text-slate-50" id="modalPlanPrice"></span>
       </div>
-      <p class="text-xs text-slate-500">
-        This is a simulated checkout for demo purposes — no real payment is processed.
-        Swap this modal for Razorpay / Stripe / UPI in production.
+
+      <!-- Primary action: real UPI deep link, opens GPay / PhonePe / Paytm / BHIM etc. -->
+      <a id="upiPayLink" href="#"
+        class="hidden w-full text-center rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
+        Pay Now via UPI App 📲
+      </a>
+
+      <!-- Fallback for desktop / when no UPI app opens: shows the ID to pay manually -->
+      <div id="upiIdFallback" class="hidden rounded-lg border border-slate-700 bg-slate-800/40 p-3 text-sm">
+        <p class="text-slate-500 mb-1.5">If nothing opens, pay manually to this UPI ID:</p>
+        <div class="flex items-center justify-between gap-2">
+          <span id="upiIdText" class="font-mono text-slate-100 break-all"></span>
+          <button id="copyUpiIdBtn" type="button"
+            class="shrink-0 text-xs font-semibold rounded-md bg-slate-700 text-slate-200 px-2.5 py-1.5 hover:bg-slate-600 transition">
+            Copy
+          </button>
+        </div>
+      </div>
+
+      <!-- Shown only if the gym hasn't configured a UPI ID yet -->
+      <p id="upiUnavailableNote" class="hidden text-sm text-amber-400">
+        Online payments aren't set up yet for this gym. Please pay at the front desk.
       </p>
-      <button id="confirmPaymentBtn"
-        class="w-full rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
-        Confirm Mock Payment
-      </button>
+
+      <p class="text-xs text-slate-500">
+        After paying, please show the payment confirmation to our trainer at the front desk
+        (or on your next check-in). Your membership will be activated shortly once verified.
+      </p>
     </div>
   </div>
 
