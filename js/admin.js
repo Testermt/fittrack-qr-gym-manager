@@ -9,6 +9,16 @@ let unsubMembers = null;
 let unsubCheckins = null;
 let unsubPayments = null;
 
+// Directory filter ("all" | "active" | "pending") and today's check-in
+// state, kept alongside allMembers/unsubCheckins above.
+let currentMemberFilter = "all";
+let todayCheckedInIds = new Set();
+
+// The delete/mark-paid action currently waiting on re-authentication —
+// { type: "delete" | "mark-paid", member, btn } — set by requestReauth()
+// and consumed by the #reauthForm submit handler below.
+let pendingReauthAction = null;
+
 // ------------------------------------------------ Firestore admin check --
 // Google Sign-In lets ANY Google account complete Firebase authentication —
 // so without this check, a stranger who clicks "Sign in with Google" would
@@ -63,6 +73,19 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("forgotPasswordBtn").addEventListener("click", handleForgotPassword);
   document.getElementById("logoutBtn").addEventListener("click", () => auth.signOut());
   document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
+
+  document.getElementById("memberFilterGroup").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-filter]");
+    if (!btn) return;
+    currentMemberFilter = btn.dataset.filter;
+    updateMemberFilterStyles();
+    renderMemberTable();
+  });
+  updateMemberFilterStyles();
+
+  document.getElementById("reauthCancelBtn").addEventListener("click", closeReauthModal);
+  document.getElementById("reauthBackdrop").addEventListener("click", closeReauthModal);
+  document.getElementById("reauthForm").addEventListener("submit", handleReauthSubmit);
 
   document.getElementById("deviceVerifyRetryBtn").addEventListener("click", () => {
     const user = auth.currentUser;
@@ -301,6 +324,7 @@ function showLogin() {
   if (unsubMembers) unsubMembers();
   if (unsubCheckins) unsubCheckins();
   if (unsubPayments) unsubPayments();
+  closeReauthModal();
 }
 
 function showDashboard(user) {
@@ -566,8 +590,10 @@ function renderMemberTable() {
   const emptyState = document.getElementById("memberEmptyState");
 
   const filtered = allMembers.filter((m) => {
-    if (!query) return true;
-    return m.name.toLowerCase().includes(query) || m.phone.includes(query);
+    if (query && !(m.name.toLowerCase().includes(query) || m.phone.includes(query))) return false;
+    if (currentMemberFilter === "active" && daysUntil(m.expiryDate) < 0) return false;
+    if (currentMemberFilter === "pending" && m.paymentStatus === "paid") return false;
+    return true;
   });
 
   tbody.innerHTML = "";
@@ -578,6 +604,7 @@ function renderMemberTable() {
     const isActive = days >= 0;
     const plan = PLANS[m.plan] || { label: m.plan };
     const isPaid = m.paymentStatus === "paid";
+    const alreadyCheckedIn = todayCheckedInIds.has(m.id);
 
     const tr = document.createElement("tr");
     tr.className = "border-b border-slate-800/70 hover:bg-slate-800/30 transition";
@@ -598,6 +625,12 @@ function renderMemberTable() {
       </td>
       <td class="py-3 pr-0">
         <div class="flex flex-wrap gap-2 justify-end">
+          <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
+            class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
+              alreadyCheckedIn
+                ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                : "bg-accent/15 text-accent hover:bg-accent/25"
+            }">${alreadyCheckedIn ? "✓ Checked In" : "Check-In"}</button>
           ${
             !isPaid
               ? `<button data-action="mark-paid" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-success/15 text-success px-3 py-1.5 hover:bg-success/25 transition">Mark as Paid</button>`
@@ -608,6 +641,7 @@ function renderMemberTable() {
               ? `<button data-action="whatsapp" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-emerald-500/15 text-emerald-400 px-3 py-1.5 hover:bg-emerald-500/25 transition">Send WhatsApp</button>`
               : ""
           }
+          <button data-action="delete" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-rose-500/15 text-rose-400 px-3 py-1.5 hover:bg-rose-500/25 transition">Delete</button>
         </div>
       </td>
     `;
@@ -615,19 +649,40 @@ function renderMemberTable() {
   });
 }
 
+/** Highlights whichever status-filter button (All / Active / Pending Payments) is active. */
+function updateMemberFilterStyles() {
+  document.querySelectorAll(".member-filter-btn").forEach((btn) => {
+    const active = btn.dataset.filter === currentMemberFilter;
+    btn.classList.toggle("bg-accent", active);
+    btn.classList.toggle("text-slate-950", active);
+    btn.classList.toggle("bg-slate-800", !active);
+    btn.classList.toggle("text-slate-400", !active);
+  });
+}
+
 document.getElementById("memberTableBody").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-action]");
-  if (!btn) return;
+  if (!btn || btn.disabled) return;
   const member = allMembers.find((m) => m.id === btn.dataset.id);
   if (!member) return;
 
-  if (btn.dataset.action === "mark-paid") markAsPaid(member, btn);
+  if (btn.dataset.action === "check-in") manualCheckIn(member, btn);
+  if (btn.dataset.action === "mark-paid") requestReauth("mark-paid", member, btn);
   if (btn.dataset.action === "whatsapp") sendWhatsAppReminder(member);
+  if (btn.dataset.action === "delete") requestReauth("delete", member, btn);
 });
 
+/**
+ * Marks a member paid in Firestore. Only ever called from
+ * executeReauthedAction() below, AFTER the admin has successfully
+ * re-authenticated — never wired directly to the "Mark as Paid" button.
+ */
 async function markAsPaid(member, btn) {
-  btn.disabled = true;
-  btn.textContent = "Saving…";
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+  }
   try {
     const plan = PLANS[member.plan] || { price: 0 };
     await membersCol.doc(member.id).update({
@@ -644,11 +699,191 @@ async function markAsPaid(member, btn) {
       dateKey: toDateKey(new Date()),
       timestamp: firebase.firestore.FieldValue.serverTimestamp(),
     });
+    // No manual re-render needed — subscribeMembers()'s onSnapshot picks
+    // up the updated paymentStatus and re-renders the table itself.
   } catch (err) {
     console.error(err);
     alert("Could not update payment status. Please try again.");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Mark as Paid";
+    }
+  }
+}
+
+/**
+ * Permanently deletes a member document. Only ever called from
+ * executeReauthedAction() below, AFTER the admin has successfully
+ * re-authenticated — never wired directly to the "Delete" button.
+ */
+async function deleteMember(member, btn) {
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Deleting…";
+  }
+  try {
+    await membersCol.doc(member.id).delete();
+    // No manual re-render needed — subscribeMembers()'s onSnapshot picks
+    // up the deletion and re-renders the table/stats itself.
+  } catch (err) {
+    console.error(err);
+    alert("Could not delete member. Please try again.");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Delete";
+    }
+  }
+}
+
+/** Logs a manual check-in for `member` for today, if they haven't already been logged today. */
+async function manualCheckIn(member, btn) {
+  if (todayCheckedInIds.has(member.id)) return;
+
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Checking in…";
+  try {
+    await checkinsCol.add({
+      memberId: member.id,
+      name: member.name,
+      phone: member.phone,
+      dateKey: toDateKey(new Date()),
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      method: "manual",
+      loggedBy: auth.currentUser ? auth.currentUser.email : null,
+    });
+    // No manual re-render needed — subscribeTodayCheckins()'s onSnapshot
+    // picks up the new check-in, refreshes todayCheckedInIds, and
+    // re-renders the member table's button state itself.
+  } catch (err) {
+    console.error(err);
+    alert("Could not log check-in. Please try again.");
     btn.disabled = false;
-    btn.textContent = "Mark as Paid";
+    btn.textContent = originalLabel;
+  }
+}
+
+// ------------------------------------------------- re-auth confirmation --
+// Delete and Mark-as-Paid are destructive/financial actions. Before either
+// touches Firestore, the signed-in admin must freshly re-prove their
+// identity — password re-entry for email/password admins, or a fresh
+// Google popup confirmation for Google-signed-in admins. This defends
+// against someone using an admin's unlocked, already-logged-in browser
+// (e.g. an unattended front-desk laptop) to delete a member or mark a
+// payment as "paid" that was never actually collected.
+//
+// ⚠️ Same caveat as isVerifiedAdmin() at the top of this file: this modal
+// is a client-side UX gate, not the real security boundary. Firestore has
+// no concept of "this client recently re-authenticated", so rules can't
+// enforce this step — a motivated attacker could call the SDK directly
+// and skip the modal entirely. The actual boundary is (and must remain)
+// firestore.rules restricting member deletes/payment writes to verified
+// admins. Treat this modal as a safeguard against casual/opportunistic
+// misuse of an already-open admin session, layered on top of that.
+function requestReauth(type, member, btn) {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  pendingReauthAction = { type, member, btn };
+
+  const isPasswordUser = user.providerData.some((p) => p.providerId === "password");
+
+  const titleEl = document.getElementById("reauthTitle");
+  const msgEl = document.getElementById("reauthMessage");
+  const passwordField = document.getElementById("reauthPasswordField");
+  const googleHint = document.getElementById("reauthGoogleHint");
+  const passwordInput = document.getElementById("reauthPasswordInput");
+  const submitBtn = document.getElementById("reauthSubmitBtn");
+  const errorEl = document.getElementById("reauthError");
+
+  errorEl.classList.add("hidden");
+  passwordInput.value = "";
+
+  if (type === "delete") {
+    titleEl.textContent = "Delete this member?";
+    msgEl.textContent = `This permanently deletes ${member.name}'s record from Firestore. This can't be undone — please confirm your identity to continue.`;
+  } else {
+    titleEl.textContent = "Confirm payment update";
+    msgEl.textContent = `This marks ${member.name}'s payment as PAID. Please confirm your identity to continue.`;
+  }
+
+  // Prefer password re-auth whenever the account has a password on file
+  // (covers email/password-only admins, and Google admins who also linked
+  // a password) — it's a single round trip with no popup. Only fall back
+  // to a Google re-consent popup when there's no password to check.
+  if (isPasswordUser) {
+    passwordField.classList.remove("hidden");
+    googleHint.classList.add("hidden");
+    submitBtn.textContent = "Confirm";
+    setTimeout(() => passwordInput.focus(), 50);
+  } else {
+    passwordField.classList.add("hidden");
+    googleHint.classList.remove("hidden");
+    submitBtn.textContent = "Confirm with Google";
+  }
+
+  document.getElementById("reauthModal").classList.remove("hidden");
+}
+
+function closeReauthModal() {
+  document.getElementById("reauthModal").classList.add("hidden");
+  pendingReauthAction = null;
+}
+
+async function handleReauthSubmit(e) {
+  e.preventDefault();
+  if (!pendingReauthAction) return;
+
+  const user = auth.currentUser;
+  const isPasswordUser = user.providerData.some((p) => p.providerId === "password");
+  const submitBtn = document.getElementById("reauthSubmitBtn");
+  const errorEl = document.getElementById("reauthError");
+  errorEl.classList.add("hidden");
+
+  const originalLabel = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Verifying…";
+
+  try {
+    if (isPasswordUser) {
+      const password = document.getElementById("reauthPasswordInput").value;
+      if (!password) throw { code: "auth/missing-password" };
+      const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
+      await user.reauthenticateWithCredential(credential);
+    } else {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await user.reauthenticateWithPopup(provider);
+    }
+
+    // Identity re-confirmed — now actually perform the action that was
+    // waiting on it, then close the modal.
+    const { type, member, btn } = pendingReauthAction;
+    closeReauthModal();
+    if (type === "delete") {
+      await deleteMember(member, btn);
+    } else if (type === "mark-paid") {
+      await markAsPaid(member, btn);
+    }
+  } catch (err) {
+    console.error("Re-authentication failed:", err);
+    let message = "Couldn't verify your identity. Please try again.";
+    if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+      message = "That password doesn't match. Please try again.";
+    } else if (err.code === "auth/missing-password") {
+      message = "Please enter your password to confirm.";
+    } else if (err.code === "auth/too-many-requests") {
+      message = "Too many attempts. Please wait a few minutes and try again.";
+    } else if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
+      message = "Google confirmation was closed before finishing. Please try again.";
+    } else if (err.code === "auth/network-request-failed") {
+      message = "Network error — please check your connection and try again.";
+    }
+    errorEl.textContent = message;
+    errorEl.classList.remove("hidden");
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
   }
 }
 
@@ -676,7 +911,9 @@ function subscribeTodayCheckins() {
         const rows = snap.docs
           .map((d) => d.data())
           .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+        todayCheckedInIds = new Set(rows.map((r) => r.memberId).filter(Boolean));
         renderCheckinLog(rows);
+        renderMemberTable(); // refresh each row's Check-In button state
         document.getElementById("statTodayCheckins").textContent = rows.length;
       },
       (err) => console.error("checkins listener error", err)
