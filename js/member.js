@@ -191,12 +191,14 @@ function closeWelcomeModal() {
  * call without awaiting — a caller can fire it and move on, and it will
  * never surface as an unhandled promise rejection or block anything.
  */
+// ==================== STRICT GEOFENCED CHECK-IN ====================
 async function logCheckinIfNeeded(memberId, name, phone) {
   if (!navigator.geolocation) {
-    alert("Geolocation is not supported by your device.");
+    alert("Geolocation is not supported by your browser.");
     return false;
   }
 
+  // Promise ke andar GPS location fetch ko properly wrap kiya hai
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
@@ -204,21 +206,28 @@ async function logCheckinIfNeeded(memberId, name, phone) {
         const userLng = position.coords.longitude;
         const distance = calculateDistance(userLat, userLng, GYM_LOCATION.lat, GYM_LOCATION.lng);
 
+        console.log("Current User Lat/Lng:", userLat, userLng);
+        console.log("Distance from Gym (Meters):", Math.round(distance));
+
+        // 1. STRICT RADIUS CHECK: Agar door hai, toh yahin rok do aur false return karo
         if (distance > GYM_LOCATION.allowedRadiusMeters) {
           alert(`Check-in blocked! You are ${Math.round(distance)} meters away from the gym. You must be inside the gym premises.`);
           resolve(false);
           return;
         }
 
+        // 2. CHECK ALREADY CHECKED-IN TODAY
         const today = toDateKey(new Date());
         try {
           const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
           const alreadyCheckedInToday = snapshot.docs.some((doc) => doc.data().dateKey === today);
+          
           if (alreadyCheckedInToday) {
             resolve(false);
             return;
           }
 
+          // 3. FINAL SAVE: Sirf tab save hoga jab distance range ke andar hoga!
           await checkinsCol.add({
             memberId,
             name,
@@ -227,21 +236,22 @@ async function logCheckinIfNeeded(memberId, name, phone) {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             method: "geofenced-gps",
           });
+          
           resolve(true);
         } catch (err) {
-          console.error("logCheckinIfNeeded failed:", err);
+          console.error("Firestore check-in error:", err);
           resolve(false);
         }
       },
       (error) => {
-        console.error(error);
-        alert("Please enable GPS location permission on your phone to check in.");
+        console.error("GPS Error Code:", error.code, error.message);
+        alert("GPS location access is mandatory to check in. Please turn on your phone's location.");
         resolve(false);
       },
       { 
         enableHighAccuracy: true, 
-        timeout: 20000, 
-        maximumAge: 0  // <-- Yeh ensure karega ki browser cache use na kare, balki live GPS location nikaley!
+        timeout: 10000, 
+        maximumAge: 0 
       }
     );
   });
