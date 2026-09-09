@@ -9,37 +9,9 @@ let unsubMembers = null;
 let unsubCheckins = null;
 let unsubPayments = null;
 
-// ------------------------------------------------ Firestore admin check --
-// Google Sign-In lets ANY Google account complete Firebase authentication —
-// so without this check, a stranger who clicks "Sign in with Google" would
-// pass Firebase auth entirely. No emails are hardcoded here: whether an
-// account is allowed through is looked up live in Firestore, in the
-// `admins` collection, keyed by the (lowercased) email address as the
-// document ID. Add or remove admins by adding/deleting a document there —
-// no redeploy needed.
-//
-// ⚠️ IMPORTANT — this client-side check is only a UX gate. It must be
-// backed by matching firestore.rules, or a user could still read/write
-// data directly through the SDK without ever opening this page. Add rules
-// along these lines (adjust to your existing rules file):
-//
-//   match /admins/{adminEmail} {
-//     // Only readable by the signed-in user checking THEIR OWN admin doc —
-//     // "get" (single doc), not "list" (the whole collection), so nobody
-//     // can enumerate the admin list.
-//     allow get: if request.auth != null
-//                  && request.auth.token.email.lower() == adminEmail;
-//     allow write: if false; // manage admins from the Firebase Console only
-//   }
-//
-//   match /members/{doc=**} {
-//     allow read, write: if request.auth != null
-//       && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower()));
-//   }
-//   // repeat the exists(...) check for checkins/, payments/, settings/, etc.
-//
-// Always create admin docs with a lowercase email as the ID (e.g.
-// "owner@gym.com"), since this function normalizes to lowercase too.
+let currentMemberFilter = "all";
+let todayCheckedInIds = new Set();
+
 async function isVerifiedAdmin(email) {
   if (!email) return false;
   const docId = email.trim().toLowerCase();
@@ -64,6 +36,19 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("logoutBtn").addEventListener("click", () => auth.signOut());
   document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
 
+  // Status Filter Buttons listener
+  const filterGroup = document.getElementById("memberFilterGroup");
+  if (filterGroup) {
+    filterGroup.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-filter]");
+      if (!btn) return;
+      currentMemberFilter = btn.dataset.filter;
+      updateMemberFilterStyles();
+      renderMemberTable();
+    });
+    updateMemberFilterStyles();
+  }
+
   document.getElementById("deviceVerifyRetryBtn").addEventListener("click", () => {
     const user = auth.currentUser;
     if (user) runDeviceVerification(user, getStoredCredentialId(user.uid));
@@ -83,24 +68,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-/**
- * Runs on every sign-in AND on every page load that restores an existing
- * session (not just fresh logins) — this is what stops the device gate
- * from being skipped by simply refreshing the page.
- *
- * Google-linked accounts go through the whitelist + biometric device gate.
- * Email/password-only accounts (the emergency backup path) go straight to
- * the dashboard — they were only ever created deliberately in the Firebase
- * Console, so they don't need the extra Google-specific checks.
- */
 async function handleAuthenticatedUser(user) {
   const signedInWithGoogle = user.providerData.some((p) => p.providerId === "google.com");
 
   if (signedInWithGoogle) {
-    // Show a "checking" state on the device-verify screen while we hit
-    // Firestore — this also covers page refreshes that restore a session,
-    // so revoking a Firestore admin doc takes effect on the very next load,
-    // not just at the next fresh sign-in.
     showScreen("deviceVerifyScreen");
     setDeviceVerifyStage("checkingAdmin");
 
@@ -138,7 +109,6 @@ async function handleAuthenticatedUser(user) {
   showDashboard(user);
 }
 
-/** Switches the copy on the shared deviceVerifyScreen between its two uses. */
 function setDeviceVerifyStage(stage) {
   const titleEl = document.getElementById("deviceVerifyTitle");
   const subEl = document.getElementById("deviceVerifySub");
@@ -165,7 +135,6 @@ function showAuthGateError(message) {
   el.classList.remove("hidden");
 }
 
-// ------------------------------------------------------------------ auth --
 async function handleLogin(e) {
   e.preventDefault();
   const form = e.target;
@@ -188,7 +157,6 @@ async function handleLogin(e) {
   }
 }
 
-// -------------------------------------------------------- Google sign-in --
 async function handleGoogleSignIn() {
   const btn = document.getElementById("googleSignInBtn");
   const errorEl = document.getElementById("googleSignInError");
@@ -202,12 +170,8 @@ async function handleGoogleSignIn() {
 
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
-    // Always show the account chooser — never silently reuse a cached
-    // browser session without an explicit confirmation click.
     provider.setCustomParameters({ prompt: "select_account" });
     await auth.signInWithPopup(provider);
-    // handleAuthenticatedUser (wired to onAuthStateChanged) takes it from
-    // here — whitelist check, then the device biometric gate if available.
   } catch (err) {
     console.error(err);
     let message = "Something went wrong signing in with Google. Please try again.";
@@ -215,12 +179,6 @@ async function handleGoogleSignIn() {
       message = "Your browser blocked the Google sign-in popup. Please allow popups for this site and try again.";
     } else if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
       message = "Sign-in window was closed before finishing. Please try again.";
-    } else if (err.code === "auth/account-exists-with-different-credential") {
-      message = "An admin account already exists with this email using a different sign-in method. Please use email/password instead.";
-    } else if (err.code === "auth/network-request-failed") {
-      message = "Network error — please check your connection and try again.";
-    } else if (err.code === "auth/unauthorized-domain") {
-      message = "This site's domain isn't authorized for Google sign-in yet. Ask the gym owner to add it in Firebase Console → Authentication → Settings → Authorized domains.";
     }
     errorEl.textContent = message;
     errorEl.classList.remove("hidden");
@@ -230,7 +188,6 @@ async function handleGoogleSignIn() {
   }
 }
 
-// -------------------------------------------------------- password reset --
 async function handleForgotPassword() {
   const form = document.getElementById("loginForm");
   const btn = document.getElementById("forgotPasswordBtn");
@@ -252,21 +209,10 @@ async function handleForgotPassword() {
 
   try {
     await auth.sendPasswordResetEmail(email);
-    showResetMessage(
-      `Password reset link sent to ${email}! Check your inbox (and spam folder) and follow the link to set a new password.`,
-      "success"
-    );
+    showResetMessage(`Password reset link sent to ${email}! Check your inbox.`, "success");
   } catch (err) {
     console.error(err);
-    let message = "Something went wrong sending the reset email. Please try again in a moment.";
-    if (err.code === "auth/invalid-email") {
-      message = "That doesn't look like a valid email address. Please double-check it and try again.";
-    } else if (err.code === "auth/user-not-found") {
-      message = "We couldn't find an admin account with that email. Please check with the gym owner for the correct login email.";
-    } else if (err.code === "auth/too-many-requests") {
-      message = "Too many attempts. Please wait a few minutes before trying again.";
-    }
-    showResetMessage(message, "error");
+    showResetMessage("Something went wrong sending the reset email. Please try again.", "error");
   } finally {
     btn.disabled = false;
     btn.textContent = originalLabel;
@@ -276,15 +222,7 @@ async function handleForgotPassword() {
 function showResetMessage(message, kind) {
   const el = document.getElementById("resetMessage");
   el.textContent = message;
-  el.classList.remove(
-    "hidden",
-    "text-emerald-400",
-    "bg-emerald-500/10",
-    "border-emerald-500/30",
-    "text-rose-400",
-    "bg-rose-500/10",
-    "border-rose-500/30"
-  );
+  el.classList.remove("hidden", "text-emerald-400", "bg-emerald-500/10", "border-emerald-500/30", "text-rose-400", "bg-rose-500/10", "border-rose-500/30");
   if (kind === "success") {
     el.classList.add("text-emerald-400", "bg-emerald-500/10", "border-emerald-500/30");
   } else {
@@ -313,14 +251,6 @@ function showDashboard(user) {
   subscribeMonthlyRevenue();
 }
 
-// ------------------------------------------------ device biometric gate --
-// Genuine, real WebAuthn calls — but with no backend to cryptographically
-// verify the signed assertion, this is a strong *local device* gate (a real
-// OS fingerprint/Face ID/screen-lock prompt has to succeed on THIS device)
-// rather than a formally server-verified passkey login. It stops someone
-// who has your Google password — but not this device unlocked — from
-// opening the dashboard.
-
 async function isPlatformAuthenticatorAvailable() {
   try {
     if (!window.PublicKeyCredential || !PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
@@ -328,12 +258,10 @@ async function isPlatformAuthenticatorAvailable() {
     }
     return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
   } catch (err) {
-    console.error("Platform authenticator check failed:", err);
     return false;
   }
 }
 
-/** Verifies the admin's fingerprint/face/screen-lock against a previously registered device credential. */
 async function runDeviceVerification(user, storedCredentialId) {
   const titleEl = document.getElementById("deviceVerifyTitle");
   const subEl = document.getElementById("deviceVerifySub");
@@ -347,7 +275,7 @@ async function runDeviceVerification(user, storedCredentialId) {
   retryBtn.classList.add("hidden");
   resetBtn.classList.add("hidden");
 
-  if (!storedCredentialId) return; // nothing to verify against — caller shouldn't hit this
+  if (!storedCredentialId) return;
 
   try {
     const challenge = crypto.getRandomValues(new Uint8Array(32));
@@ -362,16 +290,9 @@ async function runDeviceVerification(user, storedCredentialId) {
     if (!assertion) throw new Error("No credential returned");
     showDashboard(user);
   } catch (err) {
-    console.error("Device verification failed:", err);
     titleEl.textContent = "Device verification failed";
     subEl.textContent = "";
-    let message = "We couldn't confirm your fingerprint, face, or screen lock on this device.";
-    if (err.name === "NotAllowedError") {
-      message = "Verification was cancelled or timed out. Please try again.";
-    } else if (err.name === "SecurityError") {
-      message = "This site must be served over HTTPS for device verification to work.";
-    }
-    errorEl.textContent = message;
+    errorEl.textContent = "We couldn't confirm your fingerprint, face, or screen lock.";
     errorEl.classList.remove("hidden");
     retryBtn.classList.remove("hidden");
     resetBtn.classList.remove("hidden");
@@ -381,69 +302,44 @@ async function runDeviceVerification(user, storedCredentialId) {
 function handleDeviceVerifyReset() {
   const user = auth.currentUser;
   if (!user) return;
-  const confirmed = confirm(
-    "Reset the device lock for this browser? You'll be asked to set it up again on this device."
-  );
+  const confirmed = confirm("Reset the device lock for this browser?");
   if (!confirmed) return;
   clearStoredCredentialId(user.uid);
   showScreen("biometricSetupScreen");
 }
 
-/** One-time offer to register a platform passkey (fingerprint/face/screen-lock) for this device. */
 async function handleBiometricSetup() {
   const user = auth.currentUser;
   if (!user) return;
-
   const btn = document.getElementById("biometricSetupEnableBtn");
   const errorEl = document.getElementById("biometricSetupError");
   errorEl.classList.add("hidden");
-
-  const originalLabel = btn.textContent;
   btn.disabled = true;
   btn.textContent = "Setting up…";
 
   try {
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const userIdBytes = new TextEncoder().encode(user.uid);
-
     const credential = await navigator.credentials.create({
       publicKey: {
         challenge,
         rp: { name: GYM_SETTINGS.name },
-        user: {
-          id: userIdBytes,
-          name: user.email,
-          displayName: user.displayName || user.email,
-        },
-        pubKeyCredParams: [
-          { type: "public-key", alg: -7 }, // ES256
-          { type: "public-key", alg: -257 }, // RS256
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: "platform",
-          userVerification: "required",
-          residentKey: "preferred",
-        },
+        user: { id: userIdBytes, name: user.email, displayName: user.displayName || user.email },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" },
         timeout: 60000,
         attestation: "none",
       },
     });
-
     if (!credential) throw new Error("No credential created");
-
     storeCredentialId(user.uid, bufferToBase64url(credential.rawId));
     showDashboard(user);
   } catch (err) {
-    console.error("Biometric setup failed:", err);
-    const message =
-      err.name === "NotAllowedError"
-        ? "Setup was cancelled. You can try again anytime from the dashboard."
-        : "Couldn't set up device lock. You can try again anytime from the dashboard.";
-    errorEl.textContent = message;
+    errorEl.textContent = "Couldn't set up device lock.";
     errorEl.classList.remove("hidden");
   } finally {
     btn.disabled = false;
-    btn.textContent = originalLabel;
+    btn.textContent = "Set Up Device Lock";
   }
 }
 
@@ -453,11 +349,9 @@ function handleBiometricSkip() {
   showDashboard(user);
 }
 
-/** Toggle in the dashboard header — lets an admin enable/remove the device lock later. */
 function updateDeviceLockToggle(user) {
   const btn = document.getElementById("deviceLockToggleBtn");
   const signedInWithGoogle = user.providerData.some((p) => p.providerId === "google.com");
-
   if (!signedInWithGoogle) {
     btn.classList.add("hidden");
     return;
@@ -470,69 +364,25 @@ function updateDeviceLockToggle(user) {
 async function handleDeviceLockToggle() {
   const user = auth.currentUser;
   if (!user) return;
-
   if (getStoredCredentialId(user.uid)) {
-    const confirmed = confirm(
-      "Remove the device lock from this browser? You'll be able to open the dashboard here without a fingerprint/face/screen-lock check from now on."
-    );
+    const confirmed = confirm("Remove the device lock from this browser?");
     if (confirmed) {
       clearStoredCredentialId(user.uid);
       updateDeviceLockToggle(user);
     }
     return;
   }
-
   showScreen("biometricSetupScreen");
 }
 
-// ---- localStorage helpers (per-browser/device, intentionally not synced) --
-function credentialStorageKey(uid) {
-  return `ft_biometric_cred_${uid}`;
-}
-function skippedStorageKey(uid) {
-  return `ft_biometric_skipped_${uid}`;
-}
+function credentialStorageKey(uid) { return `ft_biometric_cred_${uid}`; }
+function skippedStorageKey(uid) { return `ft_biometric_skipped_${uid}`; }
+function getStoredCredentialId(uid) { try { return localStorage.getItem(credentialStorageKey(uid)); } catch (e) { return null; } }
+function storeCredentialId(uid, id) { try { localStorage.setItem(credentialStorageKey(uid), id); localStorage.removeItem(skippedStorageKey(uid)); } catch (e) {} }
+function clearStoredCredentialId(uid) { try { localStorage.removeItem(credentialStorageKey(uid)); } catch (e) {} }
+function hasSkippedBiometricSetup(uid) { try { return localStorage.getItem(skippedStorageKey(uid)) === "true"; } catch (e) { return false; } }
+function markBiometricSetupSkipped(uid) { try { localStorage.setItem(skippedStorageKey(uid), "true"); } catch (e) {} }
 
-function getStoredCredentialId(uid) {
-  try {
-    return localStorage.getItem(credentialStorageKey(uid));
-  } catch (err) {
-    console.error(err);
-    return null;
-  }
-}
-function storeCredentialId(uid, id) {
-  try {
-    localStorage.setItem(credentialStorageKey(uid), id);
-    localStorage.removeItem(skippedStorageKey(uid));
-  } catch (err) {
-    console.error(err);
-  }
-}
-function clearStoredCredentialId(uid) {
-  try {
-    localStorage.removeItem(credentialStorageKey(uid));
-  } catch (err) {
-    console.error(err);
-  }
-}
-function hasSkippedBiometricSetup(uid) {
-  try {
-    return localStorage.getItem(skippedStorageKey(uid)) === "true";
-  } catch (err) {
-    console.error(err);
-    return false;
-  }
-}
-function markBiometricSetupSkipped(uid) {
-  try {
-    localStorage.setItem(skippedStorageKey(uid), "true");
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-// ---- ArrayBuffer <-> base64url helpers, for storing/reusing credential IDs --
 function bufferToBase64url(buffer) {
   const bytes = new Uint8Array(buffer);
   let str = "";
@@ -565,9 +415,12 @@ function renderMemberTable() {
   const tbody = document.getElementById("memberTableBody");
   const emptyState = document.getElementById("memberEmptyState");
 
+  // Feature 3: Status Filters applied here alongside search query
   const filtered = allMembers.filter((m) => {
-    if (!query) return true;
-    return m.name.toLowerCase().includes(query) || m.phone.includes(query);
+    if (query && !(m.name.toLowerCase().includes(query) || m.phone.includes(query))) return false;
+    if (currentMemberFilter === "active" && daysUntil(m.expiryDate) < 0) return false;
+    if (currentMemberFilter === "pending" && m.paymentStatus === "paid") return false;
+    return true;
   });
 
   tbody.innerHTML = "";
@@ -578,6 +431,7 @@ function renderMemberTable() {
     const isActive = days >= 0;
     const plan = PLANS[m.plan] || { label: m.plan };
     const isPaid = m.paymentStatus === "paid";
+    const alreadyCheckedIn = todayCheckedInIds.has(m.id);
 
     const tr = document.createElement("tr");
     tr.className = "border-b border-slate-800/70 hover:bg-slate-800/30 transition";
@@ -598,16 +452,17 @@ function renderMemberTable() {
       </td>
       <td class="py-3 pr-0">
         <div class="flex flex-wrap gap-2 justify-end">
-          ${
-            !isPaid
-              ? `<button data-action="mark-paid" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-success/15 text-success px-3 py-1.5 hover:bg-success/25 transition">Mark as Paid</button>`
-              : ""
-          }
-          ${
-            !isActive || !isPaid
-              ? `<button data-action="whatsapp" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-emerald-500/15 text-emerald-400 px-3 py-1.5 hover:bg-emerald-500/25 transition">Send WhatsApp</button>`
-              : ""
-          }
+          <!-- Feature 2: Manual Check-In Button -->
+          <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
+            class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
+              alreadyCheckedIn ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-accent/15 text-accent hover:bg-accent/25"
+            }">${alreadyCheckedIn ? "✓ Checked In" : "Check-In"}</button>
+          
+          ${!isPaid ? `<button data-action="mark-paid" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-success/15 text-success px-3 py-1.5 hover:bg-success/25 transition">Mark as Paid</button>` : ""}
+          ${(!isActive || !isPaid) ? `<button data-action="whatsapp" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-emerald-500/15 text-emerald-400 px-3 py-1.5 hover:bg-emerald-500/25 transition">Send WhatsApp</button>` : ""}
+          
+          <!-- Feature 1: Delete Button with confirmation -->
+          <button data-action="delete" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-rose-500/15 text-rose-400 px-3 py-1.5 hover:bg-rose-500/25 transition">Delete</button>
         </div>
       </td>
     `;
@@ -615,17 +470,32 @@ function renderMemberTable() {
   });
 }
 
+function updateMemberFilterStyles() {
+  document.querySelectorAll(".member-filter-btn").forEach((btn) => {
+    const active = btn.dataset.filter === currentMemberFilter;
+    btn.classList.toggle("bg-accent", active);
+    btn.classList.toggle("text-slate-950", active);
+    btn.classList.toggle("bg-slate-800", !active);
+    btn.classList.toggle("text-slate-400", !active);
+  });
+}
+
 document.getElementById("memberTableBody").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-action]");
-  if (!btn) return;
+  if (!btn || btn.disabled) return;
   const member = allMembers.find((m) => m.id === btn.dataset.id);
   if (!member) return;
 
+  if (btn.dataset.action === "check-in") manualCheckIn(member, btn);
   if (btn.dataset.action === "mark-paid") markAsPaid(member, btn);
   if (btn.dataset.action === "whatsapp") sendWhatsAppReminder(member);
+  if (btn.dataset.action === "delete") deleteMemberWithConfirmation(member, btn);
 });
 
 async function markAsPaid(member, btn) {
+  const confirmed = confirm(`Mark payment as PAID for ${member.name}?`);
+  if (!confirmed) return;
+
   btn.disabled = true;
   btn.textContent = "Saving…";
   try {
@@ -652,6 +522,48 @@ async function markAsPaid(member, btn) {
   }
 }
 
+// Feature 1 Implementation: Direct secure confirmation delete
+async function deleteMemberWithConfirmation(member, btn) {
+  const confirmed = confirm(`Are you sure you want to permanently delete ${member.name} (${member.phone})? This action cannot be undone.`);
+  if (!confirmed) return;
+
+  btn.disabled = true;
+  btn.textContent = "Deleting…";
+  try {
+    await membersCol.doc(member.id).delete();
+  } catch (err) {
+    console.error(err);
+    alert("Could not delete member. Please try again.");
+    btn.disabled = false;
+    btn.textContent = "Delete";
+  }
+}
+
+// Feature 2 Implementation: Manual Check-In
+async function manualCheckIn(member, btn) {
+  if (todayCheckedInIds.has(member.id)) return;
+
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Checking in…";
+  try {
+    await checkinsCol.add({
+      memberId: member.id,
+      name: member.name,
+      phone: member.phone,
+      dateKey: toDateKey(new Date()),
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      method: "manual",
+      loggedBy: auth.currentUser ? auth.currentUser.email : null,
+    });
+  } catch (err) {
+    console.error(err);
+    alert("Could not log check-in. Please try again.");
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
 function sendWhatsAppReminder(member) {
   const number = toWhatsAppNumber(member.phone);
   const days = daysUntil(member.expiryDate);
@@ -666,7 +578,6 @@ function sendWhatsAppReminder(member) {
   window.open(url, "_blank", "noopener");
 }
 
-// ------------------------------------------------------- today's check-ins --
 function subscribeTodayCheckins() {
   const today = toDateKey(new Date());
   unsubCheckins = checkinsCol
@@ -676,7 +587,9 @@ function subscribeTodayCheckins() {
         const rows = snap.docs
           .map((d) => d.data())
           .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+        todayCheckedInIds = new Set(rows.map((r) => r.memberId).filter(Boolean));
         renderCheckinLog(rows);
+        renderMemberTable();
         document.getElementById("statTodayCheckins").textContent = rows.length;
       },
       (err) => console.error("checkins listener error", err)
@@ -709,7 +622,6 @@ function renderCheckinLog(rows) {
   });
 }
 
-// ------------------------------------------------------------ monthly revenue --
 function subscribeMonthlyRevenue() {
   const now = new Date();
   const monthStart = toDateKey(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -727,7 +639,6 @@ function subscribeMonthlyRevenue() {
     );
 }
 
-// ------------------------------------------------------------------ stats --
 function renderStats() {
   const active = allMembers.filter((m) => daysUntil(m.expiryDate) >= 0).length;
   const pending = allMembers.filter((m) => m.paymentStatus !== "paid").length;
@@ -736,7 +647,6 @@ function renderStats() {
   document.getElementById("statTotal").textContent = allMembers.length;
 }
 
-// ----------------------------------------------------------------- utils --
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;

@@ -219,6 +219,17 @@
             <input id="memberSearch" type="text" placeholder="Search by name or phone…"
               class="w-full max-w-xs rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
           </div>
+          
+          <!-- Status filters -->
+<div id="memberFilterGroup" class="flex flex-wrap gap-2 mb-4">
+  <button type="button" data-filter="all"
+    class="member-filter-btn text-xs font-medium rounded-md px-3 py-1.5 transition">All</button>
+  <button type="button" data-filter="active"
+    class="member-filter-btn text-xs font-medium rounded-md px-3 py-1.5 transition">Active</button>
+  <button type="button" data-filter="pending"
+    class="member-filter-btn text-xs font-medium rounded-md px-3 py-1.5 transition">Pending Payments</button>
+</div>
+
 
           <div class="overflow-x-auto">
             <table class="text-sm">
