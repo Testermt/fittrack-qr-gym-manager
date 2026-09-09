@@ -33,9 +33,8 @@ function showScreen(idToShow) {
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("gymNameLabelAdmin").textContent = GYM_SETTINGS.name;
 
-  document.getElementById("loginForm").addEventListener("submit", handleLogin);
+  // Email/Password form listeners hata diye gaye hain kyunki form remove kar diya hai
   document.getElementById("googleSignInBtn").addEventListener("click", handleGoogleSignIn);
-  document.getElementById("forgotPasswordBtn").addEventListener("click", handleForgotPassword);
   document.getElementById("logoutBtn").addEventListener("click", () => auth.signOut());
   document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
 
@@ -75,6 +74,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
 
 async function handleAuthenticatedUser(user) {
   const signedInWithGoogle = user.providerData.some((p) => p.providerId === "google.com");
@@ -175,8 +175,6 @@ async function handleGoogleSignIn() {
   const btn = document.getElementById("googleSignInBtn");
   const errorEl = document.getElementById("googleSignInError");
   errorEl.classList.add("hidden");
-  document.getElementById("loginError").classList.add("hidden");
-  hideResetMessage();
 
   const originalHTML = btn.innerHTML;
   btn.disabled = true;
@@ -201,6 +199,7 @@ async function handleGoogleSignIn() {
     btn.innerHTML = originalHTML;
   }
 }
+
 
 async function handleForgotPassword() {
   const form = document.getElementById("loginForm");
