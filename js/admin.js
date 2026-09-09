@@ -9,6 +9,35 @@ let unsubMembers = null;
 let unsubCheckins = null;
 let unsubPayments = null;
 
+// -------------------------------------------------- admin email whitelist --
+// Google Sign-In lets ANY Google account complete Firebase authentication —
+// so without this check, a stranger who clicks "Sign in with Google" would
+// pass Firebase auth entirely. Only emails listed here are allowed through
+// the Google sign-in path.
+//
+// ⚠️ REPLACE THIS with your real admin email(s) before deploying.
+//
+// IMPORTANT: this is a client-side UX gate only. Real access control for
+// your data must also live in firestore.rules — its isAdmin() currently
+// just checks "is signed in", not "is this specific email". Ask to have
+// isAdmin() tightened to check request.auth.token.email against this same
+// list so a non-whitelisted account can't read data directly via the SDK
+// even if it bypassed this page entirely.
+const ADMIN_ALLOWED_EMAILS = ["owner@gym.com"];
+
+function isEmailWhitelisted(email) {
+  if (!email) return false;
+  return ADMIN_ALLOWED_EMAILS.some((allowed) => allowed.toLowerCase() === email.toLowerCase());
+}
+
+const SCREENS = ["loginScreen", "deviceVerifyScreen", "biometricSetupScreen", "dashboardScreen"];
+
+function showScreen(idToShow) {
+  SCREENS.forEach((id) => {
+    document.getElementById(id).classList.toggle("hidden", id !== idToShow);
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("gymNameLabelAdmin").textContent = GYM_SETTINGS.name;
 
@@ -18,14 +47,68 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("logoutBtn").addEventListener("click", () => auth.signOut());
   document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
 
+  document.getElementById("deviceVerifyRetryBtn").addEventListener("click", () => {
+    const user = auth.currentUser;
+    if (user) runDeviceVerification(user, getStoredCredentialId(user.uid));
+  });
+  document.getElementById("deviceVerifyResetBtn").addEventListener("click", handleDeviceVerifyReset);
+  document.getElementById("deviceVerifySignOutBtn").addEventListener("click", () => auth.signOut());
+  document.getElementById("biometricSetupEnableBtn").addEventListener("click", handleBiometricSetup);
+  document.getElementById("biometricSetupSkipBtn").addEventListener("click", handleBiometricSkip);
+  document.getElementById("deviceLockToggleBtn").addEventListener("click", handleDeviceLockToggle);
+
   auth.onAuthStateChanged((user) => {
     if (user) {
-      showDashboard(user);
+      handleAuthenticatedUser(user);
     } else {
       showLogin();
     }
   });
 });
+
+/**
+ * Runs on every sign-in AND on every page load that restores an existing
+ * session (not just fresh logins) — this is what stops the device gate
+ * from being skipped by simply refreshing the page.
+ *
+ * Google-linked accounts go through the whitelist + biometric device gate.
+ * Email/password-only accounts (the emergency backup path) go straight to
+ * the dashboard — they were only ever created deliberately in the Firebase
+ * Console, so they don't need the extra Google-specific checks.
+ */
+async function handleAuthenticatedUser(user) {
+  const signedInWithGoogle = user.providerData.some((p) => p.providerId === "google.com");
+
+  if (signedInWithGoogle) {
+    if (!isEmailWhitelisted(user.email)) {
+      showAuthGateError(`This Google account (${user.email}) isn't authorized as a gym admin.`);
+      await auth.signOut();
+      return;
+    }
+
+    const biometricSupported = await isPlatformAuthenticatorAvailable();
+    if (biometricSupported) {
+      const storedCredentialId = getStoredCredentialId(user.uid);
+      if (storedCredentialId) {
+        showScreen("deviceVerifyScreen");
+        await runDeviceVerification(user, storedCredentialId);
+        return;
+      }
+      if (!hasSkippedBiometricSetup(user.uid)) {
+        showScreen("biometricSetupScreen");
+        return;
+      }
+    }
+  }
+
+  showDashboard(user);
+}
+
+function showAuthGateError(message) {
+  const el = document.getElementById("googleSignInError");
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
 
 // ------------------------------------------------------------------ auth --
 async function handleLogin(e) {
@@ -64,9 +147,12 @@ async function handleGoogleSignIn() {
 
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
+    // Always show the account chooser — never silently reuse a cached
+    // browser session without an explicit confirmation click.
+    provider.setCustomParameters({ prompt: "select_account" });
     await auth.signInWithPopup(provider);
-    // auth.onAuthStateChanged (registered on load) takes it from here and
-    // swaps in the dashboard once Firebase confirms the signed-in user.
+    // handleAuthenticatedUser (wired to onAuthStateChanged) takes it from
+    // here — whitelist check, then the device biometric gate if available.
   } catch (err) {
     console.error(err);
     let message = "Something went wrong signing in with Google. Please try again.";
@@ -156,21 +242,255 @@ function hideResetMessage() {
 }
 
 function showLogin() {
-  document.getElementById("loginScreen").classList.remove("hidden");
-  document.getElementById("dashboardScreen").classList.add("hidden");
+  showScreen("loginScreen");
   if (unsubMembers) unsubMembers();
   if (unsubCheckins) unsubCheckins();
   if (unsubPayments) unsubPayments();
 }
 
 function showDashboard(user) {
-  document.getElementById("loginScreen").classList.add("hidden");
-  document.getElementById("dashboardScreen").classList.remove("hidden");
+  showScreen("dashboardScreen");
   document.getElementById("adminEmailLabel").textContent = user.email;
+  updateDeviceLockToggle(user);
 
   subscribeMembers();
   subscribeTodayCheckins();
   subscribeMonthlyRevenue();
+}
+
+// ------------------------------------------------ device biometric gate --
+// Genuine, real WebAuthn calls — but with no backend to cryptographically
+// verify the signed assertion, this is a strong *local device* gate (a real
+// OS fingerprint/Face ID/screen-lock prompt has to succeed on THIS device)
+// rather than a formally server-verified passkey login. It stops someone
+// who has your Google password — but not this device unlocked — from
+// opening the dashboard.
+
+async function isPlatformAuthenticatorAvailable() {
+  try {
+    if (!window.PublicKeyCredential || !PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
+      return false;
+    }
+    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch (err) {
+    console.error("Platform authenticator check failed:", err);
+    return false;
+  }
+}
+
+/** Verifies the admin's fingerprint/face/screen-lock against a previously registered device credential. */
+async function runDeviceVerification(user, storedCredentialId) {
+  const titleEl = document.getElementById("deviceVerifyTitle");
+  const subEl = document.getElementById("deviceVerifySub");
+  const errorEl = document.getElementById("deviceVerifyError");
+  const retryBtn = document.getElementById("deviceVerifyRetryBtn");
+  const resetBtn = document.getElementById("deviceVerifyResetBtn");
+
+  titleEl.textContent = "Verifying this device…";
+  subEl.textContent = "Confirm with your fingerprint, face, or screen lock to continue.";
+  errorEl.classList.add("hidden");
+  retryBtn.classList.add("hidden");
+  resetBtn.classList.add("hidden");
+
+  if (!storedCredentialId) return; // nothing to verify against — caller shouldn't hit this
+
+  try {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        allowCredentials: [{ id: base64urlToBuffer(storedCredentialId), type: "public-key" }],
+        userVerification: "required",
+        timeout: 60000,
+      },
+    });
+    if (!assertion) throw new Error("No credential returned");
+    showDashboard(user);
+  } catch (err) {
+    console.error("Device verification failed:", err);
+    titleEl.textContent = "Device verification failed";
+    subEl.textContent = "";
+    let message = "We couldn't confirm your fingerprint, face, or screen lock on this device.";
+    if (err.name === "NotAllowedError") {
+      message = "Verification was cancelled or timed out. Please try again.";
+    } else if (err.name === "SecurityError") {
+      message = "This site must be served over HTTPS for device verification to work.";
+    }
+    errorEl.textContent = message;
+    errorEl.classList.remove("hidden");
+    retryBtn.classList.remove("hidden");
+    resetBtn.classList.remove("hidden");
+  }
+}
+
+function handleDeviceVerifyReset() {
+  const user = auth.currentUser;
+  if (!user) return;
+  const confirmed = confirm(
+    "Reset the device lock for this browser? You'll be asked to set it up again on this device."
+  );
+  if (!confirmed) return;
+  clearStoredCredentialId(user.uid);
+  showScreen("biometricSetupScreen");
+}
+
+/** One-time offer to register a platform passkey (fingerprint/face/screen-lock) for this device. */
+async function handleBiometricSetup() {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const btn = document.getElementById("biometricSetupEnableBtn");
+  const errorEl = document.getElementById("biometricSetupError");
+  errorEl.classList.add("hidden");
+
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Setting up…";
+
+  try {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userIdBytes = new TextEncoder().encode(user.uid);
+
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: GYM_SETTINGS.name },
+        user: {
+          id: userIdBytes,
+          name: user.email,
+          displayName: user.displayName || user.email,
+        },
+        pubKeyCredParams: [
+          { type: "public-key", alg: -7 }, // ES256
+          { type: "public-key", alg: -257 }, // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          userVerification: "required",
+          residentKey: "preferred",
+        },
+        timeout: 60000,
+        attestation: "none",
+      },
+    });
+
+    if (!credential) throw new Error("No credential created");
+
+    storeCredentialId(user.uid, bufferToBase64url(credential.rawId));
+    showDashboard(user);
+  } catch (err) {
+    console.error("Biometric setup failed:", err);
+    const message =
+      err.name === "NotAllowedError"
+        ? "Setup was cancelled. You can try again anytime from the dashboard."
+        : "Couldn't set up device lock. You can try again anytime from the dashboard.";
+    errorEl.textContent = message;
+    errorEl.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+function handleBiometricSkip() {
+  const user = auth.currentUser;
+  if (user) markBiometricSetupSkipped(user.uid);
+  showDashboard(user);
+}
+
+/** Toggle in the dashboard header — lets an admin enable/remove the device lock later. */
+function updateDeviceLockToggle(user) {
+  const btn = document.getElementById("deviceLockToggleBtn");
+  const signedInWithGoogle = user.providerData.some((p) => p.providerId === "google.com");
+
+  if (!signedInWithGoogle) {
+    btn.classList.add("hidden");
+    return;
+  }
+  btn.classList.remove("hidden");
+  const enabled = !!getStoredCredentialId(user.uid);
+  btn.textContent = enabled ? "🔓 Remove device lock" : "🔒 Enable device lock";
+}
+
+async function handleDeviceLockToggle() {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  if (getStoredCredentialId(user.uid)) {
+    const confirmed = confirm(
+      "Remove the device lock from this browser? You'll be able to open the dashboard here without a fingerprint/face/screen-lock check from now on."
+    );
+    if (confirmed) {
+      clearStoredCredentialId(user.uid);
+      updateDeviceLockToggle(user);
+    }
+    return;
+  }
+
+  showScreen("biometricSetupScreen");
+}
+
+// ---- localStorage helpers (per-browser/device, intentionally not synced) --
+function credentialStorageKey(uid) {
+  return `ft_biometric_cred_${uid}`;
+}
+function skippedStorageKey(uid) {
+  return `ft_biometric_skipped_${uid}`;
+}
+
+function getStoredCredentialId(uid) {
+  try {
+    return localStorage.getItem(credentialStorageKey(uid));
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+function storeCredentialId(uid, id) {
+  try {
+    localStorage.setItem(credentialStorageKey(uid), id);
+    localStorage.removeItem(skippedStorageKey(uid));
+  } catch (err) {
+    console.error(err);
+  }
+}
+function clearStoredCredentialId(uid) {
+  try {
+    localStorage.removeItem(credentialStorageKey(uid));
+  } catch (err) {
+    console.error(err);
+  }
+}
+function hasSkippedBiometricSetup(uid) {
+  try {
+    return localStorage.getItem(skippedStorageKey(uid)) === "true";
+  } catch (err) {
+    console.error(err);
+    return false;
+  }
+}
+function markBiometricSetupSkipped(uid) {
+  try {
+    localStorage.setItem(skippedStorageKey(uid), "true");
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// ---- ArrayBuffer <-> base64url helpers, for storing/reusing credential IDs --
+function bufferToBase64url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let str = "";
+  bytes.forEach((b) => (str += String.fromCharCode(b)));
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function base64urlToBuffer(base64url) {
+  const padding = "=".repeat((4 - (base64url.length % 4)) % 4);
+  const base64 = (base64url + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes.buffer;
 }
 
 // --------------------------------------------------------------- members --
