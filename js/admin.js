@@ -565,6 +565,7 @@ async function handleReauthSubmit(e) {
   submitBtn.textContent = "Verifying…";
 
   try {
+    // Step 1: Firebase Auth re-authentication (Password or Google popup)
     if (isPasswordUser) {
       const password = document.getElementById("reauthPasswordInput").value;
       if (!password) throw { code: "auth/missing-password" };
@@ -576,6 +577,28 @@ async function handleReauthSubmit(e) {
       await user.reauthenticateWithPopup(provider);
     }
 
+    // Step 2: DOUBLE PROTECTION — Force Device Passkey / Fingerprint verification!
+    const biometricSupported = await window.PublicKeyCredential && 
+      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      
+    if (biometricSupported) {
+      const storedCredentialId = getStoredCredentialId(user.uid);
+      if (storedCredentialId) {
+        submitBtn.textContent = "Scan fingerprint…";
+        const challenge = crypto.getRandomValues(new Uint8Array(32));
+        const assertion = await navigator.credentials.get({
+          publicKey: {
+            challenge,
+            allowCredentials: [{ id: base64urlToBuffer(storedCredentialId), type: "public-key" }],
+            userVerification: "required",
+            timeout: 60000,
+          },
+        });
+        if (!assertion) throw new Error("Fingerprint verification cancelled");
+      }
+    }
+
+    // Both Google/Password AND Device Fingerprint verified successfully!
     const { type, member, btn } = pendingReauthAction;
     closeReauthModal();
 
@@ -587,7 +610,9 @@ async function handleReauthSubmit(e) {
   } catch (err) {
     console.error("Re-authentication failed:", err);
     let message = "Couldn't verify your identity. Please try again.";
-    if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+    if (err.name === "NotAllowedError") {
+      message = "Fingerprint verification was cancelled or timed out.";
+    } else if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
       message = "That password doesn't match. Please try again.";
     } else if (err.code === "auth/missing-password") {
       message = "Please enter your password to confirm.";
@@ -599,6 +624,7 @@ async function handleReauthSubmit(e) {
     submitBtn.textContent = originalLabel;
   }
 }
+
 
 async function executeMarkAsPaid(member, btn) {
   const originalLabel = btn ? btn.textContent : "";
