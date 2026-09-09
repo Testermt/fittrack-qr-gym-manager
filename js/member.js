@@ -11,6 +11,7 @@ const GYM_LOCATION = {
 };
 */
 
+
 const GYM_LOCATION = {
   lat: 29.456923,     // Tera ghar/testing latitude
   lng: 77.717848,           // Tera ghar/testing longitude
