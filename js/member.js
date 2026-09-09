@@ -1,5 +1,31 @@
 // FitTrack QR Gym Manager — Member Portal logic (index.html)
 
+
+// ==================== GEOFENCING CONFIGURATION ====================
+const GYM_LOCATION = {
+  lat: 29.4727,             // Apne gym ka exact Latitude yahan set karein (e.g. Muzaffarnagar)
+  lng: 77.7085,             // Apne gym ka exact Longitude yahan set karein
+  allowedRadiusMeters: 40   // Maximum allowed range in meters (gym premises ke andar)
+};
+
+// Haversine formula to calculate distance in meters
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // Earth radius in meters
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+
+
+
+
+
 const membersCol = db.collection("members");
 const checkinsCol = db.collection("checkins");
 
@@ -151,25 +177,57 @@ function closeWelcomeModal() {
  * never surface as an unhandled promise rejection or block anything.
  */
 async function logCheckinIfNeeded(memberId, name, phone) {
-  const today = toDateKey(new Date());
-  try {
-    const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
-    const alreadyCheckedInToday = snapshot.docs.some((doc) => doc.data().dateKey === today);
-    if (alreadyCheckedInToday) return false;
-
-    await checkinsCol.add({
-      memberId,
-      name,
-      phone,
-      dateKey: today,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    return true;
-  } catch (err) {
-    console.error("logCheckinIfNeeded failed:", err);
+  if (!navigator.geolocation) {
+    alert("Geolocation is not supported by your device.");
     return false;
   }
+
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const userLat = position.coords.latitude;
+        const userLng = position.coords.longitude;
+        const distance = calculateDistance(userLat, userLng, GYM_LOCATION.lat, GYM_LOCATION.lng);
+
+        if (distance > GYM_LOCATION.allowedRadiusMeters) {
+          alert(`Check-in blocked! You are ${Math.round(distance)} meters away from the gym. You must be inside the gym premises.`);
+          resolve(false);
+          return;
+        }
+
+        const today = toDateKey(new Date());
+        try {
+          const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
+          const alreadyCheckedInToday = snapshot.docs.some((doc) => doc.data().dateKey === today);
+          if (alreadyCheckedInToday) {
+            resolve(false);
+            return;
+          }
+
+          await checkinsCol.add({
+            memberId,
+            name,
+            phone,
+            dateKey: today,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            method: "geofenced-gps",
+          });
+          resolve(true);
+        } catch (err) {
+          console.error("logCheckinIfNeeded failed:", err);
+          resolve(false);
+        }
+      },
+      (error) => {
+        console.error(error);
+        alert("Please enable GPS location permission on your phone to check in.");
+        resolve(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  });
 }
+
 
 // ------------------------------------------------------------ register --
 async function handleRegisterSubmit(e) {
