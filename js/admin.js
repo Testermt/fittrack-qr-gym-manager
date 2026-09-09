@@ -676,16 +676,27 @@ async function executeDeleteMember(member, btn) {
     btn.textContent = "Deleting…";
   }
   try {
+    // 1. Member ko members collection se delete karo
     await membersCol.doc(member.id).delete();
+
+    // 2. Us member ke saare check-ins bhi checkins collection se hata do
+    const checkinsSnapshot = await checkinsCol.where("memberId", "==", member.id).get();
+    const batch = db.batch();
+    checkinsSnapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+
   } catch (err) {
     console.error(err);
-    alert("Could not delete member. Please try again.");
+    alert("Could not delete member and records. Please try again.");
     if (btn) {
       btn.disabled = false;
       btn.textContent = originalLabel || "Delete";
     }
   }
 }
+
 
 // Manual Check-In
 async function manualCheckIn(member, btn) {
