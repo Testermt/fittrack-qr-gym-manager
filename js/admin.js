@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("gymNameLabelAdmin").textContent = GYM_SETTINGS.name;
 
   document.getElementById("loginForm").addEventListener("submit", handleLogin);
+  document.getElementById("googleSignInBtn").addEventListener("click", handleGoogleSignIn);
   document.getElementById("forgotPasswordBtn").addEventListener("click", handleForgotPassword);
   document.getElementById("logoutBtn").addEventListener("click", () => auth.signOut());
   document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
@@ -33,6 +34,7 @@ async function handleLogin(e) {
   const btn = form.querySelector("button[type=submit]");
   const errorEl = document.getElementById("loginError");
   errorEl.classList.add("hidden");
+  document.getElementById("googleSignInError").classList.add("hidden");
   hideResetMessage();
 
   btn.disabled = true;
@@ -48,12 +50,52 @@ async function handleLogin(e) {
   }
 }
 
+// -------------------------------------------------------- Google sign-in --
+async function handleGoogleSignIn() {
+  const btn = document.getElementById("googleSignInBtn");
+  const errorEl = document.getElementById("googleSignInError");
+  errorEl.classList.add("hidden");
+  document.getElementById("loginError").classList.add("hidden");
+  hideResetMessage();
+
+  const originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span>Signing in…</span>`;
+
+  try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await auth.signInWithPopup(provider);
+    // auth.onAuthStateChanged (registered on load) takes it from here and
+    // swaps in the dashboard once Firebase confirms the signed-in user.
+  } catch (err) {
+    console.error(err);
+    let message = "Something went wrong signing in with Google. Please try again.";
+    if (err.code === "auth/popup-blocked") {
+      message = "Your browser blocked the Google sign-in popup. Please allow popups for this site and try again.";
+    } else if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
+      message = "Sign-in window was closed before finishing. Please try again.";
+    } else if (err.code === "auth/account-exists-with-different-credential") {
+      message = "An admin account already exists with this email using a different sign-in method. Please use email/password instead.";
+    } else if (err.code === "auth/network-request-failed") {
+      message = "Network error — please check your connection and try again.";
+    } else if (err.code === "auth/unauthorized-domain") {
+      message = "This site's domain isn't authorized for Google sign-in yet. Ask the gym owner to add it in Firebase Console → Authentication → Settings → Authorized domains.";
+    }
+    errorEl.textContent = message;
+    errorEl.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+  }
+}
+
 // -------------------------------------------------------- password reset --
 async function handleForgotPassword() {
   const form = document.getElementById("loginForm");
   const btn = document.getElementById("forgotPasswordBtn");
   const errorEl = document.getElementById("loginError");
   errorEl.classList.add("hidden");
+  document.getElementById("googleSignInError").classList.add("hidden");
 
   const email = form.email.value.trim();
 
