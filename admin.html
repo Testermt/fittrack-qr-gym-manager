@@ -206,17 +206,27 @@
 </section>
 
 
-        <!-- Live attendance -->
-        <section class="lg:col-span-1 rounded-xl border border-slate-800 bg-panel p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="font-semibold text-slate-100">Today's Check-Ins</h2>
-            <span class="text-xs rounded-full bg-slate-800 px-2.5 py-1 text-slate-400">
-              <span id="statTodayCheckins">0</span> today
-            </span>
-          </div>
-          <ul id="checkinLog" class="max-h-[420px] overflow-y-auto"></ul>
-          <p id="checkinEmptyState" class="text-sm text-slate-600 text-center py-8">No check-ins yet today.</p>
-        </section>
+        <!-- Live attendance with Time Filters -->
+<section class="lg:col-span-1 rounded-xl border border-slate-800 bg-panel p-5">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold text-slate-100">Today's Check-Ins</h2>
+    <span class="text-xs rounded-full bg-slate-800 px-2.5 py-1 text-slate-400">
+      <span id="statTodayCheckins">0</span> today
+    </span>
+  </div>
+
+  <!-- Time Slot Filter Chips -->
+  <div id="checkinTimeFilterGroup" class="flex gap-1.5 mb-3 text-xs">
+    <button type="button" data-time-filter="all" class="checkin-time-btn px-2.5 py-1 rounded-md bg-accent text-slate-950 font-medium transition">All</button>
+    <button type="button" data-time-filter="morning" class="checkin-time-btn px-2.5 py-1 rounded-md bg-slate-800 text-slate-400 font-medium transition">Morning</button>
+    <button type="button" data-time-filter="afternoon" class="checkin-time-btn px-2.5 py-1 rounded-md bg-slate-800 text-slate-400 font-medium transition">Afternoon</button>
+    <button type="button" data-time-filter="evening" class="checkin-time-btn px-2.5 py-1 rounded-md bg-slate-800 text-slate-400 font-medium transition">Evening</button>
+  </div>
+
+  <ul id="checkinLog" class="max-h-[380px] overflow-y-auto"></ul>
+  <p id="checkinEmptyState" class="text-sm text-slate-600 text-center py-8">No check-ins yet today.</p>
+</section>
+
 
         <!-- Member directory -->
         <section class="lg:col-span-2 rounded-xl border border-slate-800 bg-panel p-5">

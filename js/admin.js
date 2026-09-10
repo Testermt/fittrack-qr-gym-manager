@@ -790,12 +790,29 @@ function subscribeTodayCheckins() {
 }
 
 function renderCheckinLog(rows) {
+  window._latestTodayRows = rows; // Cache rows for filtering
   const list = document.getElementById("checkinLog");
   const emptyState = document.getElementById("checkinEmptyState");
   list.innerHTML = "";
-  emptyState.classList.toggle("hidden", rows.length > 0);
 
-  rows.forEach((row) => {
+  // Filter rows based on currentTimeFilter
+  const filteredRows = rows.filter((row) => {
+    if (!row.timestamp || !row.timestamp.toDate) return true;
+    const hour = row.timestamp.toDate().getHours(); // 0 to 23
+
+    if (currentTimeFilter === "morning") {
+      return hour >= 5 && hour < 12; // 5 AM to 12 PM
+    } else if (currentTimeFilter === "afternoon") {
+      return hour >= 12 && hour < 17; // 12 PM to 5 PM
+    } else if (currentTimeFilter === "evening") {
+      return hour >= 17 || hour < 5; // 5 PM to 5 AM
+    }
+    return true; // "all"
+  });
+
+  emptyState.classList.toggle("hidden", filteredRows.length > 0);
+
+  filteredRows.forEach((row) => {
     const time = row.timestamp?.toDate
       ? row.timestamp.toDate().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
       : "—";
@@ -814,6 +831,7 @@ function renderCheckinLog(rows) {
     list.appendChild(li);
   });
 }
+
 
 function subscribeMonthlyRevenue() {
   const now = new Date();
@@ -967,3 +985,28 @@ function renderWeeklyCheckinsChart(checkinsList) {
   });
 }
 
+let currentTimeFilter = "all"; // Default filter
+
+// DOMContentLoaded ke andar yeh event listener add kar dena:
+const checkinTimeFilterGroup = document.getElementById("checkinTimeFilterGroup");
+if (checkinTimeFilterGroup) {
+  checkinTimeFilterGroup.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-time-filter]");
+    if (!btn) return;
+    currentTimeFilter = btn.dataset.timeFilter;
+    
+    // Update button styles
+    document.querySelectorAll(".checkin-time-btn").forEach((b) => {
+      const active = b.dataset.timeFilter === currentTimeFilter;
+      b.classList.toggle("bg-accent", active);
+      b.classList.toggle("text-slate-950", active);
+      b.classList.toggle("bg-slate-800", !active);
+      b.classList.toggle("text-slate-400", !active);
+    });
+
+    // Re-render log with current rows
+    if (window._latestTodayRows) {
+      renderCheckinLog(window._latestTodayRows);
+    }
+  });
+}
