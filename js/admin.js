@@ -15,39 +15,74 @@ let todayCheckedInIds = new Set();
 // Variable to track pending secure action for re-auth
 let pendingReauthAction = null;
 
-async function isVerifiedAdmin(email, retries = 5) {
+// Thrown only when we genuinely could NOT complete the admin check (network
+// blip, or the ID-token-propagation race right after a popup sign-in) —
+// never for "this account isn't an admin". Callers must treat this
+// differently from a plain `false` result (see handleAuthenticatedUser).
+class AdminVerificationError extends Error {
+  constructor(message, cause) {
+    super(message);
+    this.name = "AdminVerificationError";
+    this.cause = cause;
+  }
+}
+
+/**
+ * Checks the `admins/{email}` whitelist doc for the signed-in user.
+ * Returns true/false once the check actually completes; throws
+ * AdminVerificationError only after exhausting retries on a retryable
+ * failure (never leaves the caller guessing, never crashes the UI).
+ */
+async function isVerifiedAdmin(email, { retries = 4, baseDelayMs = 600 } = {}) {
   if (!email) return false;
   const docId = email.trim().toLowerCase();
-  
-  // 🔥 Ensure Firebase Auth token is fully ready and synced with Firestore
-  const currentUser = auth.currentUser;
-  if (currentUser) {
+
+  let lastErr = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      await currentUser.getIdToken(true); // Force token refresh & sync
-    } catch (e) {
-      console.warn("Token sync warning:", e);
+      // Only force a fresh ID token on a RETRY, not on the first attempt.
+      // Right after signInWithPopup() resolves, the client already holds a
+      // valid token — forcing a refresh immediately is what was causing the
+      // occasional throw. If the first Firestore read comes back
+      // permission-denied (token/rules propagation race), *then* we refresh
+      // before trying again.
+      if (attempt > 0) {
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          throw new AdminVerificationError("Session was lost while verifying admin access.");
+        }
+        await currentUser.getIdToken(true);
+      }
+
+      const doc = await db.collection("admins").doc(docId).get();
+      return doc.exists;
+    } catch (err) {
+      lastErr = err;
+      const code = err && err.code;
+
+      // Retry only on failures that are plausibly transient:
+      // - permission-denied: classic race right after sign-in, before the
+      //   fresh ID token's claims have fully propagated to Firestore's
+      //   rules engine.
+      // - unavailable / internal / network errors: plain connectivity blips.
+      // Anything else (e.g. a malformed request) is not worth retrying.
+      const retryable =
+        code === "permission-denied" ||
+        code === "unavailable" ||
+        code === "internal" ||
+        code === "auth/network-request-failed";
+
+      console.warn(`Admin verification attempt ${attempt + 1} failed:`, code || err.message);
+
+      if (!retryable || attempt === retries) break;
+
+      const delay = baseDelayMs * Math.pow(2, attempt); // 600ms, 1.2s, 2.4s, 4.8s
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 
-  for (let i = 0; i < retries; i++) {
-    try {
-      const doc = await db.collection("admins").doc(docId).get();
-      if (doc.exists) return true;
-      
-      // Agar document nahi mila, toh 1 second wait karke retry karein
-      if (i < retries - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        continue;
-      }
-      return false;
-    } catch (err) {
-      console.warn(`Admin verification attempt ${i + 1} failed:`, err.code || err.message);
-      if (i === retries - 1) return false;
-      // Clean retry delay without any broken syntax
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-  }
-  return false;
+  throw new AdminVerificationError("Could not verify admin status after retries.", lastErr);
 }
 
 
@@ -118,11 +153,13 @@ async function handleAuthenticatedUser(user) {
 
     let isAdmin = false;
     try {
-      // 🔥 FIX: Ensure auth token is fully synced with Firestore before querying
-      await user.getIdToken(true);
+      // isVerifiedAdmin owns its own token-sync + retry/backoff internally.
+      // It only throws when the check genuinely couldn't complete (network
+      // blip or the post-popup token-propagation race) — never for a
+      // legitimate "not an admin" result, which comes back as `false`.
       isAdmin = await isVerifiedAdmin(user.email);
     } catch (err) {
-      console.error("Admin verification lookup failed:", err);
+      console.error("Admin verification lookup failed:", err, err && err.cause ? err.cause : "");
       showAuthGateError("Couldn't verify admin access right now. Please check your connection and try again.");
       await auth.signOut();
       return;
