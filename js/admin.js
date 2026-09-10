@@ -15,23 +15,26 @@ let todayCheckedInIds = new Set();
 // Variable to track pending secure action for re-auth
 let pendingReauthAction = null;
 
-async function isVerifiedAdmin(email, retries = 3) {
+async function isVerifiedAdmin(email, retries = 4) {
   if (!email) return false;
   const docId = email.trim().toLowerCase();
   
   for (let i = 0; i < retries; i++) {
     try {
-      // 🔥 Token propagation ke liye chota sa retry & wait mechanism
+      // 🔥 Firestore token propagation ke liye graceful retry & wait
       const doc = await db.collection("admins").doc(docId).get();
-      return doc.exists;
+      if (doc.exists) return true;
+      return false; // Document nahi mila matlab admin nahi hai
     } catch (err) {
-      console.warn(`Admin verification attempt ${i + 1} failed:`, err);
-      if (i === retries - 1) throw err;
-      await new Promise((resolve) => setTimeout(resolve, 800)); // 800ms wait karke retry karega
+      console.warn(`Admin verification attempt ${i + 1} failed (waiting for token sync):`, err);
+      // Agar aakhri try bhi fail ho jaye, tab hi false return karein (throws band!)
+      if (i === retries - 1) return false;
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second ka gap
     }
   }
   return false;
 }
+
 
 
 const SCREENS = ["loginScreen", "deviceVerifyScreen", "biometricSetupScreen", "dashboardScreen"];
