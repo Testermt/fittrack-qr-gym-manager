@@ -197,10 +197,53 @@ function closeWelcomeModal() {
  */
 // ==================== STRICT GEOFENCED CHECK-IN ====================
 // ==================== UPDATED GEOFENCED CHECK-IN ====================
+
+/**
+ * Checks the LIVE Permissions API state for geolocation (when supported).
+ * Returns 'granted' | 'denied' | 'prompt' | 'unsupported'.
+ *
+ * This is the key fix for the "manual override doesn't work" bug: the old
+ * code never asked the browser what the *current* permission state is — it
+ * just fired getCurrentPosition() and hoped. Because we query fresh on every
+ * single attempt (no caching in a JS variable), if the user goes into site
+ * settings and flips Block -> Allow, the very next check-in attempt sees
+ * 'granted' immediately. No reload required.
+ */
+async function getGeoPermissionState() {
+  if (!navigator.permissions || !navigator.permissions.query) {
+    return "unsupported"; // older Safari, some in-app browsers
+  }
+  try {
+    const status = await navigator.permissions.query({ name: "geolocation" });
+    return status.state; // 'granted' | 'denied' | 'prompt'
+  } catch (err) {
+    return "unsupported";
+  }
+}
+
+/**
+ * Attempts a geofenced check-in. Never throws and never blocks the app with
+ * alert() for expected/recoverable states — it always resolves to a status
+ * string (or, for out-of-range, a small status object) that the caller uses
+ * to render UI. Possible resolved values:
+ *   "success" | "already-checked-in" | "geo-unsupported" |
+ *   "permission-denied" | "position-unavailable" | "location-timeout" |
+ *   "error" | { status: "out-of-range", distance: <meters> }
+ */
 async function logCheckinIfNeeded(memberId, name, phone) {
   if (!navigator.geolocation) {
-    alert("Geolocation is not supported by your browser.");
-    return "error";
+    return "geo-unsupported";
+  }
+
+  // 0. Ask the browser for its CURRENT permission state before doing
+  // anything else. If it's already denied, calling getCurrentPosition()
+  // anyway is exactly what causes the "silent failure, popup never comes
+  // back" symptom — on most browsers a denied permission fails instantly
+  // with code 1 and no prompt. We short-circuit straight to the guidance
+  // UI instead of letting that happen.
+  const permissionState = await getGeoPermissionState();
+  if (permissionState === "denied") {
+    return "permission-denied";
   }
 
   return new Promise((resolve) => {
@@ -215,8 +258,7 @@ async function logCheckinIfNeeded(memberId, name, phone) {
 
         // 1. Agar gym se door hai
         if (distance > GYM_LOCATION.allowedRadiusMeters) {
-          alert(`Check-in blocked! You are ${Math.round(distance)} meters away from the gym. You must be inside the gym premises.`);
-          resolve("out-of-range");
+          resolve({ status: "out-of-range", distance: Math.round(distance) });
           return;
         }
 
@@ -225,13 +267,13 @@ async function logCheckinIfNeeded(memberId, name, phone) {
         try {
           const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
           const alreadyCheckedInToday = snapshot.docs.some((doc) => doc.data().dateKey === today);
-          
+
           if (alreadyCheckedInToday) {
             resolve("already-checked-in");
             return;
           }
 
-                // 3. Success: Save check-in with a deterministic document ID (memberId_dateKey)
+          // 3. Success: Save check-in with a deterministic document ID (memberId_dateKey)
           const checkinId = `${memberId}_${today}`;
           await checkinsCol.doc(checkinId).set({
             memberId,
@@ -242,34 +284,30 @@ async function logCheckinIfNeeded(memberId, name, phone) {
             method: "geofenced-gps",
           });
 
-          
           resolve("success");
         } catch (err) {
           console.error("Firestore check-in error:", err);
           resolve("error");
         }
       },
-      
-           (error) => {
+      (error) => {
         console.error("GPS Error Code:", error.code, error.message);
-        
-        //  alert ki jagah confirm use kiya taaki OK dabane par dobara try ho sake
-        const retry = confirm("GPS location access failed or timed out. Click OK to try again.");
-        
-        if (retry) {
-          // Dobara same function call kar do
-          logCheckinIfNeeded(memberId, name, phone).then(resolve);
+        // error.code: 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
+        if (error.code === 1) {
+          resolve("permission-denied");
+        } else if (error.code === 2) {
+          resolve("position-unavailable");
+        } else if (error.code === 3) {
+          resolve("location-timeout");
         } else {
           resolve("error");
         }
       },
-
-            { 
-        enableHighAccuracy: false, //  true ki jagah false karein (indoor mein fast work karega)
-        timeout: 20000,            //  timeout ko 10 seconds se badha kar 20 seconds kar dein
-        maximumAge: 60000          //  cached location allow karein
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
       }
-
     );
   });
 }
@@ -394,6 +432,112 @@ async function handleStatusCheck(e) {
   }
 }
 
+/**
+ * Re-runs just the geolocation check-in for the member already loaded on
+ * screen (currentMember), without making them re-type their phone number.
+ * This is what the "Try Again" button in the permission-help banner calls.
+ * Because logCheckinIfNeeded() re-queries the Permissions API fresh every
+ * time, this will correctly pick up a permission the user just changed to
+ * "Allow" in their browser settings — no page reload needed.
+ */
+async function retryCheckin() {
+  if (!currentMember) return;
+  hideLocationHelp();
+  const retryBtn = document.getElementById("retryLocationBtn");
+  setBusy(retryBtn, true, "Checking");
+  try {
+    const checkinStatus = await logCheckinIfNeeded(currentMember.id, currentMember.name, currentMember.phone);
+    renderStatusCard(currentMember, checkinStatus);
+    loadMemberCheckinHistory(currentMember.id);
+  } catch (err) {
+    console.error(err);
+    showBanner("statusBanner", "Something went wrong. Please try again.");
+  } finally {
+    setBusy(retryBtn, false);
+  }
+}
+document.getElementById("retryLocationBtn")?.addEventListener("click", retryCheckin);
+
+/**
+ * Detects the user's browser well enough to point them at the right
+ * settings menu. Falls back to generic instructions when unsure.
+ */
+function detectBrowserName() {
+  const ua = navigator.userAgent;
+  if (/Edg\//.test(ua)) return "edge";
+  if (/OPR\//.test(ua)) return "opera";
+  if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) return "chrome";
+  if (/Firefox\//.test(ua)) return "firefox";
+  if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) return "safari";
+  return "generic";
+}
+
+const LOCATION_HELP_STEPS = {
+  chrome: [
+    "Tap the lock/info icon (🔒) at the left of the address bar.",
+    'Tap "Permissions" or "Site settings".',
+    'Find "Location" and set it to "Allow".',
+    "Come back here and tap \u201cTry Again\u201d below.",
+  ],
+  edge: [
+    "Tap the lock icon (🔒) at the left of the address bar.",
+    'Tap "Permissions for this site".',
+    'Set "Location" to "Allow".',
+    "Come back here and tap \u201cTry Again\u201d below.",
+  ],
+  firefox: [
+    "Tap the lock/info icon at the left of the address bar.",
+    'Tap "Clear permission" or the blocked location icon.',
+    "Reload the page and allow location when prompted.",
+    "Come back here and tap \u201cTry Again\u201d below.",
+  ],
+  safari: [
+    "Open the iPhone/iPad Settings app (not the browser).",
+    'Go to "Safari" (or "Privacy & Security" > "Location Services" on Mac).',
+    'Find this website and set Location access to "Allow".',
+    "Come back to this page and tap \u201cTry Again\u201d below.",
+  ],
+  opera: [
+    "Tap the lock icon (🔒) at the left of the address bar.",
+    'Open "Site settings" and find "Location".',
+    'Set it to "Allow".',
+    "Come back here and tap \u201cTry Again\u201d below.",
+  ],
+  generic: [
+    "Open your browser's site settings for this page.",
+    'Find "Location" (it may say "Blocked" or "Denied").',
+    'Change it to "Allow" or "Ask".',
+    "Come back here and tap \u201cTry Again\u201d below.",
+  ],
+};
+
+function showLocationHelp() {
+  const banner = document.getElementById("locationHelpBanner");
+  if (!banner) return;
+  const steps = LOCATION_HELP_STEPS[detectBrowserName()];
+  banner.innerHTML = `
+    <p class="font-semibold text-rose-500 mb-2">Location access is blocked</p>
+    <p class="text-sm text-slate-600 mb-3">
+      You (or your browser) blocked location access earlier, so we can't verify
+      you're at the gym. Your browser won't show that popup again on its own —
+      you'll need to reset it manually:
+    </p>
+    <ol class="list-decimal list-inside text-sm text-slate-600 space-y-1 mb-4">
+      ${steps.map((s) => `<li>${s}</li>`).join("")}
+    </ol>
+    <button id="retryLocationBtn" type="button" class="btn-primary w-full !min-h-[2.75rem] !py-2 !text-sm">
+      Try Again
+    </button>
+  `;
+  banner.classList.remove("hidden");
+  // The button was just re-created via innerHTML, so re-bind its listener.
+  document.getElementById("retryLocationBtn")?.addEventListener("click", retryCheckin);
+}
+
+function hideLocationHelp() {
+  document.getElementById("locationHelpBanner")?.classList.add("hidden");
+}
+
 function renderStatusCard(member, checkinStatus) {
   const days = daysUntil(member.expiryDate);
   const isActive = days >= 0;
@@ -423,20 +567,44 @@ function renderStatusCard(member, checkinStatus) {
 
   // Check-in status messages handling
   const checkinNote = document.getElementById("checkinNote");
-  if (checkinStatus === "success") {
+  hideLocationHelp(); // reset on every render; re-shown below only if needed
+
+  // out-of-range now arrives as { status: "out-of-range", distance } so the
+  // UI can show the actual distance instead of a fixed string.
+  const status = typeof checkinStatus === "object" && checkinStatus !== null
+    ? checkinStatus.status
+    : checkinStatus;
+
+  if (status === "success") {
     checkinNote.textContent = "Checked in for today. Have a great workout!";
     checkinNote.className = "text-sm text-emerald-400";
-  } else if (checkinStatus === "already-checked-in") {
+  } else if (status === "already-checked-in") {
     checkinNote.textContent = "You've already checked in today.";
     checkinNote.className = "text-sm text-slate-400";
-  } else if (checkinStatus === "out-of-range") {
-    checkinNote.textContent = "Go to gym for check-in.";
+  } else if (status === "out-of-range") {
+    const distance = checkinStatus.distance;
+    checkinNote.textContent = distance
+      ? `You're ${distance}m from the gym. Go to the gym for check-in.`
+      : "Go to gym for check-in.";
     checkinNote.className = "text-sm text-amber-400";
-  } else if (checkinStatus === "pending-approval") {
-    checkinNote.textContent = " Your registration is pending admin approval.";
+  } else if (status === "pending-approval") {
+    checkinNote.textContent = " Your registration is pending admin approval.";
     checkinNote.className = "text-sm text-amber-500 font-semibold";
+  } else if (status === "permission-denied") {
+    checkinNote.textContent = "Location access is blocked - see instructions below.";
+    checkinNote.className = "text-sm text-rose-400";
+    showLocationHelp();
+  } else if (status === "position-unavailable") {
+    checkinNote.textContent = "Couldn't determine your location. Make sure device location/GPS is turned on, then try again.";
+    checkinNote.className = "text-sm text-rose-400";
+  } else if (status === "location-timeout") {
+    checkinNote.textContent = "Location request timed out. Check your signal and try again.";
+    checkinNote.className = "text-sm text-rose-400";
+  } else if (status === "geo-unsupported") {
+    checkinNote.textContent = "This browser doesn't support location access, so check-in isn't available here.";
+    checkinNote.className = "text-sm text-rose-400";
   } else {
-    checkinNote.textContent = "GPS location required for check-in.";
+    checkinNote.textContent = "Something went wrong with check-in. Please try again.";
     checkinNote.className = "text-sm text-rose-400";
   }
   const renewSection = document.getElementById("renewSection");
