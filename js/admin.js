@@ -882,12 +882,15 @@ function subscribeMonthlyRevenue() {
 }
 
 function renderStats() {
-  const active = allMembers.filter((m) => daysUntil(m.expiryDate) >= 0).length;
+  // 🔥 Ab active members mein sirf wahi count honge jo approved bhi hain aur expiry bhi bachi hai
+  const active = allMembers.filter((m) => m.approved === true && daysUntil(m.expiryDate) >= 0).length;
+  
   const pending = allMembers.filter((m) => m.paymentStatus !== "paid").length;
   document.getElementById("statActive").textContent = active;
   document.getElementById("statPending").textContent = pending;
   document.getElementById("statTotal").textContent = allMembers.length;
 }
+
 
 function escapeHtml(str) {
   const div = document.createElement("div");
