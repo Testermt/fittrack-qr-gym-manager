@@ -249,11 +249,21 @@ async function logCheckinIfNeeded(memberId, name, phone) {
           resolve("error");
         }
       },
-      (error) => {
+      
+           (error) => {
         console.error("GPS Error Code:", error.code, error.message);
-        alert("GPS location access is mandatory to check in. Please turn on your phone's location.");
-        resolve("error");
+        
+        //  alert ki jagah confirm use kiya taaki OK dabane par dobara try ho sake
+        const retry = confirm("GPS location access failed or timed out. Click OK to try again.");
+        
+        if (retry) {
+          // Dobara same function call kar do
+          logCheckinIfNeeded(memberId, name, phone).then(resolve);
+        } else {
+          resolve("error");
+        }
       },
+
       { 
         enableHighAccuracy: true, 
         timeout: 10000, 

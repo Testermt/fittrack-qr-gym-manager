@@ -4,10 +4,12 @@ service cloud.firestore {
 
     // 🔥 100% Secure & Bulletproof Admin Verification Helper
     function isVerifiedAdminDirect() {
-      return request.auth != null 
-        && request.auth.token.email != null
-        && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.toLowerCase()));
-    }
+  return request.auth != null 
+    && request.auth.token.email != null
+    && request.auth.token.email_verified == true //  Yeh line add karein
+    && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.toLowerCase()));
+}
+
 
     // Members collection: Public read for status, secure write/update
     match /members/{phone} {
