@@ -213,14 +213,6 @@ async function logCheckinIfNeeded(memberId, name, phone) {
         console.log("Current User Lat/Lng:", userLat, userLng);
         console.log("Distance from Gym (Meters):", Math.round(distance));
 
-
-// 0. Pehle check karo ki admin ne approve kiya hai ya nahi
-        if (memberData && memberData.approved !== true) {
-          alert("Your registration is pending admin approval. Please contact the front desk.");
-          resolve("pending-approval");
-          return;
-        }
-        
         // 1. Agar gym se door hai
         if (distance > GYM_LOCATION.allowedRadiusMeters) {
           alert(`Check-in blocked! You are ${Math.round(distance)} meters away from the gym. You must be inside the gym premises.`);
@@ -268,6 +260,7 @@ async function logCheckinIfNeeded(memberId, name, phone) {
     );
   });
 }
+
 
 
 
