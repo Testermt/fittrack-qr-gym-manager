@@ -16,24 +16,36 @@ let todayCheckedInIds = new Set();
 let pendingReauthAction = null;
 
 async function isVerifiedAdmin(email, retries = 4) {
-  if (!email) return false;
+  if (!email) {
+    console.error("isVerifiedAdmin Error: Email is missing or null!");
+    return false;
+  }
+  
   const docId = email.trim().toLowerCase();
+  console.log("🔍 Checking admin privileges for normalized email:", docId);
   
   for (let i = 0; i < retries; i++) {
     try {
-      const doc = await db.collection("admins").doc(docId).get();
-      if (doc.exists) return true;
+      const docRef = db.collection("admins").doc(docId);
+      const doc = await docRef.get();
       
-      // Agar document nahi mila, toh propagation delay ke liye thoda wait karke retry karein
+      console.log(`📡 Attempt ${i + 1}: Document fetch result -> Exists:`, doc.exists);
+      if (doc.exists) {
+        console.log("✅ Admin verified successfully!");
+        return true;
+      }
+      
+      // Agar document nahi mila, toh 1 second wait karke dobara try karein
       if (i < retries - 1) {
+        console.log(`⏳ Admin doc not found yet, retrying in 1s (${i + 1}/${retries})...`);
         await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;
       }
       return false;
     } catch (err) {
-      console.warn(`Admin verification attempt ${i + 1} failed:`, err);
+      console.error(`❌ Admin verification attempt ${i + 1} threw error:`, err.code, err.message);
       if (i === retries - 1) return false;
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second wait
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
   return false;
