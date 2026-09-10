@@ -43,6 +43,27 @@
     min-height: 100vh;
     color: #0F172A;
   }
+  
+    /* ============= WELCOME & GYM RULES MODAL (Top Pop-up) ============= */
+  #welcomeModal {
+    display: flex;
+    align-items: flex-start !important; /* Center se hata kar upar align karne ke liye */
+    justify-content: center;
+    padding-top: 12px;
+  }
+
+  #welcomeModal > div {
+    max-width: 92%;
+    width: 100%;
+    margin-top: 8px;
+    animation: modalSlideDown 250ms cubic-bezier(.34,1.56,.64,1);
+  }
+
+  @keyframes modalSlideDown {
+    0% { opacity: 0; transform: translateY(-20px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  
 
   header, main, #paymentModal, #welcomeModal, #mascotDock { position: relative; z-index: 1; }
 
@@ -328,7 +349,26 @@
     .mascot-eyelid, .mascot-antenna-tip, .mascot-bubble {
       animation: none !important;
     }
+  }  /* ============= WELCOME & GYM RULES MODAL (Top Pop-up) ============= */
+  #welcomeModal {
+    display: flex;
+    align-items: flex-start !important; /* Center se hata kar upar align karne ke liye */
+    justify-content: center;
+    padding-top: 12px;
   }
+
+  #welcomeModal > div {
+    max-width: 92%;
+    width: 100%;
+    margin-top: 8px;
+    animation: modalSlideDown 250ms cubic-bezier(.34,1.56,.64,1);
+  }
+
+  @keyframes modalSlideDown {
+    0% { opacity: 0; transform: translateY(-20px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
 </style>
 </head>
 <body class="min-h-screen text-slate-900 antialiased font-sans">
