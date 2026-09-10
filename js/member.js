@@ -505,12 +505,13 @@ async function handleCopyUpiId() {
 }
 
 // Status check ke waqt check-in history fetch karne ka function
+// Status check ke waqt check-in history fetch karne ka function (GymOps Light Theme Optimized)
 async function loadMemberCheckinHistory(memberId) {
   const historyList = document.getElementById("memberCheckinHistory");
   const streakContainer = document.getElementById("streakBadgeContainer");
   const streakText = document.getElementById("streakText");
   
-  historyList.innerHTML = '<li class="text-slate-500">Loading history</li>';
+  historyList.innerHTML = '<li class="text-slate-400 px-3 py-2 text-xs">Loading history</li>';
 
   try {
     const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
@@ -519,12 +520,12 @@ async function loadMemberCheckinHistory(memberId) {
       .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
 
     if (records.length === 0) {
-      historyList.innerHTML = '<li class="text-slate-500 italic">No check-ins recorded yet.</li>';
+      historyList.innerHTML = '<li class="text-slate-400 italic px-3 py-2 text-xs">No check-ins recorded yet.</li>';
       streakContainer.classList.add("hidden");
       return;
     }
 
-    // 1. Render History List (Max pichhle 5 check-ins)
+    // 1. Render History List with High-Contrast Light Theme Classes
     historyList.innerHTML = "";
     records.slice(0, 5).forEach((record) => {
       const timeStr = record.timestamp?.toDate 
@@ -532,10 +533,11 @@ async function loadMemberCheckinHistory(memberId) {
         : "";
       
       const li = document.createElement("li");
-      li.className = "flex items-center justify-between bg-slate-900/50 px-3 py-1.5 rounded-md";
+      // Light theme ke liye crisp white box, clear border, aur dark text
+      li.className = "flex items-center justify-between bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-xs font-medium";
       li.innerHTML = `
-        <span class="text-slate-200 font-medium">${record.dateKey}</span>
-        <span class="text-slate-400">${timeStr} (${record.method || 'gps'})</span>
+        <span class="text-slate-900 font-bold">${record.dateKey}</span>
+        <span class="text-slate-600 font-semibold">${timeStr} <span class="text-slate-400 font-normal">(${record.method || 'gps'})</span></span>
       `;
       historyList.appendChild(li);
     });
@@ -554,6 +556,6 @@ async function loadMemberCheckinHistory(memberId) {
 
   } catch (err) {
     console.error("Error loading history:", err);
-    historyList.innerHTML = '<li class="text-rose-400">Could not load check-in history.</li>';
+    historyList.innerHTML = '<li class="text-rose-600 px-3 py-2 text-xs">Could not load check-in history.</li>';
   }
 }
