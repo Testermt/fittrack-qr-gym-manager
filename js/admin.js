@@ -21,15 +21,19 @@ async function isVerifiedAdmin(email, retries = 4) {
   
   for (let i = 0; i < retries; i++) {
     try {
-      // 🔥 Firestore token propagation ke liye graceful retry & wait
       const doc = await db.collection("admins").doc(docId).get();
       if (doc.exists) return true;
-      return false; // Document nahi mila matlab admin nahi hai
+      
+      // Agar document nahi mila, toh propagation delay ke liye thoda wait karke retry karein
+      if (i < retries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
+      return false;
     } catch (err) {
-      console.warn(`Admin verification attempt ${i + 1} failed (waiting for token sync):`, err);
-      // Agar aakhri try bhi fail ho jaye, tab hi false return karein (throws band!)
+      console.warn(`Admin verification attempt ${i + 1} failed:`, err);
       if (i === retries - 1) return false;
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second ka gap
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second wait
     }
   }
   return false;
