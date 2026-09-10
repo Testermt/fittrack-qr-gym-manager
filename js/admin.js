@@ -260,20 +260,12 @@ function showDashboard(user) {
   updateDeviceLockToggle(user);
 
   subscribeMembers();
-  subscribeWeeklyCheckins(); // <-- Yeh pichhle 7 din ka data fetch karega aur chart load karega
-  subscribeTodayCheckins();
+  subscribeWeeklyAndTodayCheckins(); // <-- Yeh dono cheezein ek sath handle karega (Chart + Today's List)
   subscribeMonthlyRevenue();
-subscribeMonthlyHistory(); // <-- Yeh line yahan add karni hai taaki history load ho!
+  subscribeMonthlyHistory();
 }
 
-// Helper to get date key for N days ago
-function getN TagenAgoDateKey(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return toDateKey(d);
-}
-
-function subscribeWeeklyCheckins() {
+function subscribeWeeklyAndTodayCheckins() {
   // Pichhle 6 din pehle ka dateKey (yani last 7 days including today)
   const d = new Date();
   d.setDate(d.getDate() - 6);
@@ -287,7 +279,7 @@ function subscribeWeeklyCheckins() {
           .map((d) => d.data())
           .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
 
-        // Aaj ke check-ins ko alag filter karo "Today's Check-Ins" list ke liye
+        // 1. Aaj ke check-ins ko alag filter karo "Today's Check-Ins" list ke liye
         const today = toDateKey(new Date());
         const todayRows = rows.filter((r) => r.dateKey === today);
 
@@ -296,12 +288,16 @@ function subscribeWeeklyCheckins() {
         renderMemberTable();
         document.getElementById("statTodayCheckins").textContent = todayRows.length;
 
-        // Ab 7 din ka data chart ko pass karo!
+        // 2. Poora 7 din ka data weekly chart ko pass karo
         renderWeeklyCheckinsChart(rows);
       },
       (err) => console.error("checkins listener error", err)
     );
 }
+
+
+
+
 
 async function isPlatformAuthenticatorAvailable() {
   try {
