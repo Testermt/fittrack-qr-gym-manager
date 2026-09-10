@@ -19,7 +19,7 @@ async function isVerifiedAdmin(email, retries = 5) {
   if (!email) return false;
   const docId = email.trim().toLowerCase();
   
-  // 🔥 FIX: Ensure Firebase Auth token is fully ready and synced with Firestore
+  // 🔥 Ensure Firebase Auth token is fully ready and synced with Firestore
   const currentUser = auth.currentUser;
   if (currentUser) {
     try {
@@ -34,20 +34,23 @@ async function isVerifiedAdmin(email, retries = 5) {
       const doc = await db.collection("admins").doc(docId).get();
       if (doc.exists) return true;
       
-      // Agar document nahi mila, toh chota sa wait karke retry karein
+      // Agar document nahi mila, toh 1 second wait karke retry karein
       if (i < retries - 1) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;
       }
       return false;
     } catch (err) {
-      console.warn(`Admin verification attempt ${i + 1} failed (waiting for auth sync):`, err.code);
+      console.warn(`Admin verification attempt ${i + 1} failed:`, err.code || err.message);
       if (i === retries - 1) return false;
-      await new PasswordVerification ? null : new Promise((resolve) => setTimeout(resolve, 1000));
+      // Clean retry delay without any broken syntax
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
   return false;
 }
+
+
 
 
 
