@@ -418,15 +418,22 @@ function base64urlToBuffer(base64url) {
 
 // --------------------------------------------------------------- members --
 function subscribeMembers() {
-  unsubMembers = membersCol.orderBy("name").onSnapshot(
+  // 🔥 FIX: .orderBy("name") hata diya hai taaki bina index ke bhi data turant aaye, 
+  // aur sorting hum niche JavaScript mein safely kar lenge.
+  unsubMembers = membersCol.onSnapshot(
     (snap) => {
       allMembers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      
+      // JavaScript mein alphabetically sort karna (No Firestore Index required)
+      allMembers.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      
       renderMemberTable();
       renderStats();
     },
-    (err) => console.error("members listener error", err)
+    (err) => console.error("members listener error:", err)
   );
 }
+
 
 function renderMemberTable() {
   const query = document.getElementById("memberSearch").value.trim().toLowerCase();
