@@ -264,11 +264,12 @@ async function logCheckinIfNeeded(memberId, name, phone) {
         }
       },
 
-      { 
-        enableHighAccuracy: false, 
-        timeout: 10000, 
-        maximumAge: 0 
+            { 
+        enableHighAccuracy: false, //  true ki jagah false karein (indoor mein fast work karega)
+        timeout: 20000,            //  timeout ko 10 seconds se badha kar 20 seconds kar dein
+        maximumAge: 60000          //  cached location allow karein
       }
+
     );
   });
 }
