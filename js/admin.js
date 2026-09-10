@@ -467,6 +467,8 @@ function renderMemberTable() {
     if (query && !(m.name.toLowerCase().includes(query) || m.phone.includes(query))) return false;
     if (currentMemberFilter === "active" && daysUntil(m.expiryDate) < 0) return false;
     if (currentMemberFilter === "pending" && m.paymentStatus === "paid") return false;
+    // 🔥 Pending approval filter check
+    if (currentMemberFilter === "pending-approval" && m.approved === true) return false;
     return true;
   });
 
@@ -478,6 +480,7 @@ function renderMemberTable() {
     const isActive = days >= 0;
     const plan = PLANS[m.plan] || { label: m.plan };
     const isPaid = m.paymentStatus === "paid";
+    const isApproved = m.approved === true;
     const alreadyCheckedIn = todayCheckedInIds.has(m.id);
 
     const tr = document.createElement("tr");
@@ -496,9 +499,14 @@ function renderMemberTable() {
       </td>
       <td class="py-3 pr-4">
         <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "PENDING"}</span>
+        <!-- 🔥 Approval Status Badge -->
+        <span class="badge mt-1 ${isApproved ? "badge-success" : "badge-warning"}">${isApproved ? "APPROVED" : "PENDING"}</span>
       </td>
       <td class="py-3 pr-0">
         <div class="flex flex-wrap gap-2 justify-end">
+          <!-- 🔥 Approve Button (Sirf tab dikhega jab user approved na ho) -->
+          ${!isApproved ? `<button data-action="approve" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-amber-500/15 text-amber-400 px-3 py-1.5 hover:bg-amber-500/25 transition">Approve</button>` : ""}
+
           <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
             class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
               alreadyCheckedIn ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-accent/15 text-accent hover:bg-accent/25"
@@ -514,6 +522,7 @@ function renderMemberTable() {
     tbody.appendChild(tr);
   });
 }
+
 
 function updateMemberFilterStyles() {
   document.querySelectorAll(".member-filter-btn").forEach((btn) => {
@@ -531,11 +540,33 @@ document.getElementById("memberTableBody").addEventListener("click", (e) => {
   const member = allMembers.find((m) => m.id === btn.dataset.id);
   if (!member) return;
 
+  if (btn.dataset.action === "approve") executeApproveMember(member, btn); // 🔥 Yeh line add karni hai
   if (btn.dataset.action === "check-in") manualCheckIn(member, btn);
   if (btn.dataset.action === "mark-paid") requestReauth("mark-paid", member, btn);
   if (btn.dataset.action === "whatsapp") sendWhatsAppReminder(member);
   if (btn.dataset.action === "delete") requestReauth("delete", member, btn);
 });
+
+async function executeApproveMember(member, btn) {
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Approving…";
+  }
+  try {
+    await membersCol.doc(member.id).update({
+      approved: true,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    console.error(err);
+    alert("Could not approve member. Please try again.");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Approve";
+    }
+  }
+}
 
 // ------------------------------------------------- re-auth confirmation --
 function requestReauth(type, member, btn) {

@@ -213,6 +213,14 @@ async function logCheckinIfNeeded(memberId, name, phone) {
         console.log("Current User Lat/Lng:", userLat, userLng);
         console.log("Distance from Gym (Meters):", Math.round(distance));
 
+
+// 0. Pehle check karo ki admin ne approve kiya hai ya nahi
+        if (memberData && memberData.approved !== true) {
+          alert("Your registration is pending admin approval. Please contact the front desk.");
+          resolve("pending-approval");
+          return;
+        }
+        
         // 1. Agar gym se door hai
         if (distance > GYM_LOCATION.allowedRadiusMeters) {
           alert(`Check-in blocked! You are ${Math.round(distance)} meters away from the gym. You must be inside the gym premises.`);
@@ -300,6 +308,7 @@ async function handleRegisterSubmit(e) {
     const expiryDate = addMonthsToDateKey(joinDate, plan.months);
 
     // Sirf Member Profile Save Hogi (Registration ke waqt koi auto check-in nahi!)
+    // Sirf Member Profile Save Hogi (Registration ke waqt default unapproved rahegi)
     await membersCol.doc(phone).set({
       name,
       phone,
@@ -308,6 +317,7 @@ async function handleRegisterSubmit(e) {
       plan: planId,
       expiryDate,
       paymentStatus: "pending",
+      approved: false, // <-- Naya user default unapproved rahega
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
@@ -346,7 +356,7 @@ async function handleStatusCheck(e) {
     return;
   }
 
-  setBusy(submitBtn, true, "Checking…");
+  setBusy(submitBtn, true, "Checking");
   try {
     const doc = await membersCol.doc(phone).get();
     if (!doc.exists) {
@@ -356,14 +366,20 @@ async function handleStatusCheck(e) {
       );
       return;
     }
-    // handleStatusCheck ke andar:
-currentMember = { id: doc.id, ...doc.data() };
-const checkinStatus = await logCheckinIfNeeded(currentMember.id, currentMember.name, currentMember.phone);
-renderStatusCard(currentMember, checkinStatus);
+    
+    currentMember = { id: doc.id, ...doc.data() };
 
-//  Yeh line add karni hai taaki history aur streak load ho jaye:
-loadMemberCheckinHistory(currentMember.id);
+    //  Agar admin ne approve nahi kiya, toh GPS check karne ki zaroorat hi nahi hai!
+    if (currentMember.approved !== true) {
+      renderStatusCard(currentMember, "pending-approval");
+      loadMemberCheckinHistory(currentMember.id);
+      return;
+    }
 
+    // Agar approved hai, tabhi GPS check-in run hoga
+    const checkinStatus = await logCheckinIfNeeded(currentMember.id, currentMember.name, currentMember.phone);
+    renderStatusCard(currentMember, checkinStatus);
+    loadMemberCheckinHistory(currentMember.id);
     
   } catch (err) {
     console.error(err);
@@ -403,19 +419,21 @@ function renderStatusCard(member, checkinStatus) {
   // Check-in status messages handling
   const checkinNote = document.getElementById("checkinNote");
   if (checkinStatus === "success") {
-    checkinNote.textContent = " Checked in for today. Have a great workout!";
+    checkinNote.textContent = "Checked in for today. Have a great workout!";
     checkinNote.className = "text-sm text-emerald-400";
   } else if (checkinStatus === "already-checked-in") {
     checkinNote.textContent = "You've already checked in today.";
     checkinNote.className = "text-sm text-slate-400";
   } else if (checkinStatus === "out-of-range") {
-    checkinNote.textContent = " Go to gym for check-in.";
+    checkinNote.textContent = "Go to gym for check-in.";
     checkinNote.className = "text-sm text-amber-400";
+  } else if (checkinStatus === "pending-approval") {
+    checkinNote.textContent = " Your registration is pending admin approval.";
+    checkinNote.className = "text-sm text-amber-500 font-semibold";
   } else {
     checkinNote.textContent = "GPS location required for check-in.";
     checkinNote.className = "text-sm text-rose-400";
   }
-
   const renewSection = document.getElementById("renewSection");
   renewSection.classList.toggle("hidden", isActive && member.paymentStatus === "paid");
   if (!renewSection.classList.contains("hidden")) {

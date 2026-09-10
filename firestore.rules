@@ -2,35 +2,56 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper function to verify if the requester is an admin
     function isVerifiedAdmin() {
       return request.auth != null && 
         exists(/databases/$(database)/documents/admins/$(request.auth.token.email));
     }
 
+    // Members collection: Public read for status, secure write/update
     match /members/{phone} {
-      allow create: if request.resource.data.phone == phone
-                    && request.resource.data.paymentStatus == "pending";
+      // 🛡️ FIX 1: Yeh ensure karta hai ki naya user register karte waqt 
+      // khud ko 'approved: true' nahi set kar sakta. Default hamesha false/unapproved rahega.
+      allow create: if phone.matches('^[0-9]{7,15}$')
+                    && request.resource.data.phone == phone
+                    && request.resource.data.paymentStatus == "pending"
+                    && request.resource.data.approved == false;
+                    
       allow get: if true;
       allow list, update, delete: if isVerifiedAdmin();
     }
 
+    // Checkins collection: Prevent fake check-ins from unapproved members
     match /checkins/{checkinId} {
+      // 🛡️ FIX 2: Check-in tabhi create hoga jab database mein 
+      // woh member ka document exist karta ho AUR uska 'approved' status true ho!
       allow create: if request.resource.data.memberId is string
-                    && request.resource.data.dateKey is string;
+                    && request.resource.data.phone is string
+                    && request.resource.data.phone.size() >= 7
+                    && request.resource.data.dateKey is string
+                    && request.resource.data.method in ["geofenced-gps", "manual"]
+                    && request.resource.data.timestamp == request.time
+                    && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.approved == true;
+                    
+      // Read, update, delete sirf verified admin hi kar sakte hain[cite: 9]:
       allow read, update, delete: if isVerifiedAdmin();
     }
 
+    // Payments collection: Strictly admin-only[cite: 9]
     match /payments/{paymentId} {
       allow create, read, update, delete: if isVerifiedAdmin();
     }
 
+    // Settings collection: Public read for UPI config, admin-only write[cite: 9]
     match /settings/{docId} {
       allow get: if true;
       allow list, create, update, delete: if isVerifiedAdmin();
     }
 
+    // Admins collection: Read allowed for self, CLIENT WRITES COMPLETELY BLOCKED[cite: 9]
     match /admins/{email} {
-      allow read, write: if request.auth != null && request.auth.token.email == email;
+      allow read: if request.auth != null && request.auth.token.email == email;
+      allow write: if false;
     }
   }
 }
