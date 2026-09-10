@@ -80,15 +80,15 @@ function buildPlanPicker(containerId, hiddenInputName) {
     const card = document.createElement("label");
     card.className =
       "plan-card cursor-pointer rounded-xl border border-slate-700 bg-slate-800/60 p-4 flex flex-col gap-1 transition hover:border-sky-500";
-        card.innerHTML = `
+    card.innerHTML = `
       <input type="radio" name="${hiddenInputName}" value="${id}" class="sr-only peer" ${idx === 0 ? "checked" : ""} required />
-      <span class="text-sm text-slate-600 font-medium">${plan.label}</span>
-      <span class="text-xl font-bold text-slate-900">${formatCurrency(plan.price)}</span>
+      <span class="text-sm text-slate-700 font-medium">${plan.label}</span>
+      <span class="text-xl font-extrabold text-slate-950">${formatCurrency(plan.price)}</span>
     `;
-
     container.appendChild(card);
   });
 }
+
 
 // -------------------------------------------------------------- helpers --
 function setBusy(buttonEl, busy, busyLabel) {
