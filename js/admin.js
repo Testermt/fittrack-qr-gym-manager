@@ -15,41 +15,40 @@ let todayCheckedInIds = new Set();
 // Variable to track pending secure action for re-auth
 let pendingReauthAction = null;
 
-async function isVerifiedAdmin(email, retries = 4) {
-  if (!email) {
-    console.error("isVerifiedAdmin Error: Email is missing or null!");
-    return false;
-  }
-  
+async function isVerifiedAdmin(email, retries = 5) {
+  if (!email) return false;
   const docId = email.trim().toLowerCase();
-  console.log("🔍 Checking admin privileges for normalized email:", docId);
   
+  // 🔥 FIX: Ensure Firebase Auth token is fully ready and synced with Firestore
+  const currentUser = auth.currentUser;
+  if (currentUser) {
+    try {
+      await currentUser.getIdToken(true); // Force token refresh & sync
+    } catch (e) {
+      console.warn("Token sync warning:", e);
+    }
+  }
+
   for (let i = 0; i < retries; i++) {
     try {
-      const docRef = db.collection("admins").doc(docId);
-      const doc = await docRef.get();
+      const doc = await db.collection("admins").doc(docId).get();
+      if (doc.exists) return true;
       
-      console.log(`📡 Attempt ${i + 1}: Document fetch result -> Exists:`, doc.exists);
-      if (doc.exists) {
-        console.log("✅ Admin verified successfully!");
-        return true;
-      }
-      
-      // Agar document nahi mila, toh 1 second wait karke dobara try karein
+      // Agar document nahi mila, toh chota sa wait karke retry karein
       if (i < retries - 1) {
-        console.log(`⏳ Admin doc not found yet, retrying in 1s (${i + 1}/${retries})...`);
         await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;
       }
       return false;
     } catch (err) {
-      console.error(`❌ Admin verification attempt ${i + 1} threw error:`, err.code, err.message);
+      console.warn(`Admin verification attempt ${i + 1} failed (waiting for auth sync):`, err.code);
       if (i === retries - 1) return false;
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new PasswordVerification ? null : new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
   return false;
 }
+
 
 
 
