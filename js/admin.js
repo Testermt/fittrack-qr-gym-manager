@@ -149,27 +149,7 @@ function showAuthGateError(message) {
   el.classList.remove("hidden");
 }
 
-async function handleLogin(e) {
-  e.preventDefault();
-  const form = e.target;
-  const btn = form.querySelector("button[type=submit]");
-  const errorEl = document.getElementById("loginError");
-  errorEl.classList.add("hidden");
-  document.getElementById("googleSignInError").classList.add("hidden");
-  hideResetMessage();
 
-  btn.disabled = true;
-  btn.textContent = "Signing in…";
-  try {
-    await auth.signInWithEmailAndPassword(form.email.value.trim(), form.password.value);
-  } catch (err) {
-    errorEl.textContent = "Invalid email or password.";
-    errorEl.classList.remove("hidden");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Sign In";
-  }
-}
 
 async function handleGoogleSignIn() {
   const btn = document.getElementById("googleSignInBtn");
@@ -200,20 +180,6 @@ async function handleGoogleSignIn() {
   }
 }
 
-async function handleForgotPassword() {
-  const form = document.getElementById("loginForm");
-  const btn = document.getElementById("forgotPasswordBtn");
-  const errorEl = document.getElementById("loginError");
-  errorEl.classList.add("hidden");
-  document.getElementById("googleSignInError").classList.add("hidden");
-
-  const email = form.email.value.trim();
-
-  if (!email) {
-    form.email.focus();
-    showResetMessage("Please type your admin email above first, then tap 'Forgot password?' again.", "error");
-    return;
-  }
 
   const originalLabel = btn.textContent;
   btn.disabled = true;
