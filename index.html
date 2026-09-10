@@ -3,10 +3,10 @@
 <head>
 
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#38BDF8">
+<meta name="theme-color" content="#EEF2F7">
 
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>FitTrack — Member Check-In & Registration</title>
 <meta name="description" content="Scan, check in, and manage your gym membership in seconds." />
 <script src="https://cdn.tailwindcss.com"></script>
@@ -15,29 +15,124 @@
     theme: {
       extend: {
         colors: {
-          base: "#090D16",
-          panel: "#0F1524",
           accent: "#38BDF8",
+          accentDark: "#0284C7",
           success: "#10B981",
+          successDark: "#047857",
+          amberGlow: "#F59E0B",
+          indigoGlow: "#818CF8",
         },
         fontFamily: {
           sans: ["Inter", "system-ui", "sans-serif"],
+          display: ["Space Grotesk", "Inter", "system-ui", "sans-serif"],
         },
       },
     },
   };
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
 <style>
-  body { font-family: "Inter", system-ui, sans-serif; background-color: #090D16; }
-  .tab-active { color: #38BDF8; border-color: #38BDF8; }
-  .badge { display: inline-flex; align-items: center; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.02em; }
-  .badge-success { background: rgba(16,185,129,0.15); color: #10B981; }
-  .badge-warning { background: rgba(251,191,36,0.15); color: #FBBF24; }
-  .badge-danger { background: rgba(244,63,94,0.15); color: #FB7185; }
-  .plan-card:has(input:checked) { border-color: #38BDF8; background-color: rgba(56,189,248,0.08); box-shadow: 0 0 0 1px #38BDF8 inset; }
-  input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; }
+  :root { color-scheme: light; }
+
+  body {
+    font-family: "Inter", system-ui, sans-serif;
+    background-color: #EEF2F7;
+    background-image: radial-gradient(rgba(15,23,42,0.07) 1px, transparent 1px);
+    background-size: 22px 22px;
+    min-height: 100vh;
+    color: #0F172A;
+  }
+
+  header, main, #paymentModal, #welcomeModal, #mascotDock { position: relative; z-index: 1; }
+
+  button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid #0284C7; outline-offset: 3px;
+  }
+
+  /* Solid "paper card" surface — no transparency, no blur */
+  .paper-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 12px 28px -14px rgba(15,23,42,0.18);
+  }
+
+  .tab-btn {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 3.25rem;
+    border-radius: 9999px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #64748B;
+    transition: color 200ms ease, background 200ms ease, box-shadow 200ms ease;
+  }
+  .tab-btn.tab-active {
+    color: #04101B;
+    background: linear-gradient(135deg, #38BDF8, #0EA5E9);
+    box-shadow: 0 4px 12px -4px rgba(14,165,233,0.5);
+  }
+
+  .badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.4rem 0.9rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; border: 1px solid transparent; }
+  .badge-success { background: #D1FAE5; color: #047857; border-color: #6EE7B7; }
+  .badge-warning { background: #FEF3C7; color: #B45309; border-color: #FCD34D; }
+  .badge-danger { background: #FFE4E6; color: #BE123C; border-color: #FDA4AF; }
+
+  .field-input {
+    width: 100%;
+    border-radius: 1.1rem;
+    background: #F8FAFC;
+    border: 1.5px solid #CBD5E1;
+    padding: 1rem 1.25rem;
+    color: #0F172A;
+    font-size: 0.95rem;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+  }
+  .field-input::placeholder { color: #94A3B8; }
+  .field-input:focus { outline: none; border-color: #0284C7; box-shadow: 0 0 0 4px rgba(14,165,233,0.16); background: #FFFFFF; }
+
+  /* Tactile "keycap" buttons — flat offset shadow, presses down on tap */
+  .btn-primary {
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+    min-height: 3.75rem;
+    border-radius: 1.1rem;
+    font-weight: 700; font-size: 1rem;
+    color: #04101B;
+    background: linear-gradient(135deg, #38BDF8, #0EA5E9);
+    box-shadow: 0 4px 0 0 #0284C7, 0 10px 20px -8px rgba(14,165,233,0.45);
+    transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+  }
+  .btn-primary:hover { filter: brightness(1.04); }
+  .btn-primary:active { transform: translateY(3px); box-shadow: 0 1px 0 0 #0284C7, 0 4px 10px -6px rgba(14,165,233,0.4); }
+
+  .btn-success {
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+    min-height: 3.75rem;
+    border-radius: 1.1rem;
+    font-weight: 700; font-size: 1rem;
+    color: #04150F;
+    background: linear-gradient(135deg, #10B981, #059669);
+    box-shadow: 0 4px 0 0 #047857, 0 10px 20px -8px rgba(16,185,129,0.45);
+    transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+  }
+  .btn-success:hover { filter: brightness(1.04); }
+  .btn-success:active { transform: translateY(3px); box-shadow: 0 1px 0 0 #047857, 0 4px 10px -6px rgba(16,185,129,0.4); }
+
+  .plan-card { border-radius: 1.1rem !important; padding: 1rem !important; background: #FFFFFF !important; border: 1.5px solid #E2E8F0 !important; box-shadow: 0 2px 6px rgba(15,23,42,0.05) !important; transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease !important; cursor: pointer; }
+  .plan-card:hover { border-color: #7DD3FC !important; }
+  .plan-card:has(input:checked) {
+    border-color: #0EA5E9 !important;
+    background: #F0F9FF !important;
+    box-shadow: 0 0 0 2px #0EA5E9 inset, 0 6px 16px -6px rgba(14,165,233,0.35) !important;
+  }
+
+  input[type="date"] { color-scheme: light; }
+
+  .stat-tile { border-radius: 1rem; background: #F8FAFC; border: 1px solid #E2E8F0; padding: 0.9rem 1rem; }
+  .stat-tile dt { font-size: 0.72rem; color: #64748B; margin-bottom: 0.25rem; }
+  .stat-tile dd { font-size: 0.95rem; font-weight: 600; color: #0F172A; }
+
+  #memberCheckinHistory li { padding: 0.55rem 0.85rem; border-radius: 0.85rem; background: #F8FAFC; border: 1px solid #EEF2F7; }
 
   /* ===================== Mascot: "Sparky" ===================== */
     #mascotDock {
@@ -63,7 +158,7 @@
     padding: 9px 12px;
     border-radius: 14px;
     border-bottom-right-radius: 4px;
-    box-shadow: 0 8px 24px -8px rgba(0,0,0,0.6);
+    box-shadow: 0 8px 24px -8px rgba(15,23,42,0.35);
     transform-origin: bottom right;
     animation: mascot-bubble-pop 260ms cubic-bezier(.34,1.56,.64,1);
   }
@@ -79,7 +174,7 @@
     border-radius: 9999px;
     background: radial-gradient(circle at 32% 28%, #16233A, #0B0F19 72%);
     border: 1px solid rgba(56,189,248,0.4);
-    box-shadow: 0 6px 20px -6px rgba(56,189,248,0.35), 0 4px 14px -4px rgba(0,0,0,0.6);
+    box-shadow: 0 6px 20px -6px rgba(15,23,42,0.35), 0 4px 14px -4px rgba(15,23,42,0.25);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -216,6 +311,13 @@
     }
   }
 
+  @media (min-width: 768px) {
+    .mascot-btn { width: 76px; height: 76px; }
+    .mascot-btn.is-minimized { width: 44px; height: 44px; }
+    #mascotChar { width: 54px; height: 58px; }
+    .mascot-bubble { max-width: 230px; font-size: 13.5px; padding: 11px 14px; }
+  }
+
   @media (max-width: 420px) {
     #mascotDock { right: 10px; bottom: 10px; }
     .mascot-bubble { max-width: 150px; font-size: 12px; }
@@ -229,70 +331,72 @@
   }
 </style>
 </head>
-<body class="min-h-screen bg-base text-slate-200 antialiased">
+<body class="min-h-screen text-slate-900 antialiased font-sans">
 
   <!-- Header -->
-  <header class="border-b border-slate-800/80 sticky top-0 bg-base/90 backdrop-blur z-10">
-    <div class="max-w-md mx-auto px-5 py-4 flex items-center gap-3">
-      <div class="w-9 h-9 rounded-lg bg-accent/15 flex items-center justify-center text-accent font-bold text-lg">⚡</div>
-      <div>
-        <p id="gymNameLabel" class="font-semibold text-slate-50 leading-tight">FitTrack Gym</p>
-        <p class="text-xs text-slate-500 leading-tight">Member Check-In Portal</p>
+  <header class="sticky top-0 z-20 paper-card border-x-0 border-t-0 rounded-none">
+    <div class="max-w-lg md:max-w-xl mx-auto px-5 py-4 md:py-5 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 md:w-12 md:h-12 rounded-2xl bg-sky-50 border border-sky-200 flex items-center justify-center text-accentDark font-bold text-xl">⚡</div>
+        <div>
+          <p id="gymNameLabel" class="font-display font-semibold text-slate-900 leading-tight text-base md:text-lg">FitTrack Gym</p>
+          <p class="text-xs md:text-sm text-slate-500 leading-tight">Member Check-In Portal</p>
+        </div>
       </div>
+      <span class="hidden md:inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 rounded-full px-3 py-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-success"></span> Front desk kiosk
+      </span>
     </div>
   </header>
 
-  <main class="max-w-md mx-auto px-5 pb-16 pt-6">
+  <main class="max-w-lg md:max-w-xl mx-auto px-5 pb-16 pt-6 md:pt-8">
 
     <!-- Tabs -->
-    <div class="flex gap-6 border-b border-slate-800 mb-6 text-sm font-medium">
-      <button data-tab-target="register" class="tab-active pb-3 border-b-2 border-transparent text-slate-400 -mb-px transition">
+    <div class="flex gap-1.5 paper-card rounded-full p-1.5 mb-7">
+      <button data-tab-target="register" class="tab-active pb-3 border-b-2 border-transparent tab-btn transition">
         New Member
       </button>
-      <button data-tab-target="status" class="pb-3 border-b-2 border-transparent text-slate-400 -mb-px transition">
+      <button data-tab-target="status" class="pb-3 border-b-2 border-transparent tab-btn transition">
         Check Status / Check-In
       </button>
     </div>
 
     <!-- ============= REGISTER PANEL ============= -->
     <section data-tab-panel="register">
-      <h1 class="text-xl font-bold text-slate-50 mb-1">Join the gym</h1>
-      <p class="text-sm text-slate-500 mb-6">Fill this out once at the front desk QR stand — takes under a minute.</p>
+      <h1 class="font-display text-2xl font-bold text-slate-900 mb-1.5">Join the gym</h1>
+      <p class="text-sm text-slate-500 mb-7">Fill this out once at the front desk QR stand — takes under a minute.</p>
 
       <form id="registerForm" class="space-y-5">
-        <div>
-          <label class="block text-sm font-medium text-slate-300 mb-1.5">Full name</label>
-          <input name="name" type="text" required placeholder="e.g. Priya Chaudhary"
-            class="w-full rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Full name</label>
+            <input name="name" type="text" required placeholder="e.g. Priya Chaudhary" class="field-input" />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Mobile number</label>
+            <input name="phone" type="tel" required placeholder="e.g. 9876543210" class="field-input" />
+          </div>
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-slate-300 mb-1.5">Mobile number</label>
-          <input name="phone" type="tel" required placeholder="e.g. 9876543210"
-            class="w-full rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+          <label class="block text-sm font-medium text-slate-700 mb-1.5">Address</label>
+          <textarea name="address" rows="2" required placeholder="e.g. 12 MG Road, Indiranagar, Bengaluru" class="field-input resize-none"></textarea>
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-slate-300 mb-1.5">Address</label>
-          <textarea name="address" rows="2" required placeholder="e.g. 12 MG Road, Indiranagar, Bengaluru"
-            class="w-full rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent resize-none"></textarea>
+          <label class="block text-sm font-medium text-slate-700 mb-1.5">Joining date</label>
+          <input id="joinDate" name="joinDate" type="date" required class="field-input" />
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-slate-300 mb-1.5">Joining date</label>
-          <input id="joinDate" name="joinDate" type="date" required
-            class="w-full rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-slate-300 mb-2">Membership plan</label>
+          <label class="block text-sm font-medium text-slate-700 mb-2.5">Membership plan</label>
           <div id="planPicker" class="grid grid-cols-2 gap-3"></div>
         </div>
 
-        <div id="registerBanner" class="hidden text-sm rounded-lg px-4 py-3 bg-slate-800/60"></div>
+        <div id="registerBanner" class="hidden text-sm rounded-2xl px-4 py-3.5 paper-card"></div>
 
-        <button type="submit"
-          class="w-full rounded-lg bg-accent text-slate-950 font-semibold py-3 hover:bg-sky-400 active:scale-[0.99] transition">
+        <button type="submit" class="btn-primary w-full">
           Register &amp; Join
         </button>
       </form>
@@ -300,64 +404,56 @@
 
     <!-- ============= STATUS / CHECK-IN PANEL ============= -->
     <section data-tab-panel="status" class="hidden">
-      <h1 class="text-xl font-bold text-slate-50 mb-1">Check your status</h1>
-      <p class="text-sm text-slate-500 mb-6">Enter your mobile number to check in and view your membership.</p>
+      <h1 class="font-display text-2xl font-bold text-slate-900 mb-1.5">Check your status</h1>
+      <p class="text-sm text-slate-500 mb-7">Enter your mobile number to check in and view your membership.</p>
 
-      <form id="statusForm" class="flex gap-2 mb-4">
-        <input name="phone" type="tel" required placeholder="Registered mobile number"
-          class="flex-1 rounded-lg bg-panel border border-slate-700 px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
-        <button type="submit"
-          class="rounded-lg bg-accent text-slate-950 font-semibold px-5 hover:bg-sky-400 active:scale-[0.99] transition">
+      <form id="statusForm" class="flex gap-3 mb-5">
+        <input name="phone" type="tel" required placeholder="Registered mobile number" class="field-input flex-1" />
+        <button type="submit" class="btn-primary px-7">
           Go
         </button>
       </form>
 
-      <div id="statusBanner" class="hidden text-sm rounded-lg px-4 py-3 bg-slate-800/60 mb-4"></div>
+      <div id="statusBanner" class="hidden text-sm rounded-2xl px-4 py-3.5 paper-card mb-5"></div>
 
       <!-- Status Card ke andar yeh add karna hai -->
-<div id="statusCard" class="hidden rounded-xl border border-slate-700 bg-panel p-5 space-y-4">
-  <div class="flex items-start justify-between">
+<div id="statusCard" class="hidden rounded-2xl paper-card p-5 md:p-6 space-y-5">
+  <div class="flex items-start justify-between gap-3">
     <div>
-      <p id="statusName" class="text-lg font-semibold text-slate-50"></p>
+      <p id="statusName" class="text-lg font-display font-semibold text-slate-900"></p>
       <p id="statusPhone" class="text-xs text-slate-500"></p>
     </div>
     <span id="statusBadge" class="badge"></span>
   </div>
 
-  <p id="checkinNote" class="text-sm text-accent"></p>
+  <p id="checkinNote" class="text-sm font-medium text-accentDark"></p>
 
   <!-- 🔥 Workout Streak Badge -->
-  <div id="streakBadgeContainer" class="hidden items-center gap-2 rounded-lg bg-accent/10 border border-accent/20 px-3 py-2 text-xs text-accent font-medium">
-    <span>🔥</span>
+  <div id="streakBadgeContainer" class="hidden items-center gap-2.5 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 font-semibold">
+    <span class="text-lg">🔥</span>
     <span id="streakText">0 day streak this week!</span>
   </div>
 
-  <dl class="grid grid-cols-2 gap-y-3 text-sm border-t border-slate-800 pt-4">
-    <dt class="text-slate-500">Plan</dt>
-    <dd id="statusPlan" class="text-right text-slate-200 font-medium"></dd>
-    <dt class="text-slate-500">Joined</dt>
-    <dd id="statusJoin" class="text-right text-slate-200 font-medium"></dd>
-    <dt class="text-slate-500">Expires</dt>
-    <dd id="statusExpiry" class="text-right text-slate-200 font-medium"></dd>
-    <dt class="text-slate-500">Days remaining</dt>
-    <dd id="statusDays" class="text-right text-slate-200 font-medium"></dd>
-    <dt class="text-slate-500">Payment</dt>
-    <dd class="text-right"><span id="statusPayBadge" class="badge"></span></dd>
+  <dl class="grid grid-cols-2 gap-2.5 border-t border-slate-200 pt-5">
+    <div class="stat-tile"><dt>Plan</dt><dd id="statusPlan"></dd></div>
+    <div class="stat-tile"><dt>Joined</dt><dd id="statusJoin"></dd></div>
+    <div class="stat-tile"><dt>Expires</dt><dd id="statusExpiry"></dd></div>
+    <div class="stat-tile"><dt>Days remaining</dt><dd id="statusDays"></dd></div>
+    <div class="stat-tile col-span-2"><dt>Payment</dt><dd><span id="statusPayBadge" class="badge"></span></dd></div>
   </dl>
 
   <!-- 📜 Recent Check-ins History List -->
-  <div class="border-t border-slate-800 pt-4 space-y-2">
-    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Recent Check-ins</p>
-    <ul id="memberCheckinHistory" class="max-h-[150px] overflow-y-auto space-y-1.5 text-xs text-slate-300">
-      <li class="text-slate-500 italic">No check-ins recorded yet.</li>
+  <div class="border-t border-slate-200 pt-5 space-y-2.5">
+    <p class="text-xs font-semibold text-slate-500 tracking-wider">Recent Check-ins</p>
+    <ul id="memberCheckinHistory" class="max-h-[170px] overflow-y-auto space-y-1.5 text-xs text-slate-600">
+      <li class="text-slate-400 italic">No check-ins recorded yet.</li>
     </ul>
   </div>
 
-  <div id="renewSection" class="hidden border-t border-slate-800 pt-4 space-y-3">
-    <p class="text-sm font-medium text-slate-300">Renew your membership</p>
+  <div id="renewSection" class="hidden border-t border-slate-200 pt-5 space-y-3.5">
+    <p class="text-sm font-medium text-slate-700">Renew your membership</p>
     <div id="renewPlanPicker" class="grid grid-cols-2 gap-3"></div>
-    <button id="renewButton" type="button"
-      class="w-full rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
+    <button id="renewButton" type="button" class="btn-success w-full">
       Pay Online via UPI
     </button>
   </div>
@@ -365,48 +461,47 @@
 
     </section>
 
-    <p class="text-center text-xs text-slate-600 mt-10">
+    <p class="text-center text-xs text-slate-400 mt-10">
       Having trouble? Ask a trainer at the front desk for help.
     </p>
   </main>
 
   <!-- ============= UPI PAYMENT MODAL ============= -->
-  <div id="paymentModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
-    <div class="w-full max-w-sm rounded-2xl bg-panel border border-slate-700 p-6 space-y-5">
+  <div id="paymentModal" class="hidden fixed inset-0 bg-slate-900/60 flex items-end sm:items-center justify-center z-50 p-4">
+    <div class="w-full max-w-sm rounded-2xl paper-card p-6 space-y-5">
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-slate-50">Pay via UPI</h2>
-        <button id="closeModalBtn" class="text-slate-500 hover:text-slate-300 text-xl leading-none">&times;</button>
+        <h2 class="font-display text-lg font-semibold text-slate-900">Pay via UPI</h2>
+        <button id="closeModalBtn" class="w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 text-xl leading-none transition">&times;</button>
       </div>
 
-      <div class="rounded-lg bg-slate-800/60 p-4 flex items-center justify-between">
-        <span class="text-sm text-slate-400" id="modalPlanLabel"></span>
-        <span class="text-xl font-bold text-slate-50" id="modalPlanPrice"></span>
+      <div class="rounded-xl bg-slate-50 border border-slate-200 p-4 flex items-center justify-between">
+        <span class="text-sm text-slate-500" id="modalPlanLabel"></span>
+        <span class="text-xl font-bold text-slate-900" id="modalPlanPrice"></span>
       </div>
 
       <!-- Primary action: real UPI deep link, opens GPay / PhonePe / Paytm / BHIM etc. -->
-      <a id="upiPayLink" href="#"
-        class="hidden w-full text-center rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
+      <a id="upiPayLink" href="#" class="hidden btn-success">
         Pay Now via UPI App 📲
       </a>
 
       <!-- Fallback for desktop / when no UPI app opens: shows the ID to pay manually -->
-      <div id="upiIdFallback" class="hidden rounded-lg border border-slate-700 bg-slate-800/40 p-3 text-sm">
-        <p class="text-slate-500 mb-1.5">If nothing opens, pay manually to this UPI ID:</p>
+      <div id="upiIdFallback" class="hidden rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+        <p class="text-slate-500 mb-2">If nothing opens, pay manually to this UPI ID:</p>
         <div class="flex items-center justify-between gap-2">
-          <span id="upiIdText" class="font-mono text-slate-100 break-all"></span>
+          <span id="upiIdText" class="font-mono text-slate-900 break-all"></span>
           <button id="copyUpiIdBtn" type="button"
-            class="shrink-0 text-xs font-semibold rounded-md bg-slate-700 text-slate-200 px-2.5 py-1.5 hover:bg-slate-600 transition">
+            class="shrink-0 text-xs font-semibold rounded-lg bg-slate-200 text-slate-700 px-3.5 py-2.5 hover:bg-slate-300 transition">
             Copy
           </button>
         </div>
       </div>
 
       <!-- Shown only if the gym hasn't configured a UPI ID yet -->
-      <p id="upiUnavailableNote" class="hidden text-sm text-amber-400">
+      <p id="upiUnavailableNote" class="hidden text-sm text-amber-800 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
         Online payments aren't set up yet for this gym. Please pay at the front desk.
       </p>
 
-      <p class="text-xs text-slate-500">
+      <p class="text-xs text-slate-500 leading-relaxed">
         After paying, please show the payment confirmation to our trainer at the front desk
         (or on your next check-in). Your membership will be activated shortly once verified.
       </p>
@@ -414,28 +509,27 @@
   </div>
 
   <!-- ============= WELCOME & GYM RULES MODAL ============= -->
-  <div id="welcomeModal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
-    <div class="w-full max-w-sm rounded-2xl bg-panel border border-slate-700 p-6 space-y-5 max-h-[90vh] overflow-y-auto">
-      <div class="text-center space-y-1">
-        <div class="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center text-3xl mx-auto mb-2">🎉</div>
-        <h2 id="welcomeModalTitle" class="text-xl font-bold text-slate-50"></h2>
-        <p id="welcomeModalSub" class="text-sm text-slate-400"></p>
+  <div id="welcomeModal" class="hidden fixed inset-0 bg-slate-900/60 flex items-end sm:items-center justify-center z-50 p-4">
+    <div class="w-full max-w-sm rounded-2xl paper-card p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+      <div class="text-center space-y-1.5">
+        <div class="w-16 h-16 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-3xl mx-auto mb-2">🎉</div>
+        <h2 id="welcomeModalTitle" class="font-display text-xl font-bold text-slate-900"></h2>
+        <p id="welcomeModalSub" class="text-sm text-slate-500"></p>
       </div>
 
 
-      <div class="rounded-xl border border-slate-700 bg-slate-800/50 p-4 space-y-3">
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
         <div class="flex items-center justify-between gap-2">
-          <p id="welcomeModalRulesTitle" class="text-sm font-semibold text-slate-200"></p>
+          <p id="welcomeModalRulesTitle" class="text-sm font-semibold text-slate-800"></p>
           <button type="button" id="rulesLangToggle" data-lang="en"
-            class="shrink-0 text-xs font-medium rounded-full border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-accent hover:text-accent transition">
+            class="shrink-0 text-xs font-medium rounded-full border border-slate-300 px-3.5 py-2 text-slate-600 hover:border-accentDark hover:text-accentDark transition">
             🇮🇳 हिंदी
           </button>
         </div>
-        <ul id="welcomeModalRulesList" class="space-y-2.5 text-sm text-slate-400"></ul>
+        <ul id="welcomeModalRulesList" class="space-y-2.5 text-sm text-slate-600"></ul>
       </div>
 
-      <button id="closeWelcomeModalBtn" type="button"
-        class="w-full rounded-lg bg-accent text-slate-950 font-semibold py-3 hover:bg-sky-400 active:scale-[0.99] transition">
+      <button id="closeWelcomeModalBtn" type="button" class="btn-primary w-full">
         Let's Workout &amp; Go! 🚀
       </button>
     </div>
@@ -514,7 +608,7 @@
 
   <script src="js/firebase-config.js"></script>
   <script src="js/member.js"></script>
-  
+
   <!-- ============= MASCOT CONTROLLER (Sparky) ============= -->
   <script>
   (function () {
@@ -724,6 +818,6 @@
   }
 </script>
 
-  
+
 </body>
 </html>
