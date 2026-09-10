@@ -869,3 +869,67 @@ function renderMonthlyHistory(monthlyData) {
     tbody.appendChild(tr);
   });
 }
+
+
+let checkinsChartInstance = null;
+
+function renderWeeklyCheckinsChart(checkinsList) {
+  const ctx = document.getElementById("weeklyCheckinsChart");
+  if (!ctx) return;
+
+  // Pichhle 7 dino ke dates generate karna
+  const daysMap = {};
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = toDateKey(d); // "YYYY-MM-DD" format
+    const label = d.toLocaleDateString("en-US", { weekday: 'short' }); // "Mon", "Tue"
+    daysMap[key] = { label: label, count: 0 };
+  }
+
+  // Check-ins count karna unke dateKey ke hisab se
+  checkinsList.forEach((item) => {
+    if (daysMap[item.dateKey]) {
+      daysMap[item.dateKey].count += 1;
+    }
+  });
+
+  const labels = Object.values(daysMap).map(d => d.label);
+  const dataValues = Object.values(daysMap).map(d => d.count);
+
+  if (checkinsChartInstance) {
+    checkinsChartInstance.destroy();
+  }
+
+  checkinsChartInstance = new Chart(ctx, {
+    type: 'bar', // ya 'line' bhi kar sakta hai
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Check-ins',
+        data: dataValues,
+        backgroundColor: '#38BDF8',
+        borderRadius: 4,
+        barThickness: 16,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: '#64748B', font: { size: 10 } }
+        },
+        y: {
+          grid: { color: 'rgba(30, 41, 59, 0.5)' },
+          ticks: { color: '#64748B', font: { size: 10 }, stepSize: 1 }
+        }
+      }
+    }
+  });
+}
+

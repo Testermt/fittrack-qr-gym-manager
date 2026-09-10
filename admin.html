@@ -6,6 +6,8 @@
 
 <meta name="theme-color" content="#38BDF8">
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -192,6 +194,16 @@
 </section>
 
 
+<!-- Check-in Analytics Chart Card -->
+<section class="rounded-xl border border-slate-800 bg-panel p-5 flex flex-col justify-between">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="font-semibold text-slate-100 text-sm">Weekly Check-Ins Trend</h2>
+    <span class="text-xs text-slate-500">Last 7 Days</span>
+  </div>
+  <div class="w-full h-[140px] relative">
+    <canvas id="weeklyCheckinsChart"></canvas>
+  </div>
+</section>
 
 
         <!-- Live attendance -->
