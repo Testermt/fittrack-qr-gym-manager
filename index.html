@@ -77,6 +77,40 @@
     100% { opacity: 1; transform: translateY(0); }
   }
 
+  /* ============= UPI PAYMENT MODAL (Centered Pop-up Overlay) ============= */
+  #paymentModal {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background-color: rgba(15, 23, 42, 0.75) !important;
+    backdrop-filter: blur(6px) !important;
+    z-index: 9999 !important;
+    display: flex !important;
+    align-items: center !important; /* Center mein lane ke liye */
+    justify-content: center !important;
+    padding: 16px !important;
+    overflow-y: auto !important;
+  }
+
+  #paymentModal.hidden {
+    display: none !important; /* Jab hidden ho toh bilkul gayab rahe */
+  }
+
+  #paymentModal > div {
+    max-width: 380px !important;
+    width: 92% !important;
+    background: #FFFFFF !important;
+    border-radius: 1.25rem !important;
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.3) !important;
+    animation: modalPopUp 250ms cubic-bezier(.34,1.56,.64,1);
+  }
+
+  @keyframes modalPopUp {
+    0% { opacity: 0; transform: scale(0.9) translateY(10px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  
   
   header, main, #paymentModal, #welcomeModal, #mascotDock { position: relative; z-index: 1; }
 
