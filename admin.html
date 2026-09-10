@@ -230,6 +230,15 @@
     </span>
   </div>
 
+  <!-- Admin quick check-in by phone number -->
+  <form id="quickCheckinForm" class="flex gap-2 mb-3">
+    <input id="quickCheckinPhone" type="tel" placeholder="Check in by phone number…" autocomplete="off"
+      class="flex-1 min-w-0 rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+    <button type="submit" id="quickCheckinSubmitBtn"
+      class="text-xs font-semibold rounded-md bg-accent/15 text-accent px-3 py-1.5 hover:bg-accent/25 transition whitespace-nowrap">Check In</button>
+  </form>
+  <p id="quickCheckinError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 mb-3"></p>
+
   <!-- Time Slot Filter Chips -->
   <div id="checkinTimeFilterGroup" class="flex gap-1.5 mb-3 text-xs">
     <button type="button" data-time-filter="all" class="checkin-time-btn px-2.5 py-1 rounded-md bg-accent text-slate-950 font-medium transition">All</button>
@@ -245,10 +254,14 @@
 
         <!-- Member directory -->
         <section class="md:col-span-2 lg:col-span-2 rounded-2xl border border-slate-800 bg-panel shadow-sm p-5">
-          <div class="flex items-center justify-between mb-4 gap-3">
+          <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
             <h2 class="font-semibold text-slate-100 whitespace-nowrap">Member Directory</h2>
-            <input id="memberSearch" type="text" placeholder="Search by name or phone…"
-              class="w-full max-w-xs rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+            <div class="flex items-center gap-2 flex-1 justify-end flex-wrap">
+              <input id="memberSearch" type="text" placeholder="Search by name or phone…"
+                class="w-full max-w-xs rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+              <button id="openAddMemberBtn" type="button"
+                class="text-xs font-semibold rounded-md bg-accent text-slate-950 px-3 py-2 hover:opacity-90 transition whitespace-nowrap">+ Add Member</button>
+            </div>
           </div>
           
           <!-- Status filters -->
@@ -329,6 +342,69 @@
           class="flex-1 rounded-lg border border-slate-700 text-slate-300 text-sm font-medium py-2 hover:bg-slate-800 transition">Cancel</button>
         <button type="submit" id="reauthSubmitBtn"
           class="flex-1 rounded-lg bg-rose-500 text-white text-sm font-semibold py-2 hover:bg-rose-600 transition">Confirm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============= ADD MEMBER MODAL (Manual Registration) ============= -->
+<div id="addMemberModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div id="addMemberBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-slate-50">Manually Register Member</h3>
+      <button type="button" id="addMemberCloseBtn" class="text-slate-500 hover:text-slate-300 transition text-xl leading-none">&times;</button>
+    </div>
+
+    <form id="addMemberForm" class="space-y-3">
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1" for="addMemberName">Full Name</label>
+        <input id="addMemberName" name="name" type="text" required
+          class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="e.g. Riya Sharma" />
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1" for="addMemberPhone">Phone Number</label>
+        <input id="addMemberPhone" name="phone" type="tel" required
+          class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="10-digit mobile number" />
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1" for="addMemberAddress">Address</label>
+        <input id="addMemberAddress" name="address" type="text" required
+          class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="Street, city" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1" for="addMemberPlan">Plan</label>
+          <select id="addMemberPlan" name="plan" required
+            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1" for="addMemberJoinDate">Join Date</label>
+          <input id="addMemberJoinDate" name="joinDate" type="date" required
+            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1">Payment Status</label>
+        <div class="flex gap-2">
+          <label class="flex-1 cursor-pointer">
+            <input type="radio" name="paymentStatus" value="pending" class="sr-only peer" checked />
+            <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-3 py-2 text-slate-400 peer-checked:bg-amber-500/15 peer-checked:text-amber-400 peer-checked:border-amber-500/40 transition">Pending</span>
+          </label>
+          <label class="flex-1 cursor-pointer">
+            <input type="radio" name="paymentStatus" value="paid" class="sr-only peer" />
+            <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-3 py-2 text-slate-400 peer-checked:bg-success/15 peer-checked:text-success peer-checked:border-success/40 transition">Paid</span>
+          </label>
+        </div>
+      </div>
+
+      <p id="addMemberError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"></p>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" id="addMemberCancelBtn"
+          class="flex-1 rounded-lg border border-slate-700 text-slate-300 text-sm font-medium py-2 hover:bg-slate-800 transition">Cancel</button>
+        <button type="submit" id="addMemberSubmitBtn"
+          class="flex-1 rounded-lg bg-accent text-slate-950 text-sm font-semibold py-2 hover:opacity-90 transition">Register Member</button>
       </div>
     </form>
   </div>

@@ -2,49 +2,73 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ðŸ”¥ 100% Secure & Bulletproof Admin Verification Helper
-    function isVerifiedAdminDirect() {
-  return request.auth != null 
-    && request.auth.token.email != null
-    && request.auth.token.email_verified == true //  Yeh line add karein
-    && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.toLowerCase()));
-}
+    // Zero-trust admin check used by every OTHER collection's rules below.
+    // NOTE: exists()/get() calls made from *inside* a rule evaluate against
+    // the target document's data but do not need `allow read` on that
+    // target path themselves (that's how Firestore rules avoid circular
+    // permission checks). So this works even though /admins/{email} below
+    // has no public read access — do not "fix" that by loosening the
+    // admins read rule, it isn't broken.
+       function isVerifiedAdminDirect() {
+      return request.auth != null 
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/admins/$(request.auth.token.email));
+    }
 
 
     // Members collection: Public read for status, secure write/update
     match /members/{phone} {
-      allow create: if phone.matches('^[0-9]{7,15}$')
-                    && request.resource.data.keys().hasOnly(
-                         ['name','phone','address','joinDate','plan','expiryDate',
-                          'paymentStatus','approved','createdAt','updatedAt'])
-                    && request.resource.data.phone == phone
-                    && request.resource.data.name is string 
-                    && request.resource.data.name.size() > 0 
-                    && request.resource.data.name.size() < 100
-                    && request.resource.data.address is string
-                    && request.resource.data.plan in ['1m','3m','6m','12m']
-                    && request.resource.data.joinDate is string
-                    && request.resource.data.expiryDate is string
-                    && request.resource.data.paymentStatus == "pending"
-                    && request.resource.data.approved == false;
-                    
+      // Shared shape/field checks used by both the public self-registration
+      // path and the admin manual-registration path below.
+      function hasValidMemberShape() {
+        return phone.matches('^[0-9]{7,15}$')
+              && request.resource.data.keys().hasOnly(
+                   ['name','phone','address','joinDate','plan','expiryDate',
+                    'paymentStatus','approved','createdAt','updatedAt'])
+              && request.resource.data.phone == phone
+              && request.resource.data.name is string
+              && request.resource.data.name.size() > 0
+              && request.resource.data.name.size() < 100
+              && request.resource.data.address is string
+              && request.resource.data.plan in ['1m','3m','6m','12m']
+              && request.resource.data.joinDate is string
+              && request.resource.data.expiryDate is string;
+      }
+
+      allow create: if
+        // Public self-registration: always starts unapproved & unpaid â€”
+        // this branch is unchanged from before.
+        (hasValidMemberShape()
+          && request.resource.data.paymentStatus == "pending"
+          && request.resource.data.approved == false)
+        ||
+        // Admin manual registration: only a verified admin can create a
+        // member that is pre-approved and/or already marked paid.
+        (isVerifiedAdminDirect()
+          && hasValidMemberShape()
+          && request.resource.data.paymentStatus in ['pending', 'paid']
+          && request.resource.data.approved == true);
+
       allow get: if true;
       allow list, update, delete: if isVerifiedAdminDirect();
     }
 
     // Checkins collection: Prevent fake check-ins from unapproved members
     match /checkins/{checkinId} {
-      allow create: if request.resource.data.memberId is string
-                    && request.resource.data.phone is string
-                    && request.resource.data.phone.size() >= 7
-                    && request.resource.data.dateKey is string
-                    && request.resource.data.method in ["geofenced-gps", "manual"]
-                    && request.resource.data.timestamp == request.time
-                    && checkinId == request.resource.data.memberId + '_' + request.resource.data.dateKey
-                    && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.approved == true;
-                    
-      allow read, update, delete: if isVerifiedAdminDirect();
-    }
+  allow create: if request.resource.data.memberId is string
+                && request.resource.data.phone is string
+                && request.resource.data.phone.size() >= 7
+                && request.resource.data.dateKey is string
+                && request.resource.data.dateKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') //  Yeh format check add karein
+                && request.resource.data.method in ["geofenced-gps", "manual"]
+                && request.resource.data.timestamp == request.time
+                && checkinId == request.resource.data.memberId + '_' + request.resource.data.dateKey
+                && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.approved == true;
+                
+  allow read, update, delete: if isVerifiedAdminDirect();
+}
+
     
     // Payments collection: Strictly admin-only
     match /payments/{paymentId} {
@@ -57,9 +81,15 @@ service cloud.firestore {
       allow list, create, update, delete: if isVerifiedAdminDirect();
     }
 
-    // Admins collection: Strictly locked down
+    // Admins collection: Strictly locked down.
+    // A signed-in user may read ONLY their own doc ID (needed by the
+    // client's direct isVerifiedAdmin() lookup in admin.js). Nobody, not
+    // even an authenticated admin, can list the whole collection, and no
+    // client write is ever allowed — the whitelist is managed exclusively
+    // from the Firebase Console / Admin SDK.
     match /admins/{email} {
-      allow read: if request.auth != null && request.auth.token.email.toLowerCase() == email.toLowerCase();
+      allow get: if request.auth != null && request.auth.token.email.lower() == email.lower();
+      allow list: if false;
       allow write: if false;
     }
   }

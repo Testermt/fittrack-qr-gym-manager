@@ -124,6 +124,16 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("reauthBackdrop").addEventListener("click", closeReauthModal);
   document.getElementById("reauthForm").addEventListener("submit", handleReauthSubmit);
 
+  // Manual member registration modal
+  document.getElementById("openAddMemberBtn").addEventListener("click", openAddMemberModal);
+  document.getElementById("addMemberCancelBtn").addEventListener("click", closeAddMemberModal);
+  document.getElementById("addMemberCloseBtn").addEventListener("click", closeAddMemberModal);
+  document.getElementById("addMemberBackdrop").addEventListener("click", closeAddMemberModal);
+  document.getElementById("addMemberForm").addEventListener("submit", handleAddMemberSubmit);
+
+  // Quick check-in by phone number
+  document.getElementById("quickCheckinForm").addEventListener("submit", handleQuickCheckin);
+
   document.getElementById("deviceVerifyRetryBtn").addEventListener("click", () => {
     const user = auth.currentUser;
     if (user) runDeviceVerification(user, getStoredCredentialId(user.uid));
@@ -582,6 +592,171 @@ async function executeApproveMember(member, btn) {
       btn.textContent = originalLabel || "Approve";
     }
   }
+}
+
+// --------------------------------------------- manual member registration --
+function openAddMemberModal() {
+  const form = document.getElementById("addMemberForm");
+  form.reset();
+  document.getElementById("addMemberError").classList.add("hidden");
+  document.getElementById("addMemberJoinDate").value = toDateKey(new Date());
+  populateAddMemberPlanOptions();
+  document.getElementById("addMemberModal").classList.remove("hidden");
+  document.getElementById("addMemberName").focus();
+}
+
+function closeAddMemberModal() {
+  document.getElementById("addMemberModal").classList.add("hidden");
+}
+
+function populateAddMemberPlanOptions() {
+  const select = document.getElementById("addMemberPlan");
+  select.innerHTML = Object.entries(PLANS)
+    .map(([id, plan]) => `<option value="${id}">${plan.label} — ${formatCurrency(plan.price)}</option>`)
+    .join("");
+}
+
+function showAddMemberError(message) {
+  const el = document.getElementById("addMemberError");
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
+
+/**
+ * Admin-side manual registration. Mirrors the self-registration flow in
+ * member.js (same `members/{phone}` doc shape, same doc-ID-is-phone
+ * convention) but the member is created pre-approved — `approved: true` —
+ * since the admin is vouching for them in person, unlike public
+ * self-registrations which always start as `approved: false`. Payment
+ * status is whatever the admin selects (defaults to "pending").
+ *
+ * NOTE: firestore.rules must allow this — see the added admin branch on
+ * the `members/{phone}` create rule, which permits `approved: true` /
+ * `paymentStatus: "paid"` only when `isVerifiedAdminDirect()` is true.
+ */
+async function handleAddMemberSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const submitBtn = document.getElementById("addMemberSubmitBtn");
+  document.getElementById("addMemberError").classList.add("hidden");
+
+  const name = form.name.value.trim();
+  const phone = normalizePhone(form.phone.value.trim());
+  const address = form.address.value.trim();
+  const joinDate = form.joinDate.value;
+  const planId = form.plan.value;
+  const paymentStatus = form.querySelector('input[name="paymentStatus"]:checked')?.value || "pending";
+
+  if (!name || phone.length < 7 || !address || !joinDate || !planId) {
+    showAddMemberError("Please fill every field with a valid phone number.");
+    return;
+  }
+
+  const originalLabel = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Registering…";
+
+  try {
+    // Phone number is the document ID for members (same convention as
+    // self-registration in member.js), so this also naturally prevents
+    // duplicate registrations for the same number.
+    const existingDoc = await membersCol.doc(phone).get();
+    if (existingDoc.exists) {
+      showAddMemberError("A member with this phone number already exists.");
+      return;
+    }
+
+    const plan = PLANS[planId];
+    const expiryDate = addMonthsToDateKey(joinDate, plan.months);
+
+    await membersCol.doc(phone).set({
+      name,
+      phone,
+      address,
+      joinDate,
+      plan: planId,
+      expiryDate,
+      paymentStatus,
+      approved: true,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // If the admin is registering them as already paid, log a matching
+    // payment record too — keeps monthly revenue/history consistent with
+    // what executeMarkAsPaid() does for existing members.
+    if (paymentStatus === "paid") {
+      await paymentsCol.add({
+        memberId: phone,
+        name,
+        phone,
+        plan: planId,
+        amount: plan.price,
+        method: "cash",
+        dateKey: toDateKey(new Date()),
+        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    // No manual re-render needed — subscribeMembers()'s onSnapshot listener
+    // picks up the new doc and calls renderMemberTable()/renderStats() itself.
+    closeAddMemberModal();
+  } catch (err) {
+    console.error(err);
+    showAddMemberError("Could not register member. Please check the details and try again.");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+}
+
+// --------------------------------------------- quick check-in by phone --
+/**
+ * Lets the admin check a member in by typing their phone number instead of
+ * hunting for their row in the table. Looks the member up client-side in
+ * the already-subscribed `allMembers` array, then delegates to the
+ * existing manualCheckIn() so the write path (deterministic
+ * `memberId_dateKey` doc, `method: "manual"`, `loggedBy`, server
+ * timestamp) is identical to the per-row Check-In button.
+ */
+async function handleQuickCheckin(e) {
+  e.preventDefault();
+  const input = document.getElementById("quickCheckinPhone");
+  const errorEl = document.getElementById("quickCheckinError");
+  errorEl.classList.add("hidden");
+
+  const phone = normalizePhone(input.value.trim());
+  if (phone.length < 7) {
+    errorEl.textContent = "Enter a valid phone number.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  const member = allMembers.find((m) => m.phone === phone);
+  if (!member) {
+    errorEl.textContent = "No member found with that phone number.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  if (!member.approved) {
+    errorEl.textContent = `${member.name}'s registration is still pending approval.`;
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  if (todayCheckedInIds.has(member.id)) {
+    errorEl.textContent = `${member.name} has already checked in today.`;
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  const submitBtn = document.getElementById("quickCheckinSubmitBtn");
+  await manualCheckIn(member, submitBtn);
+  // manualCheckIn() only restores the button on failure (its per-row usage
+  // relies on the table re-rendering the row on success instead) — this
+  // standalone button needs an explicit reset either way.
+  submitBtn.disabled = false;
+  submitBtn.textContent = "Check In";
+  input.value = "";
 }
 
 // ------------------------------------------------- re-auth confirmation --
