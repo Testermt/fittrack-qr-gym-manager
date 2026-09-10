@@ -144,8 +144,10 @@ function renderRulesList(lang) {
     .map(
       (item) => `
         <li class="flex gap-2">
-          <span class="text-accent">•</span>
-          <span><span class="font-medium text-slate-300">${item.label}:</span> ${item.text}</span>
+          <span class="text-accent"></span>
+          <span>
+            <span class="font-semibold text-slate-900">${item.label}:</span> ${item.text}
+          </span>
         </li>
       `
     )
@@ -155,6 +157,7 @@ function renderRulesList(lang) {
   toggleBtn.textContent = data.toggleLabel;
   toggleBtn.dataset.lang = lang;
 }
+
 
 /** Switches the rules list between English and Hindi. */
 function toggleRulesLang() {
