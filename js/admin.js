@@ -418,13 +418,12 @@ function base64urlToBuffer(base64url) {
 
 // --------------------------------------------------------------- members --
 function subscribeMembers() {
-  // 🔥 FIX: .orderBy("name") hata diya hai taaki bina index ke bhi data turant aaye, 
-  // aur sorting hum niche JavaScript mein safely kar lenge.
+  // 🔥 Security rules unchanged hain — sirf .orderBy hataya hai taaki index error na aaye
   unsubMembers = membersCol.onSnapshot(
     (snap) => {
       allMembers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       
-      // JavaScript mein alphabetically sort karna (No Firestore Index required)
+      // JavaScript mein securely sort karna (No database index required)
       allMembers.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       
       renderMemberTable();
