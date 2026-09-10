@@ -4,7 +4,7 @@
 
 <link rel="manifest" href="manifest-admin.json">
 
-<meta name="theme-color" content="#38BDF8">
+<meta name="theme-color" content="#EEF2F7">
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -19,10 +19,25 @@
     theme: {
       extend: {
         colors: {
-          base: "#090D16",
-          panel: "#0F1524",
-          accent: "#38BDF8",
-          success: "#10B981",
+          base: "#EEF2F7",
+          panel: "#FFFFFF",
+          accent: "#0284C7",
+          success: "#059669",
+          slate: {
+            50: "#0F172A",
+            100: "#0F172A",
+            200: "#1E293B",
+            300: "#334155",
+            400: "#475569",
+            500: "#64748B",
+            600: "#7C8DA0",
+            700: "#CBD5E1",
+            800: "#E2E8F0",
+            900: "#FFFFFF",
+            950: "#0F172A",
+          },
+          rose: { 400: "#E11D48" },
+          amber: { 400: "#D97706" },
         },
         fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
       },
@@ -32,14 +47,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
-  body { font-family: "Inter", system-ui, sans-serif; background-color: #090D16; }
+  body { font-family: "Inter", system-ui, sans-serif; background-color: #EEF2F7; }
   .badge { display: inline-flex; align-items: center; padding: 0.25rem 0.7rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
-  .badge-success { background: rgba(16,185,129,0.15); color: #10B981; }
-  .badge-warning { background: rgba(251,191,36,0.15); color: #FBBF24; }
-  .badge-danger { background: rgba(244,63,94,0.15); color: #FB7185; }
+  .badge-success { background: #DCFCE7; color: #166534; }
+  .badge-warning { background: #FEF3C7; color: #92400E; }
+  .badge-danger { background: #FEE2E2; color: #991B1B; }
   table { border-collapse: collapse; width: 100%; }
   ::-webkit-scrollbar { height: 6px; width: 6px; }
-  ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
 </style>
 </head>
 <body class="min-h-screen bg-base text-slate-200 antialiased">
@@ -47,7 +62,7 @@
   <!-- ============= LOGIN SCREEN ============= -->
   <!-- ============= LOGIN SCREEN ============= -->
   <div id="loginScreen" class="min-h-screen flex items-center justify-center px-5">
-    <div class="w-full max-w-sm">
+    <div class="w-full max-w-sm bg-panel border border-slate-800 rounded-2xl shadow-sm p-8">
       <div class="text-center mb-8">
         <div class="w-12 h-12 rounded-xl bg-accent/15 flex items-center justify-center text-accent font-bold text-2xl mx-auto mb-3"></div>
         <h1 id="gymNameLabelAdmin" class="text-lg font-semibold text-slate-50">FitTrack Gym</h1>
@@ -81,7 +96,7 @@
 
   <!-- ============= DEVICE VERIFICATION SCREEN (post-Google-login gate) ============= -->
   <div id="deviceVerifyScreen" class="hidden min-h-screen flex items-center justify-center px-5">
-    <div class="w-full max-w-sm text-center bg-panel border border-slate-800 rounded-xl p-8 space-y-4">
+    <div class="w-full max-w-sm text-center bg-panel border border-slate-800 rounded-2xl shadow-sm p-8 space-y-4">
       <div class="w-14 h-14 rounded-full bg-accent/15 flex items-center justify-center text-3xl mx-auto">🔒</div>
       <h2 id="deviceVerifyTitle" class="text-lg font-semibold text-slate-50">Verifying this device…</h2>
       <p id="deviceVerifySub" class="text-sm text-slate-500">
@@ -107,7 +122,7 @@
 
   <!-- ============= ONE-TIME BIOMETRIC SETUP OFFER ============= -->
   <div id="biometricSetupScreen" class="hidden min-h-screen flex items-center justify-center px-5">
-    <div class="w-full max-w-sm text-center bg-panel border border-slate-800 rounded-xl p-8 space-y-4">
+    <div class="w-full max-w-sm text-center bg-panel border border-slate-800 rounded-2xl shadow-sm p-8 space-y-4">
       <div class="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center text-3xl mx-auto">🔐</div>
       <h2 class="text-lg font-semibold text-slate-50">Lock the dashboard to this device</h2>
       <p class="text-sm text-slate-500">
@@ -150,29 +165,29 @@
 
       <!-- Stats -->
       <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="rounded-xl border border-slate-800 bg-panel p-4">
+        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-4">
           <p class="text-xs text-slate-500 mb-1">Total Members</p>
           <p id="statTotal" class="text-2xl font-bold text-slate-50">0</p>
         </div>
-        <div class="rounded-xl border border-slate-800 bg-panel p-4">
+        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-4">
           <p class="text-xs text-slate-500 mb-1">Active Members</p>
           <p id="statActive" class="text-2xl font-bold text-success">0</p>
         </div>
-        <div class="rounded-xl border border-slate-800 bg-panel p-4">
+        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-4">
           <p class="text-xs text-slate-500 mb-1">Pending Payments</p>
           <p id="statPending" class="text-2xl font-bold text-amber-400">0</p>
         </div>
-        <div class="rounded-xl border border-slate-800 bg-panel p-4">
+        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-4">
           <p class="text-xs text-slate-500 mb-1">Revenue (This Month)</p>
           <p id="statRevenue" class="text-2xl font-bold text-accent">—</p>
         </div>
       </section>
 
-      <div class="grid lg:grid-cols-3 gap-6">
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
 
 
 <!-- ============= MONTHLY REVENUE HISTORY SECTION ============= -->
-<section class="rounded-xl border border-slate-800 bg-panel p-5">
+<section class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-5">
   <div class="flex items-center justify-between mb-4">
     <h2 class="font-semibold text-slate-100">Monthly Revenue History</h2>
     <span class="text-xs text-slate-500">Past Records</span>
@@ -195,7 +210,7 @@
 
 
 <!-- Check-in Analytics Chart Card -->
-<section class="rounded-xl border border-slate-800 bg-panel p-5 flex flex-col justify-between">
+<section class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-5 flex flex-col justify-between">
   <div class="flex items-center justify-between mb-2">
     <h2 class="font-semibold text-slate-100 text-sm">Weekly Check-Ins Trend</h2>
     <span class="text-xs text-slate-500">Last 7 Days</span>
@@ -207,7 +222,7 @@
 
 
         <!-- Live attendance with Time Filters -->
-<section class="lg:col-span-1 rounded-xl border border-slate-800 bg-panel p-5">
+<section class="lg:col-span-1 rounded-2xl border border-slate-800 bg-panel shadow-sm p-5">
   <div class="flex items-center justify-between mb-3">
     <h2 class="font-semibold text-slate-100">Today's Check-Ins</h2>
     <span class="text-xs rounded-full bg-slate-800 px-2.5 py-1 text-slate-400">
@@ -229,7 +244,7 @@
 
 
         <!-- Member directory -->
-        <section class="lg:col-span-2 rounded-xl border border-slate-800 bg-panel p-5">
+        <section class="md:col-span-2 lg:col-span-2 rounded-2xl border border-slate-800 bg-panel shadow-sm p-5">
           <div class="flex items-center justify-between mb-4 gap-3">
             <h2 class="font-semibold text-slate-100 whitespace-nowrap">Member Directory</h2>
             <input id="memberSearch" type="text" placeholder="Search by name or phone…"
@@ -290,7 +305,7 @@
   <!-- ============= RE-AUTH CONFIRMATION MODAL ============= -->
 <div id="reauthModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div id="reauthBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-  <div class="relative w-full max-w-sm rounded-xl border border-slate-800 bg-panel p-6 shadow-xl">
+  <div class="relative w-full max-w-sm rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">
     <div class="flex items-center gap-3 mb-1">
       <div class="w-9 h-9 rounded-lg bg-rose-500/15 flex items-center justify-center text-rose-400 text-lg"></div>
       <h3 id="reauthTitle" class="font-semibold text-slate-50">Confirm it's you</h3>
@@ -303,7 +318,7 @@
         <input id="reauthPasswordInput" type="password" autocomplete="current-password"
           class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
       </div>
-      <p id="reauthGoogleHint" class="hidden text-xs text-slate-500">You signed in with Google � confirm with your Google account to continue.</p>
+      <p id="reauthGoogleHint" class="hidden text-xs text-slate-500">You signed in with Google — confirm with your Google account to continue.</p>
       <p id="reauthError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"></p>
       <div class="flex gap-3 pt-1">
         <button type="button" id="reauthCancelBtn"
