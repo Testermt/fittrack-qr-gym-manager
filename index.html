@@ -44,27 +44,39 @@
     color: #0F172A;
   }
   
-    /* ============= WELCOME & GYM RULES MODAL (Top Pop-up) ============= */
+      /* ============= WELCOME & GYM RULES MODAL (Fixed Overlay Pop-up) ============= */
   #welcomeModal {
-    display: flex;
-    align-items: flex-start !important; /* Center se hata kar upar align karne ke liye */
-    justify-content: center;
-    padding-top: 12px;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background-color: rgba(15, 23, 42, 0.75) !important;
+    backdrop-filter: blur(6px) !important;
+    z-index: 9999 !important;
+    display: flex !important;
+    align-items: center !important; /* Screen ke beech mein ya top par overlay karne ke liye */
+    justify-content: center !important;
+    padding: 16px !important;
+    overflow-y: auto !important;
   }
 
   #welcomeModal > div {
-    max-width: 92%;
-    width: 100%;
-    margin-top: 8px;
-    animation: modalSlideDown 250ms cubic-bezier(.34,1.56,.64,1);
+    max-width: 380px !important;
+    width: 100% !important;
+    max-height: 85vh !important;
+    overflow-y: auto !important;
+    background: #FFFFFF !important;
+    border-radius: 1.25rem !important;
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.3) !important;
+    animation: modalPopUp 250ms cubic-bezier(.34,1.56,.64,1);
   }
 
-  @keyframes modalSlideDown {
-    0% { opacity: 0; transform: translateY(-20px); }
-    100% { opacity: 1; transform: translateY(0); }
+  @keyframes modalPopUp {
+    0% { opacity: 0; transform: scale(0.9) translateY(10px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
   }
+
   
-
   header, main, #paymentModal, #welcomeModal, #mascotDock { position: relative; z-index: 1; }
 
   button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
@@ -403,7 +415,7 @@
 
     <!-- ============= REGISTER PANEL ============= -->
     <section data-tab-panel="register">
-      <h1 class="font-display text-2xl font-bold text-slate-900 mb-1.5">Join the gym</h1>
+      <h1 class="font-display text-2xl font-bold text-slate-900 mb-1.5">Join the gym.</h1>
       <p class="text-sm text-slate-500 mb-7">Fill this out once at the front desk QR stand — takes under a minute.</p>
 
       <form id="registerForm" class="space-y-5">
