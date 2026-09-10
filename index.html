@@ -314,39 +314,55 @@
 
       <div id="statusBanner" class="hidden text-sm rounded-lg px-4 py-3 bg-slate-800/60 mb-4"></div>
 
-      <div id="statusCard" class="hidden rounded-xl border border-slate-700 bg-panel p-5 space-y-4">
-        <div class="flex items-start justify-between">
-          <div>
-            <p id="statusName" class="text-lg font-semibold text-slate-50"></p>
-            <p id="statusPhone" class="text-xs text-slate-500"></p>
-          </div>
-          <span id="statusBadge" class="badge"></span>
-        </div>
+      <!-- Status Card ke andar yeh add karna hai -->
+<div id="statusCard" class="hidden rounded-xl border border-slate-700 bg-panel p-5 space-y-4">
+  <div class="flex items-start justify-between">
+    <div>
+      <p id="statusName" class="text-lg font-semibold text-slate-50"></p>
+      <p id="statusPhone" class="text-xs text-slate-500"></p>
+    </div>
+    <span id="statusBadge" class="badge"></span>
+  </div>
 
-        <p id="checkinNote" class="text-sm text-accent"></p>
+  <p id="checkinNote" class="text-sm text-accent"></p>
 
-        <dl class="grid grid-cols-2 gap-y-3 text-sm border-t border-slate-800 pt-4">
-          <dt class="text-slate-500">Plan</dt>
-          <dd id="statusPlan" class="text-right text-slate-200 font-medium"></dd>
-          <dt class="text-slate-500">Joined</dt>
-          <dd id="statusJoin" class="text-right text-slate-200 font-medium"></dd>
-          <dt class="text-slate-500">Expires</dt>
-          <dd id="statusExpiry" class="text-right text-slate-200 font-medium"></dd>
-          <dt class="text-slate-500">Days remaining</dt>
-          <dd id="statusDays" class="text-right text-slate-200 font-medium"></dd>
-          <dt class="text-slate-500">Payment</dt>
-          <dd class="text-right"><span id="statusPayBadge" class="badge"></span></dd>
-        </dl>
+  <!-- 🔥 Workout Streak Badge -->
+  <div id="streakBadgeContainer" class="hidden items-center gap-2 rounded-lg bg-accent/10 border border-accent/20 px-3 py-2 text-xs text-accent font-medium">
+    <span>🔥</span>
+    <span id="streakText">0 day streak this week!</span>
+  </div>
 
-        <div id="renewSection" class="hidden border-t border-slate-800 pt-4 space-y-3">
-          <p class="text-sm font-medium text-slate-300">Renew your membership</p>
-          <div id="renewPlanPicker" class="grid grid-cols-2 gap-3"></div>
-          <button id="renewButton" type="button"
-            class="w-full rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
-            Pay Online via UPI
-          </button>
-        </div>
-      </div>
+  <dl class="grid grid-cols-2 gap-y-3 text-sm border-t border-slate-800 pt-4">
+    <dt class="text-slate-500">Plan</dt>
+    <dd id="statusPlan" class="text-right text-slate-200 font-medium"></dd>
+    <dt class="text-slate-500">Joined</dt>
+    <dd id="statusJoin" class="text-right text-slate-200 font-medium"></dd>
+    <dt class="text-slate-500">Expires</dt>
+    <dd id="statusExpiry" class="text-right text-slate-200 font-medium"></dd>
+    <dt class="text-slate-500">Days remaining</dt>
+    <dd id="statusDays" class="text-right text-slate-200 font-medium"></dd>
+    <dt class="text-slate-500">Payment</dt>
+    <dd class="text-right"><span id="statusPayBadge" class="badge"></span></dd>
+  </dl>
+
+  <!-- 📜 Recent Check-ins History List -->
+  <div class="border-t border-slate-800 pt-4 space-y-2">
+    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Recent Check-ins</p>
+    <ul id="memberCheckinHistory" class="max-h-[150px] overflow-y-auto space-y-1.5 text-xs text-slate-300">
+      <li class="text-slate-500 italic">No check-ins recorded yet.</li>
+    </ul>
+  </div>
+
+  <div id="renewSection" class="hidden border-t border-slate-800 pt-4 space-y-3">
+    <p class="text-sm font-medium text-slate-300">Renew your membership</p>
+    <div id="renewPlanPicker" class="grid grid-cols-2 gap-3"></div>
+    <button id="renewButton" type="button"
+      class="w-full rounded-lg bg-success text-slate-950 font-semibold py-3 hover:brightness-110 active:scale-[0.99] transition">
+      Pay Online via UPI
+    </button>
+  </div>
+</div>
+
     </section>
 
     <p class="text-center text-xs text-slate-600 mt-10">

@@ -352,9 +352,15 @@ async function handleStatusCheck(e) {
       );
       return;
     }
-    currentMember = { id: doc.id, ...doc.data() };
-    const justCheckedIn = await logCheckinIfNeeded(currentMember.id, currentMember.name, currentMember.phone);
-    renderStatusCard(currentMember, justCheckedIn);
+    // handleStatusCheck ke andar:
+currentMember = { id: doc.id, ...doc.data() };
+const checkinStatus = await logCheckinIfNeeded(currentMember.id, currentMember.name, currentMember.phone);
+renderStatusCard(currentMember, checkinStatus);
+
+//  Yeh line add karni hai taaki history aur streak load ho jaye:
+loadMemberCheckinHistory(currentMember.id);
+
+    
   } catch (err) {
     console.error(err);
     showBanner("statusBanner", "Something went wrong. Please try again.");
@@ -495,5 +501,59 @@ async function handleCopyUpiId() {
     console.error("Clipboard copy failed:", err);
     // Clipboard API can be unavailable (e.g. non-HTTPS); the ID is still
     // visible on screen for the member to select and copy manually.
+  }
+}
+
+// Status check ke waqt check-in history fetch karne ka function
+async function loadMemberCheckinHistory(memberId) {
+  const historyList = document.getElementById("memberCheckinHistory");
+  const streakContainer = document.getElementById("streakBadgeContainer");
+  const streakText = document.getElementById("streakText");
+  
+  historyList.innerHTML = '<li class="text-slate-500">Loading history</li>';
+
+  try {
+    const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
+    const records = snapshot.docs
+      .map(doc => doc.data())
+      .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+
+    if (records.length === 0) {
+      historyList.innerHTML = '<li class="text-slate-500 italic">No check-ins recorded yet.</li>';
+      streakContainer.classList.add("hidden");
+      return;
+    }
+
+    // 1. Render History List (Max pichhle 5 check-ins)
+    historyList.innerHTML = "";
+    records.slice(0, 5).forEach((record) => {
+      const timeStr = record.timestamp?.toDate 
+        ? record.timestamp.toDate().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) 
+        : "";
+      
+      const li = document.createElement("li");
+      li.className = "flex items-center justify-between bg-slate-900/50 px-3 py-1.5 rounded-md";
+      li.innerHTML = `
+        <span class="text-slate-200 font-medium">${record.dateKey}</span>
+        <span class="text-slate-400">${timeStr} (${record.method || 'gps'})</span>
+      `;
+      historyList.appendChild(li);
+    });
+
+    // 2. Calculate Streak (Unique days count in recent records)
+    const uniqueDays = [...new Set(records.map(r => r.dateKey))];
+    const streakCount = uniqueDays.length;
+
+    if (streakCount > 0) {
+      streakText.textContent = `${streakCount} check-in${streakCount === 1 ? '' : 's'} logged total! Keep it up!`;
+      streakContainer.classList.remove("hidden");
+      streakContainer.classList.add("flex");
+    } else {
+      streakContainer.classList.add("hidden");
+    }
+
+  } catch (err) {
+    console.error("Error loading history:", err);
+    historyList.innerHTML = '<li class="text-rose-400">Could not load check-in history.</li>';
   }
 }
