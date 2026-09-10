@@ -265,7 +265,7 @@ async function logCheckinIfNeeded(memberId, name, phone) {
       },
 
       { 
-        enableHighAccuracy: true, 
+        enableHighAccuracy: false, 
         timeout: 10000, 
         maximumAge: 0 
       }
