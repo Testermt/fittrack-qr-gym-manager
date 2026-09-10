@@ -85,6 +85,8 @@ async function handleAuthenticatedUser(user) {
 
     let isAdmin = false;
     try {
+      // 🔥 FIX: Ensure auth token is fully synced with Firestore before querying
+      await user.getIdToken(true);
       isAdmin = await isVerifiedAdmin(user.email);
     } catch (err) {
       console.error("Admin verification lookup failed:", err);
@@ -121,6 +123,7 @@ async function handleAuthenticatedUser(user) {
 
   showDashboard(user);
 }
+
 
 
 function setDeviceVerifyStage(stage) {
