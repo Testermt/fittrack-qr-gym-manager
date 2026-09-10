@@ -180,37 +180,7 @@ async function handleGoogleSignIn() {
   }
 }
 
-
-  const originalLabel = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "Sending…";
-
-  try {
-    await auth.sendPasswordResetEmail(email);
-    showResetMessage(`Password reset link sent to ${email}! Check your inbox.`, "success");
-  } catch (err) {
-    console.error(err);
-    showResetMessage("Something went wrong sending the reset email. Please try again.", "error");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = originalLabel;
-  }
-}
-
-function showResetMessage(message, kind) {
-  const el = document.getElementById("resetMessage");
-  el.textContent = message;
-  el.classList.remove("hidden", "text-emerald-400", "bg-emerald-500/10", "border-emerald-500/30", "text-rose-400", "bg-rose-500/10", "border-rose-500/30");
-  if (kind === "success") {
-    el.classList.add("text-emerald-400", "bg-emerald-500/10", "border-emerald-500/30");
-  } else {
-    el.classList.add("text-rose-400", "bg-rose-500/10", "border-rose-500/30");
-  }
-}
-
-function hideResetMessage() {
-  document.getElementById("resetMessage").classList.add("hidden");
-}
+// 🛑 Yeh beech ka sara orphaned/stray code yahan se hata dena hai!
 
 function showLogin() {
   showScreen("loginScreen");
@@ -219,6 +189,7 @@ function showLogin() {
   if (unsubPayments) unsubPayments();
   closeReauthModal();
 }
+
 
 function showDashboard(user) {
   showScreen("dashboardScreen");
@@ -730,18 +701,23 @@ async function executeDeleteMember(member, btn) {
 
 
 // Manual Check-In
+// Manual Check-In with Deterministic ID (`memberId_dateKey`)
 async function manualCheckIn(member, btn) {
   if (todayCheckedInIds.has(member.id)) return;
 
   const originalLabel = btn.textContent;
   btn.disabled = true;
   btn.textContent = "Checking in…";
+  
   try {
-    await checkinsCol.add({
+    const today = toDateKey(new Date());
+    const checkinId = `${member.id}_${today}`;
+    
+    await checkinsCol.doc(checkinId).set({
       memberId: member.id,
       name: member.name,
       phone: member.phone,
-      dateKey: toDateKey(new Date()),
+      dateKey: today,
       timestamp: firebase.firestore.FieldValue.serverTimestamp(),
       method: "manual",
       loggedBy: auth.currentUser ? auth.currentUser.email : null,
@@ -753,6 +729,7 @@ async function manualCheckIn(member, btn) {
     btn.textContent = originalLabel;
   }
 }
+
 
 function sendWhatsAppReminder(member) {
   const number = toWhatsAppNumber(member.phone);
