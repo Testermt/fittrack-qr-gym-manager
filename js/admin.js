@@ -131,8 +131,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("addMemberBackdrop").addEventListener("click", closeAddMemberModal);
   document.getElementById("addMemberForm").addEventListener("submit", handleAddMemberSubmit);
 
-  // Quick check-in by phone number
-  document.getElementById("quickCheckinForm").addEventListener("submit", handleQuickCheckin);
+
 
   document.getElementById("deviceVerifyRetryBtn").addEventListener("click", () => {
     const user = auth.currentUser;
@@ -719,45 +718,7 @@ async function handleAddMemberSubmit(e) {
  * `memberId_dateKey` doc, `method: "manual"`, `loggedBy`, server
  * timestamp) is identical to the per-row Check-In button.
  */
-async function handleQuickCheckin(e) {
-  e.preventDefault();
-  const input = document.getElementById("quickCheckinPhone");
-  const errorEl = document.getElementById("quickCheckinError");
-  errorEl.classList.add("hidden");
 
-  const phone = normalizePhone(input.value.trim());
-  if (phone.length < 7) {
-    errorEl.textContent = "Enter a valid phone number.";
-    errorEl.classList.remove("hidden");
-    return;
-  }
-
-  const member = allMembers.find((m) => m.phone === phone);
-  if (!member) {
-    errorEl.textContent = "No member found with that phone number.";
-    errorEl.classList.remove("hidden");
-    return;
-  }
-  if (!member.approved) {
-    errorEl.textContent = `${member.name}'s registration is still pending approval.`;
-    errorEl.classList.remove("hidden");
-    return;
-  }
-  if (todayCheckedInIds.has(member.id)) {
-    errorEl.textContent = `${member.name} has already checked in today.`;
-    errorEl.classList.remove("hidden");
-    return;
-  }
-
-  const submitBtn = document.getElementById("quickCheckinSubmitBtn");
-  await manualCheckIn(member, submitBtn);
-  // manualCheckIn() only restores the button on failure (its per-row usage
-  // relies on the table re-rendering the row on success instead) — this
-  // standalone button needs an explicit reset either way.
-  submitBtn.disabled = false;
-  submitBtn.textContent = "Check In";
-  input.value = "";
-}
 
 // ------------------------------------------------- re-auth confirmation --
 function requestReauth(type, member, btn) {
