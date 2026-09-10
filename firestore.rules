@@ -10,7 +10,7 @@ service cloud.firestore {
 
     // Members collection: Public read for status, secure write/update
     match /members/{phone} {
-      // 🛡️ FIX 1: Yeh ensure karta hai ki naya user register karte waqt 
+      //  FIX 1: Yeh ensure karta hai ki naya user register karte waqt 
       // khud ko 'approved: true' nahi set kar sakta. Default hamesha false/unapproved rahega.
       allow create: if phone.matches('^[0-9]{7,15}$')
                     && request.resource.data.phone == phone
@@ -22,20 +22,19 @@ service cloud.firestore {
     }
 
     // Checkins collection: Prevent fake check-ins from unapproved members
-    match /checkins/{checkinId} {
-      // 🛡️ FIX 2: Check-in tabhi create hoga jab database mein 
-      // woh member ka document exist karta ho AUR uska 'approved' status true ho!
+        match /checkins/{checkinId} {
       allow create: if request.resource.data.memberId is string
                     && request.resource.data.phone is string
                     && request.resource.data.phone.size() >= 7
                     && request.resource.data.dateKey is string
                     && request.resource.data.method in ["geofenced-gps", "manual"]
                     && request.resource.data.timestamp == request.time
+                    && checkinId == request.resource.data.memberId + '_' + request.resource.data.dateKey
                     && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.approved == true;
                     
-      // Read, update, delete sirf verified admin hi kar sakte hain[cite: 9]:
       allow read, update, delete: if isVerifiedAdmin();
     }
+    
 
     // Payments collection: Strictly admin-only[cite: 9]
     match /payments/{paymentId} {

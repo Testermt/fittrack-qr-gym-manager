@@ -231,8 +231,9 @@ async function logCheckinIfNeeded(memberId, name, phone) {
             return;
           }
 
-          // 3. Success: Save check-in
-          await checkinsCol.add({
+                // 3. Success: Save check-in with a deterministic document ID (memberId_dateKey)
+          const checkinId = `${memberId}_${today}`;
+          await checkinsCol.doc(checkinId).set({
             memberId,
             name,
             phone,
@@ -240,6 +241,7 @@ async function logCheckinIfNeeded(memberId, name, phone) {
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             method: "geofenced-gps",
           });
+
           
           resolve("success");
         } catch (err) {
