@@ -12,15 +12,25 @@ const FIREBASE_CONFIG = {
   measurementId: "G-XGQ8Q3J78Z"
 };
 
-// ---- Gym-level settings — edit to match your gym ----------------------
-const GYM_SETTINGS = {
+// ---- Gym-level settings ------------------------------------------------
+// These two objects are now LIVE CONFIG, sourced from Firestore
+// (settings/gymConfig) and only *seeded* with the values below as a
+// last-resort fallback (used if this is the very first load with no
+// cached copy yet, and the network/Firestore read fails).
+//
+// IMPORTANT: kept as `let` + mutated IN PLACE (not reassigned) via
+// Object.assign so every existing `GYM_SETTINGS.name` / `PLANS[id]`
+// reference across member.js/admin.js keeps working untouched — they
+// hold a reference to these same objects, so once loadGymConfig()
+// populates them, every call site sees the live values automatically.
+let GYM_SETTINGS = {
   name: "Iron Pulse Fitness",
   currencySymbol: "₹",
   defaultCountryCode: "91",
 };
 
 // Membership plans: id -> { label, months, price }
-const PLANS = {
+let PLANS = {
   "1m": { label: "1 Month", months: 1, price: 1200 },
   "3m": { label: "3 Months", months: 3, price: 3300 },
   "6m": { label: "6 Months", months: 6, price: 6000 },
@@ -31,6 +41,106 @@ const PLANS = {
 firebase.initializeApp(FIREBASE_CONFIG);
 const db = firebase.firestore();
 const auth = firebase.auth();
+
+// ---- Dynamic gym config (settings/gymConfig) ---------------------------
+//
+// Firestore is the source of truth for gym name / currency / country code
+// / plan pricing & durations. This lets an admin change prices or add a
+// plan from the Firebase Console (or a future in-app settings screen)
+// with zero redeploy. Every page (member.js, admin.js) must `await
+// gymConfigReady` before it renders anything that reads GYM_SETTINGS or
+// PLANS — see the loader below.
+//
+// Caching strategy (offline/cold-start robustness):
+//   1. GYM_SETTINGS/PLANS above are pre-seeded with hardcoded defaults —
+//      the UI is never fully broken, even on a first-ever load with no
+//      network at all.
+//   2. On every successful fetch, the result is mirrored into
+//      localStorage, so the *next* load (even offline) restores the last
+//      known-good config instead of falling back to stale hardcoded
+//      defaults.
+//   3. The live Firestore fetch always races against a short timeout —
+//      a slow/offline network degrades to cached/default config rather
+//      than hanging page load.
+const GYM_CONFIG_CACHE_KEY = "fittrack:gymConfig:v1";
+const GYM_CONFIG_FETCH_TIMEOUT_MS = 4000;
+
+function applyGymConfig(data) {
+  if (!data || typeof data !== "object") return;
+  if (data.name || data.currencySymbol || data.defaultCountryCode) {
+    Object.assign(GYM_SETTINGS, {
+      name: data.name ?? GYM_SETTINGS.name,
+      currencySymbol: data.currencySymbol ?? GYM_SETTINGS.currencySymbol,
+      defaultCountryCode: data.defaultCountryCode ?? GYM_SETTINGS.defaultCountryCode,
+    });
+  }
+  if (data.plans && typeof data.plans === "object" && Object.keys(data.plans).length > 0) {
+    // Replace wholesale (not merge) so a plan removed in Firestore
+    // actually disappears from the picker instead of lingering from the
+    // hardcoded default.
+    for (const key of Object.keys(PLANS)) delete PLANS[key];
+    Object.assign(PLANS, data.plans);
+  }
+}
+
+function loadCachedGymConfig() {
+  try {
+    const raw = localStorage.getItem(GYM_CONFIG_CACHE_KEY);
+    if (raw) applyGymConfig(JSON.parse(raw));
+  } catch (err) {
+    console.warn("Could not read cached gym config:", err);
+  }
+}
+
+function cacheGymConfig(data) {
+  try {
+    localStorage.setItem(GYM_CONFIG_CACHE_KEY, JSON.stringify(data));
+  } catch (err) {
+    // Non-fatal (private browsing, storage full, etc.) — just means the
+    // next cold load falls back one step further, to hardcoded defaults.
+    console.warn("Could not cache gym config:", err);
+  }
+}
+
+function timeoutAfter(ms) {
+  return new Promise((resolve) => setTimeout(() => resolve(null), ms));
+}
+
+/**
+ * Loads settings/gymConfig from Firestore and mutates GYM_SETTINGS/PLANS
+ * in place. Never throws and never blocks longer than
+ * GYM_CONFIG_FETCH_TIMEOUT_MS — always resolves, so callers can safely
+ * `await gymConfigReady` without a try/catch of their own.
+ *
+ * Load order applied: hardcoded defaults (already in the objects above)
+ * -> last cached copy (if any) -> live Firestore value (if it arrives
+ * in time). Each step only overwrites fields that are actually present,
+ * so a partial/slow read never wipes out good data with blanks.
+ */
+async function loadGymConfig() {
+  loadCachedGymConfig(); // best-effort synchronous upgrade over hardcoded defaults
+
+  try {
+    const snap = await Promise.race([
+      db.collection("settings").doc("gymConfig").get(),
+      timeoutAfter(GYM_CONFIG_FETCH_TIMEOUT_MS),
+    ]);
+    if (snap && snap.exists) {
+      const data = snap.data();
+      applyGymConfig(data);
+      cacheGymConfig(data);
+    }
+  } catch (err) {
+    // Offline, permission hiccup, doc not created yet, etc. — the
+    // already-applied defaults/cache stand, app stays usable.
+    console.warn("Gym config fetch failed, using cached/default values:", err);
+  }
+}
+
+// Kicked off immediately at script load; every page's DOMContentLoaded
+// handler should `await gymConfigReady` before building any UI that
+// reads GYM_SETTINGS or PLANS (plan pickers, gym name labels, etc.).
+const gymConfigReady = loadGymConfig();
 
 // ---- Shared helpers -----------------------------------------------------
 

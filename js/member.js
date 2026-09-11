@@ -42,7 +42,12 @@ const membersCol = db.collection("members");
 const checkinsCol = db.collection("checkins");
 
 // ---------------------------------------------------------------- setup --
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  // Wait for settings/gymConfig (name, currency, plans) before rendering
+  // anything that reads GYM_SETTINGS/PLANS. This resolves quickly from
+  // cache/defaults even offline — see loadGymConfig() in firebase-config.js.
+  await gymConfigReady;
+
   document.getElementById("gymNameLabel").textContent = GYM_SETTINGS.name;
   document.getElementById("joinDate").value = toDateKey(new Date());
   buildPlanPicker("planPicker", "plan");

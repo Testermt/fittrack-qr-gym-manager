@@ -98,7 +98,11 @@ function showScreen(idToShow) {
   });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  // Same gymConfigReady gate as member.js — resolves fast (cache/defaults)
+  // even offline, so this doesn't meaningfully delay the admin login screen.
+  await gymConfigReady;
+
   document.getElementById("gymNameLabelAdmin").textContent = GYM_SETTINGS.name;
 
   // Email/Password form listeners hata diye gaye hain kyunki form remove kar diya hai
