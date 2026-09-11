@@ -39,6 +39,21 @@ let PLANS = {
 
 // ---- Firebase init (uses the compat SDK loaded via <script> tags) -----
 firebase.initializeApp(FIREBASE_CONFIG);
+
+// ---- App Check (reCAPTCHA Enterprise) -----------------------------------
+// Blocks direct/scripted calls to Firestore that don't come from this real
+// app (e.g. someone hitting the Firestore REST API from a script/console
+// with a guessed memberId/phone). Must run BEFORE firebase.firestore()/
+// firebase.auth() are touched below, so every subsequent read/write already
+// carries a valid App Check token.
+// Site key is public (safe to ship in client code, like the Firebase config
+// above) — it identifies the site, it doesn't grant access by itself.
+const appCheck = firebase.appCheck();
+appCheck.activate(
+  new firebase.appCheck.ReCaptchaEnterpriseProvider("6LdYObUtAAAAAAS-O-plYyZW7wCsQOMco76JykW4"),
+  true // isTokenAutoRefreshEnabled
+);
+
 const db = firebase.firestore();
 const auth = firebase.auth();
 
