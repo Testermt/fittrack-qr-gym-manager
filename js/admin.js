@@ -487,9 +487,41 @@ function subscribeMembers() {
 }
 
 
+function buildMemberActionsHtml(m, dotSizeClass) {
+  const days = daysUntil(m.expiryDate);
+  const isActive = days >= 0;
+  const isPaid = m.paymentStatus === "paid";
+  const isApproved = m.approved === true;
+  const alreadyCheckedIn = todayCheckedInIds.has(m.id);
+
+  return `
+    <!-- 🔥 Approve Button (Sirf tab dikhega jab user approved na ho) -->
+    ${!isApproved ? `<button data-action="approve" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-amber-500/15 text-amber-400 px-3 py-1.5 hover:bg-amber-500/25 transition">Approve</button>` : ""}
+
+    <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
+      class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
+        alreadyCheckedIn ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-accent/15 text-accent hover:bg-accent/25"
+      }">${alreadyCheckedIn ? "✓ Checked In" : "Check-In"}</button>
+
+    <!-- 🔥 3-dot menu: Mark as Paid / Send WhatsApp / Delete -->
+    <div class="relative inline-block">
+      <button data-action="more-menu" data-id="${m.id}"
+        class="text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md ${dotSizeClass} flex items-center justify-center transition"
+        aria-label="More actions">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+      </button>
+      <div data-menu-actions
+        data-mark-paid="${!isPaid}"
+        data-whatsapp="${!isActive || !isPaid}"
+        class="hidden"></div>
+    </div>
+  `;
+}
+
 function renderMemberTable() {
   const query = document.getElementById("memberSearch").value.trim().toLowerCase();
   const tbody = document.getElementById("memberTableBody");
+  const cardList = document.getElementById("memberCardList"); // 🔥 mobile card view
   const emptyState = document.getElementById("memberEmptyState");
 
   const filtered = allMembers.filter((m) => {
@@ -502,6 +534,7 @@ function renderMemberTable() {
   });
 
   tbody.innerHTML = "";
+  cardList.innerHTML = "";
   emptyState.classList.toggle("hidden", filtered.length > 0);
 
   filtered.forEach((m) => {
@@ -510,8 +543,8 @@ function renderMemberTable() {
     const plan = PLANS[m.plan] || { label: m.plan };
     const isPaid = m.paymentStatus === "paid";
     const isApproved = m.approved === true;
-    const alreadyCheckedIn = todayCheckedInIds.has(m.id);
 
+    // ---- desktop/tablet table row (md and up) ----
     const tr = document.createElement("tr");
     tr.className = "border-b border-slate-800/70 hover:bg-slate-800/30 transition";
     tr.innerHTML = `
@@ -527,30 +560,106 @@ function renderMemberTable() {
         <p class="text-xs text-slate-500 mt-1">${isActive ? days + "d left" : Math.abs(days) + "d ago"}</p>
       </td>
       <td class="py-3 pr-4">
-        <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "PENDING"}</span>
+        <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "Payment Pending"}</span>
         <!-- 🔥 Approval Status Badge -->
-        <span class="badge mt-1 ${isApproved ? "badge-success" : "badge-warning"}">${isApproved ? "APPROVED" : "PENDING"}</span>
+        <span class="badge mt-1 ${isApproved ? "badge-success" : "badge-warning"}">${isApproved ? "APPROVED" : "Approval Pending"}</span>
       </td>
       <td class="py-3 pr-0">
-        <div class="flex flex-wrap gap-2 justify-end">
-          <!-- 🔥 Approve Button (Sirf tab dikhega jab user approved na ho) -->
-          ${!isApproved ? `<button data-action="approve" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-amber-500/15 text-amber-400 px-3 py-1.5 hover:bg-amber-500/25 transition">Approve</button>` : ""}
-
-          <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
-            class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
-              alreadyCheckedIn ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-accent/15 text-accent hover:bg-accent/25"
-            }">${alreadyCheckedIn ? "✓ Checked In" : "Check-In"}</button>
-          
-          ${!isPaid ? `<button data-action="mark-paid" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-success/15 text-success px-3 py-1.5 hover:bg-success/25 transition">Mark as Paid</button>` : ""}
-          ${(!isActive || !isPaid) ? `<button data-action="whatsapp" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-emerald-500/15 text-emerald-400 px-3 py-1.5 hover:bg-emerald-500/25 transition">Send WhatsApp</button>` : ""}
-          
-          <button data-action="delete" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-rose-500/15 text-rose-400 px-3 py-1.5 hover:bg-rose-500/25 transition">Delete</button>
+        <div class="flex flex-wrap gap-2 justify-end items-center">
+          ${buildMemberActionsHtml(m, "w-8 h-8")}
         </div>
       </td>
     `;
     tbody.appendChild(tr);
+
+    // ---- mobile card (below md) ----
+    const card = document.createElement("div");
+    card.className = "rounded-xl border border-slate-800 bg-slate-900/50 p-3.5";
+    card.innerHTML = `
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <p class="font-medium text-slate-100 truncate">${escapeHtml(m.name)}</p>
+          <p class="text-xs text-slate-500">+${GYM_SETTINGS.defaultCountryCode} ${m.phone}</p>
+        </div>
+        <span class="badge shrink-0 ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>
+      </div>
+
+      <div class="flex flex-wrap gap-1.5 mt-2.5">
+        <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "Payment Pending"}</span>
+        <span class="badge ${isApproved ? "badge-success" : "badge-warning"}">${isApproved ? "APPROVED" : "Approval Pending"}</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-400 mt-2.5 pt-2.5 border-t border-slate-800/70">
+        <p class="truncate"><span class="text-slate-600">Plan:</span> ${plan.label}</p>
+        <p class="truncate"><span class="text-slate-600">Expiry:</span> ${formatDate(m.expiryDate)} · ${isActive ? days + "d left" : Math.abs(days) + "d ago"}</p>
+        ${m.address ? `<p class="col-span-2 truncate" title="${escapeHtml(m.address)}"><span class="text-slate-600">Address:</span> ${escapeHtml(m.address)}</p>` : ""}
+      </div>
+
+      <div class="flex flex-wrap gap-2 items-center mt-3">
+        ${buildMemberActionsHtml(m, "w-10 h-10")}
+      </div>
+    `;
+    cardList.appendChild(card);
   });
 }
+
+// --------------------------------------------- 3-dot row action menu -------
+
+let openRowMenu = null; // { menuEl, closeFn }
+
+function closeRowMenu() {
+  if (openRowMenu) {
+    openRowMenu.menuEl.remove();
+    openRowMenu = null;
+  }
+}
+
+function openRowMenuFor(btn, member) {
+  closeRowMenu();
+
+  const wrapper = btn.nextElementSibling; // the data-menu-actions div holding flags
+  const canMarkPaid = wrapper.dataset.markPaid === "true";
+  const canWhatsapp = wrapper.dataset.whatsapp === "true";
+
+  const menu = document.createElement("div");
+  menu.className =
+    "fixed z-50 w-44 rounded-lg border border-slate-700 bg-slate-900 shadow-xl py-1 text-sm";
+  menu.innerHTML = `
+    ${canMarkPaid ? `<button data-menu-action="mark-paid" class="w-full text-left px-3 py-2 text-success hover:bg-slate-800 transition">Mark as Paid</button>` : ""}
+    ${canWhatsapp ? `<button data-menu-action="whatsapp" class="w-full text-left px-3 py-2 text-emerald-400 hover:bg-slate-800 transition">Send WhatsApp</button>` : ""}
+    <button data-menu-action="delete" class="w-full text-left px-3 py-2 text-rose-400 hover:bg-slate-800 transition">Delete</button>
+  `;
+  document.body.appendChild(menu);
+
+  // position it relative to the button, flipping up if it would overflow the viewport
+  const rect = btn.getBoundingClientRect();
+  const menuHeight = menu.offsetHeight;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const openUpward = spaceBelow < menuHeight + 8 && rect.top > menuHeight;
+
+  menu.style.left = `${Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)}px`;
+  menu.style.top = openUpward ? `${rect.top - menuHeight - 4}px` : `${rect.bottom + 4}px`;
+
+  menu.addEventListener("click", (e) => {
+    const actionBtn = e.target.closest("button[data-menu-action]");
+    if (!actionBtn) return;
+    const action = actionBtn.dataset.menuAction;
+    closeRowMenu();
+    if (action === "mark-paid") requestReauth("mark-paid", member, btn);
+    if (action === "whatsapp") sendWhatsAppReminder(member);
+    if (action === "delete") requestReauth("delete", member, btn);
+  });
+
+  openRowMenu = { menuEl: menu };
+}
+
+document.addEventListener("click", (e) => {
+  if (openRowMenu && !e.target.closest("[data-menu-action]") && !e.target.closest('[data-action="more-menu"]')) {
+    closeRowMenu();
+  }
+});
+window.addEventListener("scroll", () => closeRowMenu(), true);
+window.addEventListener("resize", () => closeRowMenu());
 
 
 function updateMemberFilterStyles() {
@@ -563,7 +672,7 @@ function updateMemberFilterStyles() {
   });
 }
 
-document.getElementById("memberTableBody").addEventListener("click", (e) => {
+function handleMemberActionClick(e) {
   const btn = e.target.closest("button[data-action]");
   if (!btn || btn.disabled) return;
   const member = allMembers.find((m) => m.id === btn.dataset.id);
@@ -571,10 +680,19 @@ document.getElementById("memberTableBody").addEventListener("click", (e) => {
 
   if (btn.dataset.action === "approve") executeApproveMember(member, btn); // 🔥 Yeh line add karni hai
   if (btn.dataset.action === "check-in") manualCheckIn(member, btn);
-  if (btn.dataset.action === "mark-paid") requestReauth("mark-paid", member, btn);
-  if (btn.dataset.action === "whatsapp") sendWhatsAppReminder(member);
-  if (btn.dataset.action === "delete") requestReauth("delete", member, btn);
-});
+  if (btn.dataset.action === "more-menu") {
+    e.stopPropagation();
+    if (openRowMenu && openRowMenu.forId === member.id) {
+      closeRowMenu();
+    } else {
+      openRowMenuFor(btn, member);
+      openRowMenu.forId = member.id;
+    }
+  }
+}
+
+document.getElementById("memberTableBody").addEventListener("click", handleMemberActionClick);
+document.getElementById("memberCardList").addEventListener("click", handleMemberActionClick);
 
 async function executeApproveMember(member, btn) {
   const originalLabel = btn ? btn.textContent : "";
