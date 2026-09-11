@@ -631,13 +631,23 @@ function openRowMenuFor(btn, member) {
   `;
   document.body.appendChild(menu);
 
-  // position it relative to the button, flipping up if it would overflow the viewport
+  // position it near the button, always fully inside the viewport
   const rect = btn.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth;
   const menuHeight = menu.offsetHeight;
-  const spaceBelow = window.innerHeight - rect.bottom;
-  const openUpward = spaceBelow < menuHeight + 8 && rect.top > menuHeight;
+  const margin = 8;
 
-  menu.style.left = `${Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)}px`;
+  // Prefer aligning the menu's right edge with the button's right edge.
+  // If that would push it off the left side of the screen, align left
+  // edges instead. Either way, clamp so it never overflows either side.
+  let left = rect.right - menuWidth;
+  if (left < margin) left = rect.left;
+  left = Math.min(Math.max(left, margin), window.innerWidth - menuWidth - margin);
+
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const openUpward = spaceBelow < menuHeight + margin && rect.top > menuHeight;
+
+  menu.style.left = `${left}px`;
   menu.style.top = openUpward ? `${rect.top - menuHeight - 4}px` : `${rect.bottom + 4}px`;
 
   menu.addEventListener("click", (e) => {
