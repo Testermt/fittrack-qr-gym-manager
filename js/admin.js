@@ -170,10 +170,20 @@ async function handleAuthenticatedUser(user) {
       // It only throws when the check genuinely couldn't complete (network
       // blip or the post-popup token-propagation race) — never for a
       // legitimate "not an admin" result, which comes back as `false`.
+      // Note: with Firestore offline persistence enabled (firebase-config.js),
+      // this now resolves instantly from cache — with no throw at all — for
+      // any admin who has successfully verified on this device before, even
+      // with zero connection. This catch only fires for a device/account
+      // that has never verified successfully before, so "connect to the
+      // internet" is genuinely the right ask in that case.
       isAdmin = await isVerifiedAdmin(user.email);
     } catch (err) {
       console.error("Admin verification lookup failed:", err, err && err.cause ? err.cause : "");
-      showAuthGateError("Couldn't verify admin access right now. Please check your connection and try again.");
+      showAuthGateError(
+        navigator.onLine
+          ? "Couldn't verify admin access right now. Please try again in a moment."
+          : "You're offline and this device hasn't verified admin access before — please connect to the internet once to finish setup."
+      );
       await auth.signOut();
       return;
     }
@@ -287,6 +297,16 @@ function showDashboard(user) {
   subscribeMonthlyRevenue();
   subscribeMonthlyHistory();
 }
+
+// 🔥 Offline banner — reflects real connectivity, not just Firestore state,
+// so it shows the moment wifi/data drops and clears the moment it's back.
+function updateOfflineBanner() {
+  const banner = document.getElementById("offlineBanner");
+  if (banner) banner.classList.toggle("hidden", navigator.onLine);
+}
+window.addEventListener("online", updateOfflineBanner);
+window.addEventListener("offline", updateOfflineBanner);
+updateOfflineBanner(); // set correct initial state on page load
 
 function subscribeWeeklyAndTodayCheckins() {
   // Pichhle 6 din pehle ka dateKey (yani last 7 days including today)

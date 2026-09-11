@@ -42,6 +42,24 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const db = firebase.firestore();
 const auth = firebase.auth();
 
+// ---- Offline persistence -------------------------------------------------
+// Caches every doc this device has successfully read (admins/{email},
+// members, checkins, payments…) in IndexedDB. This means:
+//  1. onSnapshot() listeners in admin.js/member.js fire instantly with the
+//     last-synced data even with zero connection, then auto-reconcile once
+//     back online — this is what makes "offline, show cached data" work.
+//  2. A one-off `.get()` (like the admin-allowlist check in admin.js) also
+//     falls back to this cache when the live request can't reach the
+//     server, instead of just failing — so an admin who was already
+//     verified on this device isn't forced to sign out every time their
+//     connection drops, only when they're signing in fresh with no cache.
+// Fails silently (falls back to memory-only cache, which is still fine for
+// the current tab) in the rare cases it can't attach — multiple tabs open,
+// or a browser without IndexedDB support.
+db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
+  console.warn("Firestore offline persistence not enabled:", err.code || err);
+});
+
 // ---- Dynamic gym config (settings/gymConfig) ---------------------------
 //
 // Firestore is the source of truth for gym name / currency / country code
