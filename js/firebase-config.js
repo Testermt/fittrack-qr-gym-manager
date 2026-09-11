@@ -54,6 +54,15 @@ appCheck.activate(
   true // isTokenAutoRefreshEnabled
 );
 
+// activate() only *starts* fetching the first App Check token — it doesn't
+// wait for it. Without this promise, whichever Firestore call fires first on
+// page load (loadGymConfig below) races the token fetch and goes out
+// unverified almost every time. Every place below that touches Firestore
+// before the user has done anything (i.e. loadGymConfig) awaits this first.
+const appCheckReady = appCheck.getToken().catch((err) => {
+  console.warn("Initial App Check token fetch failed:", err);
+});
+
 const db = firebase.firestore();
 const auth = firebase.auth();
 
@@ -152,6 +161,7 @@ function timeoutAfter(ms) {
  */
 async function loadGymConfig() {
   loadCachedGymConfig(); // best-effort synchronous upgrade over hardcoded defaults
+  await appCheckReady; // don't let this be the request that races the App Check token
 
   try {
     const snap = await Promise.race([
@@ -239,6 +249,7 @@ let _paymentSettingsCache = null;
 /** Fetches (and caches) { upiId, payeeName } from settings/config. */
 async function getPaymentSettings() {
   if (_paymentSettingsCache) return _paymentSettingsCache;
+  await appCheckReady;
   try {
     const snap = await db.collection("settings").doc("config").get();
     const data = snap.exists ? snap.data() : {};

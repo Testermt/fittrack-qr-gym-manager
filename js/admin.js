@@ -546,7 +546,7 @@ function renderMemberTable() {
 
   const filtered = allMembers.filter((m) => {
     if (query && !(m.name.toLowerCase().includes(query) || m.phone.includes(query))) return false;
-    if (currentMemberFilter === "active" && daysUntil(m.expiryDate) < 0) return false;
+    if (currentMemberFilter === "active" && (m.approved !== true || daysUntil(m.expiryDate) < 0)) return false;
     if (currentMemberFilter === "pending" && m.paymentStatus === "paid") return false;
     // 🔥 Pending approval filter check
     if (currentMemberFilter === "pending-approval" && m.approved === true) return false;
