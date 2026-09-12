@@ -1,36 +1,29 @@
 // FitTrack QR Gym Manager — Member Portal logic (index.html)
+// Check-in itself now happens ONLY at the front-desk fingerprint kiosk (native
+// app) — this page is view-only (register, check plan/history). Geofencing
+// code (GYM_LOCATION, calculateDistance, logCheckinIfNeeded, etc.) has been
+// removed; it's no longer needed here.
 
 
-// ==================== GEOFENCING CONFIGURATION ====================
-// ==================== GEOFENCING CONFIGURATION ====================
-/*
-const GYM_LOCATION = {
-  lat: 29.456545,           // Tera ghar/testing latitude
-  lng: 77.717185,           // Tera ghar/testing longitude
-  allowedRadiusMeters: 40   // Range in meters
-};
-*/
-
-
-const GYM_LOCATION = {
-  lat: 29.456923,     // Tera ghar/testing latitude
-  lng: 77.717848,           // Tera ghar/testing longitude
-  allowedRadiusMeters: 20   // Range in meters
-};
-
-
-
-// Haversine formula to calculate distance in meters
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371e3; // Earth radius in meters
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+// ==================== VOICE-ASSISTED KIOSK (Web Speech API) ====================
+/**
+ * Speaks a short message aloud — used so members get audible feedback
+ * without needing to read the screen. Cancels any message currently
+ * speaking first, so rapid actions don't queue up and talk over each
+ * other. No-ops silently on browsers/WebViews without speech synthesis
+ * support.
+ */
+function speakText(message) {
+  if (!("speechSynthesis" in window) || !message) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = "en-IN";
+    utterance.rate = 1;
+    window.speechSynthesis.speak(utterance);
+  } catch (err) {
+    console.warn("speakText failed:", err);
+  }
 }
 
 
@@ -70,6 +63,9 @@ function initTabs() {
       document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
         panel.classList.toggle("hidden", panel.dataset.tabPanel !== tab.dataset.tabTarget);
       });
+      if (tab.dataset.tabTarget === "status") {
+        speakText("Welcome to the gym. Please enter your mobile number.");
+      }
     });
   });
 }
@@ -180,139 +176,11 @@ function closeWelcomeModal() {
   document.getElementById("welcomeModal").classList.add("hidden");
 }
 
-/**
- * Logs a check-in for today, but only once per member per day.
- *
- * Firestore indexing: this filters ONLY on `memberId` — a single-field
- * equality query, which Firestore indexes automatically with zero setup —
- * and then checks the date match in plain JavaScript instead of adding a
- * second `.where("dateKey", "==", today)` clause. Chaining a second
- * equality/range filter (or an `orderBy` on a different field) is exactly
- * what triggers Firestore's "missing composite index" error, which
- * requires manually creating an index in the Firebase Console before the
- * query works. Keeping it to one filter avoids that entirely.
- *
- * Never throws: any failure (network, permissions, etc.) is caught and
- * logged, and the function resolves with `false`. This makes it safe to
- * call without awaiting — a caller can fire it and move on, and it will
- * never surface as an unhandled promise rejection or block anything.
- */
-// ==================== STRICT GEOFENCED CHECK-IN ====================
-// ==================== UPDATED GEOFENCED CHECK-IN ====================
-
-/**
- * Checks the LIVE Permissions API state for geolocation (when supported).
- * Returns 'granted' | 'denied' | 'prompt' | 'unsupported'.
- *
- * This is the key fix for the "manual override doesn't work" bug: the old
- * code never asked the browser what the *current* permission state is — it
- * just fired getCurrentPosition() and hoped. Because we query fresh on every
- * single attempt (no caching in a JS variable), if the user goes into site
- * settings and flips Block -> Allow, the very next check-in attempt sees
- * 'granted' immediately. No reload required.
- */
-async function getGeoPermissionState() {
-  if (!navigator.permissions || !navigator.permissions.query) {
-    return "unsupported"; // older Safari, some in-app browsers
-  }
-  try {
-    const status = await navigator.permissions.query({ name: "geolocation" });
-    return status.state; // 'granted' | 'denied' | 'prompt'
-  } catch (err) {
-    return "unsupported";
-  }
-}
-
-/**
- * Attempts a geofenced check-in. Never throws and never blocks the app with
- * alert() for expected/recoverable states — it always resolves to a status
- * string (or, for out-of-range, a small status object) that the caller uses
- * to render UI. Possible resolved values:
- *   "success" | "already-checked-in" | "geo-unsupported" |
- *   "permission-denied" | "position-unavailable" | "location-timeout" |
- *   "error" | { status: "out-of-range", distance: <meters> }
- */
-async function logCheckinIfNeeded(memberId, name, phone) {
-  if (!navigator.geolocation) {
-    return "geo-unsupported";
-  }
-
-  // 0. Ask the browser for its CURRENT permission state before doing
-  // anything else. If it's already denied, calling getCurrentPosition()
-  // anyway is exactly what causes the "silent failure, popup never comes
-  // back" symptom — on most browsers a denied permission fails instantly
-  // with code 1 and no prompt. We short-circuit straight to the guidance
-  // UI instead of letting that happen.
-  const permissionState = await getGeoPermissionState();
-  if (permissionState === "denied") {
-    return "permission-denied";
-  }
-
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const userLat = position.coords.latitude;
-        const userLng = position.coords.longitude;
-        const distance = calculateDistance(userLat, userLng, GYM_LOCATION.lat, GYM_LOCATION.lng);
-
-        console.log("Current User Lat/Lng:", userLat, userLng);
-        console.log("Distance from Gym (Meters):", Math.round(distance));
-
-        // 1. Agar gym se door hai
-        if (distance > GYM_LOCATION.allowedRadiusMeters) {
-          resolve({ status: "out-of-range", distance: Math.round(distance) });
-          return;
-        }
-
-        // 2. Check already checked-in today
-        const today = toDateKey(new Date());
-        try {
-          const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
-          const alreadyCheckedInToday = snapshot.docs.some((doc) => doc.data().dateKey === today);
-
-          if (alreadyCheckedInToday) {
-            resolve("already-checked-in");
-            return;
-          }
-
-          // 3. Success: Save check-in with a deterministic document ID (memberId_dateKey)
-          const checkinId = `${memberId}_${today}`;
-          await checkinsCol.doc(checkinId).set({
-            memberId,
-            name,
-            phone,
-            dateKey: today,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            method: "geofenced-gps",
-          });
-
-          resolve("success");
-        } catch (err) {
-          console.error("Firestore check-in error:", err);
-          resolve("error");
-        }
-      },
-      (error) => {
-        console.error("GPS Error Code:", error.code, error.message);
-        // error.code: 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
-        if (error.code === 1) {
-          resolve("permission-denied");
-        } else if (error.code === 2) {
-          resolve("position-unavailable");
-        } else if (error.code === 3) {
-          resolve("location-timeout");
-        } else {
-          resolve("error");
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
-    );
-  });
-}
+// Check-in itself (logCheckinIfNeeded, GPS/geofencing) has been removed from
+// this page — it now happens only at the front-desk fingerprint kiosk. This
+// page stays view-only: registration, and checking your plan/check-in
+// history (loadMemberCheckinHistory below reads the same `checkins`
+// collection that the kiosk app writes to).
 
 
 
@@ -375,6 +243,7 @@ async function handleRegisterSubmit(e) {
     hideBanner("registerBanner");
 
     openWelcomeModal(name, plan.label, formatDate(expiryDate));
+    speakText("Registration successful. Your status is pending admin approval.");
   } catch (err) {
     console.error(err);
     showBanner("registerBanner", "Something went wrong. Please try again or ask staff for help.");
@@ -414,16 +283,8 @@ async function handleStatusCheck(e) {
     
     currentMember = { id: doc.id, ...doc.data() };
 
-    //  Agar admin ne approve nahi kiya, toh GPS check karne ki zaroorat hi nahi hai!
-    if (currentMember.approved !== true) {
-      renderStatusCard(currentMember, "pending-approval");
-      loadMemberCheckinHistory(currentMember.id);
-      return;
-    }
-
-    // Agar approved hai, tabhi GPS check-in run hoga
-    const checkinStatus = await logCheckinIfNeeded(currentMember.id, currentMember.name, currentMember.phone);
-    renderStatusCard(currentMember, checkinStatus);
+    // View-only -- check-in itself happens at the front-desk kiosk, not here.
+    renderStatusCard(currentMember, currentMember.approved !== true ? "pending-approval" : null);
     loadMemberCheckinHistory(currentMember.id);
     
   } catch (err) {
@@ -432,112 +293,6 @@ async function handleStatusCheck(e) {
   } finally {
     setBusy(submitBtn, false);
   }
-}
-
-/**
- * Re-runs just the geolocation check-in for the member already loaded on
- * screen (currentMember), without making them re-type their phone number.
- * This is what the "Try Again" button in the permission-help banner calls.
- * Because logCheckinIfNeeded() re-queries the Permissions API fresh every
- * time, this will correctly pick up a permission the user just changed to
- * "Allow" in their browser settings — no page reload needed.
- */
-async function retryCheckin() {
-  if (!currentMember) return;
-  hideLocationHelp();
-  const retryBtn = document.getElementById("retryLocationBtn");
-  setBusy(retryBtn, true, "Checking");
-  try {
-    const checkinStatus = await logCheckinIfNeeded(currentMember.id, currentMember.name, currentMember.phone);
-    renderStatusCard(currentMember, checkinStatus);
-    loadMemberCheckinHistory(currentMember.id);
-  } catch (err) {
-    console.error(err);
-    showBanner("statusBanner", "Something went wrong. Please try again.");
-  } finally {
-    setBusy(retryBtn, false);
-  }
-}
-document.getElementById("retryLocationBtn")?.addEventListener("click", retryCheckin);
-
-/**
- * Detects the user's browser well enough to point them at the right
- * settings menu. Falls back to generic instructions when unsure.
- */
-function detectBrowserName() {
-  const ua = navigator.userAgent;
-  if (/Edg\//.test(ua)) return "edge";
-  if (/OPR\//.test(ua)) return "opera";
-  if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) return "chrome";
-  if (/Firefox\//.test(ua)) return "firefox";
-  if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) return "safari";
-  return "generic";
-}
-
-const LOCATION_HELP_STEPS = {
-  chrome: [
-    "Tap the lock/info icon (🔒) at the left of the address bar.",
-    'Tap "Permissions" or "Site settings".',
-    'Find "Location" and set it to "Allow".',
-    "Come back here and tap \u201cTry Again\u201d below.",
-  ],
-  edge: [
-    "Tap the lock icon (🔒) at the left of the address bar.",
-    'Tap "Permissions for this site".',
-    'Set "Location" to "Allow".',
-    "Come back here and tap \u201cTry Again\u201d below.",
-  ],
-  firefox: [
-    "Tap the lock/info icon at the left of the address bar.",
-    'Tap "Clear permission" or the blocked location icon.',
-    "Reload the page and allow location when prompted.",
-    "Come back here and tap \u201cTry Again\u201d below.",
-  ],
-  safari: [
-    "Open the iPhone/iPad Settings app (not the browser).",
-    'Go to "Safari" (or "Privacy & Security" > "Location Services" on Mac).',
-    'Find this website and set Location access to "Allow".',
-    "Come back to this page and tap \u201cTry Again\u201d below.",
-  ],
-  opera: [
-    "Tap the lock icon (🔒) at the left of the address bar.",
-    'Open "Site settings" and find "Location".',
-    'Set it to "Allow".',
-    "Come back here and tap \u201cTry Again\u201d below.",
-  ],
-  generic: [
-    "Open your browser's site settings for this page.",
-    'Find "Location" (it may say "Blocked" or "Denied").',
-    'Change it to "Allow" or "Ask".',
-    "Come back here and tap \u201cTry Again\u201d below.",
-  ],
-};
-
-function showLocationHelp() {
-  const banner = document.getElementById("locationHelpBanner");
-  if (!banner) return;
-  const steps = LOCATION_HELP_STEPS[detectBrowserName()];
-  banner.innerHTML = `
-    <p class="font-semibold text-rose-500 mb-2">Location access is blocked</p>
-    <p class="text-sm text-slate-600 mb-3">
-      You (or your browser) blocked location access earlier, so we can't verify
-      you're at the gym. Your browser won't show that popup again on its own —
-      you'll need to reset it manually:
-    </p>
-    <ol class="list-decimal list-inside text-sm text-slate-600 space-y-1 mb-4">
-      ${steps.map((s) => `<li>${s}</li>`).join("")}
-    </ol>
-    <button id="retryLocationBtn" type="button" class="btn-primary w-full !min-h-[2.75rem] !py-2 !text-sm">
-      Try Again
-    </button>
-  `;
-  banner.classList.remove("hidden");
-  // The button was just re-created via innerHTML, so re-bind its listener.
-  document.getElementById("retryLocationBtn")?.addEventListener("click", retryCheckin);
-}
-
-function hideLocationHelp() {
-  document.getElementById("locationHelpBanner")?.classList.add("hidden");
 }
 
 function renderStatusCard(member, checkinStatus) {
@@ -567,52 +322,27 @@ function renderStatusCard(member, checkinStatus) {
   payBadge.textContent = member.paymentStatus === "paid" ? "PAID" : "PAYMENT PENDING";
   payBadge.className = `badge ${member.paymentStatus === "paid" ? "badge-success" : "badge-warning"}`;
 
-  // Check-in status messages handling
+  // View-only note — actual check-in happens at the front-desk kiosk, not
+  // here, so this just tells the member what to do / their approval state.
   const checkinNote = document.getElementById("checkinNote");
-  hideLocationHelp(); // reset on every render; re-shown below only if needed
-
-  // out-of-range now arrives as { status: "out-of-range", distance } so the
-  // UI can show the actual distance instead of a fixed string.
-  const status = typeof checkinStatus === "object" && checkinStatus !== null
-    ? checkinStatus.status
-    : checkinStatus;
-
-  if (status === "success") {
-    checkinNote.textContent = "Checked in for today. Have a great workout!";
-    checkinNote.className = "text-sm text-emerald-400";
-  } else if (status === "already-checked-in") {
-    checkinNote.textContent = "You've already checked in today.";
-    checkinNote.className = "text-sm text-slate-400";
-  } else if (status === "out-of-range") {
-    const distance = checkinStatus.distance;
-    checkinNote.textContent = distance
-      ? `You're ${distance}m from the gym. Go to the gym for check-in.`
-      : "Go to gym for check-in.";
-    checkinNote.className = "text-sm text-amber-400";
-  } else if (status === "pending-approval") {
-    checkinNote.textContent = " Your registration is pending admin approval.";
+  if (checkinStatus === "pending-approval") {
+    checkinNote.textContent = "Your registration is pending admin approval.";
     checkinNote.className = "text-sm text-amber-500 font-semibold";
-  } else if (status === "permission-denied") {
-    checkinNote.textContent = "Location access is blocked - see instructions below.";
-    checkinNote.className = "text-sm text-rose-400";
-    showLocationHelp();
-  } else if (status === "position-unavailable") {
-    checkinNote.textContent = "Couldn't determine your location. Make sure device location/GPS is turned on, then try again.";
-    checkinNote.className = "text-sm text-rose-400";
-  } else if (status === "location-timeout") {
-    checkinNote.textContent = "Location request timed out. Check your signal and try again.";
-    checkinNote.className = "text-sm text-rose-400";
-  } else if (status === "geo-unsupported") {
-    checkinNote.textContent = "This browser doesn't support location access, so check-in isn't available here.";
-    checkinNote.className = "text-sm text-rose-400";
   } else {
-    checkinNote.textContent = "Something went wrong with check-in. Please try again.";
-    checkinNote.className = "text-sm text-rose-400";
+    checkinNote.textContent = "Check in at the front-desk kiosk with your fingerprint.";
+    checkinNote.className = "text-sm text-slate-400";
   }
+
   const renewSection = document.getElementById("renewSection");
   renewSection.classList.toggle("hidden", isActive && member.paymentStatus === "paid");
   if (!renewSection.classList.contains("hidden")) {
     buildPlanPicker("renewPlanPicker", "renewPlan");
+  }
+
+  // Voice feedback — check-in itself is voiced by the kiosk app now; this
+  // page only needs to flag an expired/invalid membership when viewed.
+  if (!isActive) {
+    speakText("Please check your membership status or contact the front desk.");
   }
 }
 
