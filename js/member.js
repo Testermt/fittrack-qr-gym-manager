@@ -65,6 +65,8 @@ function initTabs() {
       });
       if (tab.dataset.tabTarget === "status") {
         speakText("Welcome to the gym. Please enter your mobile number.");
+      } else if (tab.dataset.tabTarget === "register") {
+        speakText("Hey, please enter your details to join the gym.");
       }
     });
   });
@@ -203,6 +205,7 @@ async function handleRegisterSubmit(e) {
 
   if (!name || phone.length < 7 || !address || !joinDate || !planId) {
     showBanner("registerBanner", "Please fill every field with a valid phone number.");
+    speakText("Please fill every field with a valid phone number.");
     return;
   }
 
@@ -214,6 +217,7 @@ async function handleRegisterSubmit(e) {
         "registerBanner",
         "This phone number is already registered. Use the 'Check Status' tab instead."
       );
+      speakText("This phone number is already registered. Please use the check status tab instead.");
       return;
     }
 
@@ -247,6 +251,7 @@ async function handleRegisterSubmit(e) {
   } catch (err) {
     console.error(err);
     showBanner("registerBanner", "Something went wrong. Please try again or ask staff for help.");
+    speakText("Registration failed. Please try again or ask staff for help.");
   } finally {
     setBusy(submitBtn, false);
   }
@@ -267,6 +272,7 @@ async function handleStatusCheck(e) {
 
   if (phone.length < 7) {
     showBanner("statusBanner", "Enter a valid mobile number.");
+    speakText("Please enter a valid mobile number.");
     return;
   }
 
@@ -278,6 +284,7 @@ async function handleStatusCheck(e) {
         "statusBanner",
         "No membership found for this number. Switch to the 'New Member' tab to register."
       );
+      speakText("No membership found for this number. Please switch to the new member tab to register.");
       return;
     }
     
@@ -290,6 +297,7 @@ async function handleStatusCheck(e) {
   } catch (err) {
     console.error(err);
     showBanner("statusBanner", "Something went wrong. Please try again.");
+    speakText("Something went wrong. Please try again.");
   } finally {
     setBusy(submitBtn, false);
   }
@@ -387,6 +395,7 @@ async function openPaymentModal(planId) {
   const settings = await getPaymentSettings();
   if (!settings.upiId) {
     unavailableNote.classList.remove("hidden");
+    speakText("Online payments aren't set up yet for this gym. Please pay at the front desk.");
     return;
   }
 
