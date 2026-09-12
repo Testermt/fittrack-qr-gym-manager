@@ -496,3 +496,83 @@ async function loadMemberCheckinHistory(memberId) {
     historyList.innerHTML = '<li class="text-rose-600 px-3 py-2 text-xs">Could not load check-in history.</li>';
   }
 }
+
+// ==================== KIOSK SECURITY & REAL AUTH EXIT ====================
+document.addEventListener("DOMContentLoaded", () => {
+  // 1. Anti-Back Trap: Device ka back button dabane par app se bahar na jaane dena
+  history.pushState(null, null, location.href);
+  window.addEventListener("popstate", () => {
+    history.pushState(null, null, location.href);
+  });
+
+  // 2. Kiosk Exit Modal Listeners
+  const exitBtn = document.getElementById("openKioskExitModal");
+  const exitModal = document.getElementById("kioskExitModal");
+  const closeBtn = document.getElementById("closeKioskModalBtn");
+  const cancelBtn = document.getElementById("kioskCancelBtn");
+  const exitForm = document.getElementById("kioskExitForm");
+
+  if (exitBtn && exitModal) {
+    exitBtn.addEventListener("click", () => {
+      document.getElementById("kioskAdminEmail").value = "";
+      document.getElementById("kioskAdminPassword").value = "";
+      document.getElementById("kioskExitError").classList.add("hidden");
+      exitModal.classList.remove("hidden");
+    });
+  }
+
+  const closeKioskModal = () => {
+    if (exitModal) exitModal.classList.add("hidden");
+  };
+
+  if (closeBtn) closeBtn.addEventListener("click", closeKioskModal);
+  if (cancelBtn) cancelBtn.addEventListener("click", closeKioskModal);
+
+  // 3. Real Passkey Verification via Firebase Auth (Jaise Admin Panel mein hota hai)
+  if (exitForm) {
+    exitForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("kioskAdminEmail").value.trim();
+      const password = document.getElementById("kioskAdminPassword").value;
+      const errorEl = document.getElementById("kioskExitError");
+      const submitBtn = document.getElementById("kioskSubmitBtn");
+
+      errorEl.classList.add("hidden");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Verifying...";
+
+      try {
+        // Firebase se real credentials verify karna
+        const userCredential = await auth.signInWithEmailAndPassword(email, password);
+        const user = userCredential.user;
+
+        // Check karna ki ye user admin whitelist (`admins` collection) mein hai ya nahi
+        const doc = await db.collection("admins").doc(email.toLowerCase()).get();
+        
+        if (!doc.exists) {
+          await auth.signOut();
+          throw new Error("This account is not authorized as a gym admin.");
+        }
+
+        // Sahi credentials milne par app close ya admin panel par redirect kar do
+        alert("Passkey verified successfully!");
+        window.location.href = "admin.html"; // Ya app close karne ke liye window.close()
+      } catch (err) {
+        console.error("Kiosk exit auth error:", err);
+        let msg = "Invalid admin credentials. Access denied.";
+        if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
+          msg = "Incorrect password.";
+        } else if (err.code === "auth/user-not-found") {
+          msg = "Admin account not found.";
+        } else if (err.message) {
+          msg = err.message;
+        }
+        errorEl.textContent = msg;
+        errorEl.classList.remove("hidden");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Verify & Exit";
+      }
+    });
+  }
+});
