@@ -440,16 +440,17 @@
 
     <!-- Tabs -->
     <div class="flex gap-1.5 paper-card rounded-full p-1.5 mb-7">
-      <button data-tab-target="register" class="tab-active pb-3 border-b-2 border-transparent tab-btn transition">
+      <button data-tab-target="register" class="pb-3 border-b-2 border-transparent tab-btn transition">
         New Member
       </button>
-      <button data-tab-target="status" class="pb-3 border-b-2 border-transparent tab-btn transition">
+      <button data-tab-target="status" class="tab-active pb-3 border-b-2 border-transparent tab-btn transition">
         Check Status / Check-In
       </button>
     </div>
+    
 
     <!-- ============= REGISTER PANEL ============= -->
-    <section data-tab-panel="register">
+    <section data-tab-panel="register" class="hidden">
       <h1 class="font-display text-2xl font-bold text-slate-900 mb-1.5">Join the gym</h1>
       <p class="text-sm text-slate-500 mb-7">Fill this out once at the front desk QR stand — takes under a minute.</p>
 
@@ -488,9 +489,9 @@
         </button>
       </form>
     </section>
-
-    <!-- ============= STATUS / CHECK-IN PANEL ============= -->
-    <section data-tab-panel="status" class="hidden">
+    
+<!-- ============= STATUS / CHECK-IN PANEL ============= -->
+    <section data-tab-panel="status">
       <h1 class="font-display text-2xl font-bold text-slate-900 mb-1.5">Check your status</h1>
       <p class="text-sm text-slate-500 mb-7">Enter your mobile number to check in and view your membership.</p>
 
@@ -550,6 +551,8 @@
 </div>
 
     </section>
+    
+    
 
     <p class="text-center text-xs text-slate-400 mt-10">
       Having trouble? Ask a trainer at the front desk for help.
