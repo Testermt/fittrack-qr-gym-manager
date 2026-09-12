@@ -736,6 +736,9 @@
           bubble.classList.add('is-hidden');
         }, opts.duration || 4200);
       }
+      if (opts.speak !== false && typeof speakText === 'function') {
+        speakText(text);
+      }
     }
 
     function setState(state, opts) {

@@ -64,7 +64,7 @@ function initTabs() {
         panel.classList.toggle("hidden", panel.dataset.tabPanel !== tab.dataset.tabTarget);
       });
       if (tab.dataset.tabTarget === "status") {
-        speakText("Welcome to the gym. Please enter your mobile number.");
+        speakText("Welcome to the gym. Please check in.");
       } else if (tab.dataset.tabTarget === "register") {
         speakText("Hey, please enter your details to join the gym.");
       }
@@ -217,7 +217,6 @@ async function handleRegisterSubmit(e) {
         "registerBanner",
         "This phone number is already registered. Use the 'Check Status' tab instead."
       );
-      speakText("This phone number is already registered. Please use the check status tab instead.");
       return;
     }
 
@@ -247,11 +246,9 @@ async function handleRegisterSubmit(e) {
     hideBanner("registerBanner");
 
     openWelcomeModal(name, plan.label, formatDate(expiryDate));
-    speakText("Registration successful. Your status is pending admin approval.");
   } catch (err) {
     console.error(err);
     showBanner("registerBanner", "Something went wrong. Please try again or ask staff for help.");
-    speakText("Registration failed. Please try again or ask staff for help.");
   } finally {
     setBusy(submitBtn, false);
   }
@@ -297,7 +294,6 @@ async function handleStatusCheck(e) {
   } catch (err) {
     console.error(err);
     showBanner("statusBanner", "Something went wrong. Please try again.");
-    speakText("Something went wrong. Please try again.");
   } finally {
     setBusy(submitBtn, false);
   }
@@ -336,6 +332,10 @@ function renderStatusCard(member, checkinStatus) {
   if (checkinStatus === "pending-approval") {
     checkinNote.textContent = "Your registration is pending admin approval.";
     checkinNote.className = "text-sm text-amber-500 font-semibold";
+    // Delayed (setTimeout) so this plays AFTER the mascot's automatic
+    // "Welcome back!" cheer (which fires async off the statusCard becoming
+    // visible) instead of being cut off/overridden by it.
+    setTimeout(() => speakText("Your registration is pending admin approval. Please speak to the admin at the front desk."), 0);
   } else {
     checkinNote.textContent = "Check in at the front-desk kiosk with your fingerprint.";
     checkinNote.className = "text-sm text-slate-400";
@@ -349,8 +349,9 @@ function renderStatusCard(member, checkinStatus) {
 
   // Voice feedback — check-in itself is voiced by the kiosk app now; this
   // page only needs to flag an expired/invalid membership when viewed.
-  if (!isActive) {
-    speakText("Please check your membership status or contact the front desk.");
+  // Delayed for the same reason as above — plays after the mascot's cheer.
+  if (!isActive && checkinStatus !== "pending-approval") {
+    setTimeout(() => speakText("Please check your membership status or contact the front desk."), 0);
   }
 }
 
