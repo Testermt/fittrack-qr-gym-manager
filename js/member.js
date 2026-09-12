@@ -335,7 +335,7 @@ function renderStatusCard(member, checkinStatus) {
     // Delayed (setTimeout) so this plays AFTER the mascot's automatic
     // "Welcome back!" cheer (which fires async off the statusCard becoming
     // visible) instead of being cut off/overridden by it.
-    setTimeout(() => speakText("Your registration is pending admin approval. Please speak to the admin at the front desk."), 0);
+    setTimeout(() => speakText(`${member.name}, your registration is pending admin approval. Please speak to the admin at the front desk.`), 0);
   } else {
     checkinNote.textContent = "Check in at the front-desk kiosk with your fingerprint.";
     checkinNote.className = "text-sm text-slate-400";
@@ -351,7 +351,7 @@ function renderStatusCard(member, checkinStatus) {
   // page only needs to flag an expired/invalid membership when viewed.
   // Delayed for the same reason as above — plays after the mascot's cheer.
   if (!isActive && checkinStatus !== "pending-approval") {
-    setTimeout(() => speakText("Please check your membership status or contact the front desk."), 0);
+    setTimeout(() => speakText(`${member.name}, please check your membership status or contact the front desk.`), 0);
   }
 }
 

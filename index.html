@@ -881,8 +881,10 @@
     if (welcomeModal) {
       var wObs = new MutationObserver(function () {
         if (!welcomeModal.classList.contains('hidden')) {
+          var titleEl = document.getElementById('welcomeModalTitle');
+          var titleText = titleEl && titleEl.textContent ? titleEl.textContent.trim() : '';
           setState('success', {
-            message: "You're all set — welcome to Iron Pulse! 💪🎉",
+            message: titleText ? (titleText + " You're all set — welcome to Iron Pulse! 💪") : "You're all set — welcome to Iron Pulse! 💪🎉",
             confetti: true,
             confettiCount: 20,
             revertAfter: 3600
