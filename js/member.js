@@ -577,17 +577,36 @@ async function loadMemberCheckinHistory(memberId) {
 }
 
 // ==================== KIOSK SECURITY ====================
-// Real kiosk lockdown (blocking the system swipe-up/home gesture, the
-// notification-shade swipe, and the Back button) is Android's own Screen
-// Pinning feature (or a dedicated kiosk-launcher app with Device Owner
-// permissions) — set up at the OS level, not in this code. Once Screen
-// Pinning is on, Android itself intercepts the Back button and shows its
-// own "touch & hold Back and Overview to unpin" hint on repeated presses —
-// that's expected, not a bug.
+// Real "can't switch away from this app" lockdown (blocking the system
+// swipe-up/home gesture and the notification-shade swipe) is Android's own
+// Screen Pinning feature (or a dedicated kiosk-launcher app with Device
+// Owner permissions) — set up at the OS level, not in this code.
 //
-// There used to be a JS "back-trap" here (history.pushState on every
-// popstate) meant as an extra layer, but rapid back-button taps could race
-// with it and force a full page reload (the splash screen flashing back
-// up). Since Screen Pinning already handles this properly at the OS level,
-// the JS trap was removed rather than fixed — it was redundant and the
-// glitchier of the two.
+// BUT: Screen Pinning only stops you from *switching to another app* — it
+// does NOT stop the Back button from navigating *inside* this page. A
+// single-page app like this has no real browser history to go "back" to,
+// so without a guard, one Back press was enough to make Chrome reload the
+// page from scratch (the splash screen flashing back up, Sparky's greeting
+// restarting, etc). So the guard below IS needed — it was removed once by
+// mistake and has been restored — this version pushes a fresh state
+// synchronously on every single popstate, no batching/delay, so history
+// never actually runs dry (see the comment on pushGuardState below for why
+// that's enough even under a fast burst of taps).
+(function setupBackTrap() {
+  // Every popstate (i.e. every Back press) immediately pushes a fresh state
+  // right back — synchronously, with no delay/guard in between. Because
+  // JS runs on a single thread, each Back press is handled start-to-finish
+  // (native back → popstate fires → this handler pushes a new state) before
+  // the next press's event is even processed, no matter how fast someone
+  // taps. So there's never a moment where history genuinely runs out and
+  // Android decides to close/relaunch the app (which is what showed the
+  // splash screen). An earlier version of this added a setTimeout-based
+  // "guard" meant to prevent races — that guard was the actual bug: it
+  // could skip a push if two presses landed close together, thinning out
+  // the history buffer until a fast burst broke through it.
+  function pushGuardState() {
+    history.pushState({ kiosk: true }, "", location.href);
+  }
+  pushGuardState(); // so the very first Back press already has somewhere to land
+  window.addEventListener("popstate", pushGuardState);
+})();
