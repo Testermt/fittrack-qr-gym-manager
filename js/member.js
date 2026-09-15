@@ -626,3 +626,16 @@ async function loadMemberCheckinHistory(memberId) {
   pushGuardState(); // so the very first Back press already has somewhere to land
   window.addEventListener("popstate", pushGuardState);
 })();
+
+// ==================== DISABLE COPY / SELECT / CONTEXT MENU ====================
+// CSS (`user-select: none` in index.html) handles most of this, but some
+// Android browsers still show the long-press "Copy / Select all / Web
+// search" popup on inputs and text regardless of that CSS, and desktop
+// right-click context menus aren't CSS-blockable at all. This is the JS
+// backstop: block the events at the document level so nothing anywhere in
+// the app can be selected, copied, cut, or right-clicked. Inputs are
+// deliberately NOT excluded — typing/backspace/cursor movement all still
+// work fine, this only stops highlighting text for copy.
+["contextmenu", "selectstart", "copy", "cut"].forEach((evt) => {
+  document.addEventListener(evt, (e) => e.preventDefault());
+});
