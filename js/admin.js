@@ -283,6 +283,7 @@ function showLogin() {
   if (unsubMembers) unsubMembers();
   if (unsubCheckins) unsubCheckins();
   if (unsubPayments) unsubPayments();
+  if (unsubAllPayments) unsubAllPayments();   // <-- yeh line missing thi, add karo
   closeReauthModal();
 }
 
@@ -1212,7 +1213,10 @@ let unsubAllPayments = null;
 
 // Isko subscribeDashboardHistory ya subscribeMembers ke sath call kar lena dashboard load hone par
 function subscribeMonthlyHistory() {
-  unsubAllPayments = paymentsCol.orderBy("timestamp", "desc").onSnapshot(
+  unsubAllPayments = paymentsCol
+    .orderBy("timestamp", "desc")
+    .limit(300)   // sirf last 300 payments padhega, poori history nahi — chart ke liye kaafi hai
+    .onSnapshot(
     (snap) => {
       const payments = snap.docs.map((d) => d.data());
       const monthlyData = {};

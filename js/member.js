@@ -287,7 +287,6 @@ async function handleStatusCheck(e) {
     
     currentMember = { id: doc.id, ...doc.data() };
 
-    // View-only -- check-in itself happens at the front-desk kiosk, not here.
     renderStatusCard(currentMember, currentMember.approved !== true ? "pending-approval" : null);
     loadMemberCheckinHistory(currentMember.id);
     
@@ -299,6 +298,13 @@ async function handleStatusCheck(e) {
   }
 }
 
+/** Masks a phone number for display, keeping only the last 3 digits visible (e.g. "•••••0638"). */
+function maskPhone(phone) {
+  const digits = String(phone || "");
+  if (digits.length <= 3) return digits;
+  return "•".repeat(digits.length - 3) + digits.slice(-3);
+}
+
 function renderStatusCard(member, checkinStatus) {
   const days = daysUntil(member.expiryDate);
   const isActive = days >= 0;
@@ -308,7 +314,7 @@ function renderStatusCard(member, checkinStatus) {
   card.classList.remove("hidden");
 
   document.getElementById("statusName").textContent = member.name;
-  document.getElementById("statusPhone").textContent = `+${GYM_SETTINGS.defaultCountryCode} ${member.phone}`;
+  document.getElementById("statusPhone").textContent = `+${GYM_SETTINGS.defaultCountryCode} ${maskPhone(member.phone)}`;
   document.getElementById("statusPlan").textContent = plan.label;
   document.getElementById("statusJoin").textContent = formatDate(member.joinDate);
   document.getElementById("statusExpiry").textContent = formatDate(member.expiryDate);
@@ -326,8 +332,9 @@ function renderStatusCard(member, checkinStatus) {
   payBadge.textContent = member.paymentStatus === "paid" ? "PAID" : "PAYMENT PENDING";
   payBadge.className = `badge ${member.paymentStatus === "paid" ? "badge-success" : "badge-warning"}`;
 
-  // View-only note — actual check-in happens at the front-desk kiosk, not
-  // here, so this just tells the member what to do / their approval state.
+  // Approval-state note. Fingerprint/front-desk copy is gone — check-in now
+  // happens automatically (right here) the moment an eligible member's
+  // status loads — see performAutoCheckin() below.
   const checkinNote = document.getElementById("checkinNote");
   if (checkinStatus === "pending-approval") {
     checkinNote.textContent = "Your registration is pending admin approval.";
@@ -336,9 +343,12 @@ function renderStatusCard(member, checkinStatus) {
     // "Welcome back!" cheer (which fires async off the statusCard becoming
     // visible) instead of being cut off/overridden by it.
     setTimeout(() => speakText(`${member.name}, your registration is pending admin approval. Please speak to the admin at the front desk.`), 0);
+  } else if (!isActive) {
+    checkinNote.textContent = "";
+    checkinNote.classList.add("hidden");
   } else {
-    checkinNote.textContent = "Check in at the front-desk kiosk with your fingerprint.";
-    checkinNote.className = "text-sm text-slate-400";
+    // Active + approved: attempt the check-in right away, no button tap needed.
+    performAutoCheckin(member);
   }
 
   const renewSection = document.getElementById("renewSection");
@@ -361,6 +371,67 @@ document.getElementById("renewButton")?.addEventListener("click", () => {
   if (!planId) return;
   openPaymentModal(planId);
 });
+
+// --------------------------------------------------------- auto check-in --
+// Number-based check-in: the moment an eligible member's status loads (i.e.
+// right after they hit "Go"), we attempt today's check-in automatically —
+// no separate button tap needed. Check-ins are still one-per-day per
+// member — the doc ID `${memberId}_${dateKey}` means a second check-in the
+// same day is a Firestore "update" (not "create"), which only admins are
+// allowed to do (see firestore.rules), so duplicates are rejected
+// server-side too, not just in the UI.
+function checkinDocId(memberId, dateKey) {
+  return `${memberId}_${dateKey}`;
+}
+
+/** Attempts today's check-in for an active, approved member and reports the outcome in checkinNote. */
+async function performAutoCheckin(member) {
+  const checkinNote = document.getElementById("checkinNote");
+  const todayKey = toDateKey(new Date());
+  const docId = checkinDocId(member.id, todayKey);
+
+  try {
+    // Check first so we don't even attempt a write we know will be an
+    // "update" (blocked by firestore.rules for non-admins) — cheaper and
+    // avoids a console error on the expected "already checked in" path.
+    const existing = await checkinsCol.doc(docId).get();
+    if (existing.exists) {
+      checkinNote.textContent = "You've already checked in today.";
+      checkinNote.className = "text-sm text-slate-500 font-medium";
+      checkinNote.classList.remove("hidden");
+      return;
+    }
+
+    await checkinsCol.doc(docId).set({
+      memberId: member.id,
+      phone: member.phone,
+      dateKey: todayKey,
+      method: "manual",
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+
+    checkinNote.textContent = "Checked in today! ✅";
+    checkinNote.className = "text-sm text-emerald-600 font-semibold";
+    checkinNote.classList.remove("hidden");
+    speakText(`Checked in successfully. Welcome, ${member.name}!`);
+
+    loadMemberCheckinHistory(member.id);
+  } catch (err) {
+    console.error("Auto check-in failed:", err);
+    // A permission-denied error here almost always means today's check-in
+    // already exists (a race with the read above) or the member isn't
+    // approved yet — either way, treat it the same as "already checked in".
+    if (err.code === "permission-denied") {
+      checkinNote.textContent = "You've already checked in today.";
+      checkinNote.className = "text-sm text-slate-500 font-medium";
+      checkinNote.classList.remove("hidden");
+    } else {
+      checkinNote.textContent = "Couldn't check in — please try again or ask staff for help.";
+      checkinNote.className = "text-sm text-rose-500 font-medium";
+      checkinNote.classList.remove("hidden");
+    }
+  }
+}
 
 // ------------------------------------------------------------ UPI payment --
 let pendingPaymentPlanId = null;
@@ -443,6 +514,9 @@ async function handleCopyUpiId() {
 
 // Status check ke waqt check-in history fetch karne ka function
 // Status check ke waqt check-in history fetch karne ka function (GymOps Light Theme Optimized)
+// Fetches the last 7 days by deterministic doc ID (`${memberId}_${dateKey}`
+// means at most one record per day), so this filters by dateKey rather than
+// just taking the most recent N documents.
 async function loadMemberCheckinHistory(memberId) {
   const historyList = document.getElementById("memberCheckinHistory");
   const streakContainer = document.getElementById("streakBadgeContainer");
@@ -451,9 +525,14 @@ async function loadMemberCheckinHistory(memberId) {
   historyList.innerHTML = '<li class="text-slate-400 px-3 py-2 text-xs">Loading history</li>';
 
   try {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    const cutoffKey = toDateKey(sevenDaysAgo);
+
     const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
     const records = snapshot.docs
       .map(doc => doc.data())
+      .filter(r => r.dateKey >= cutoffKey)
       .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
 
     if (records.length === 0) {
@@ -462,9 +541,9 @@ async function loadMemberCheckinHistory(memberId) {
       return;
     }
 
-    // 1. Render History List with High-Contrast Light Theme Classes
+    // 1. Render History List (last 7 days) with High-Contrast Light Theme Classes
     historyList.innerHTML = "";
-    records.slice(0, 5).forEach((record) => {
+    records.forEach((record) => {
       const timeStr = record.timestamp?.toDate 
         ? record.timestamp.toDate().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) 
         : "";
@@ -497,82 +576,20 @@ async function loadMemberCheckinHistory(memberId) {
   }
 }
 
-// ==================== KIOSK SECURITY & REAL AUTH EXIT ====================
+// ==================== KIOSK SECURITY ====================
+// Real kiosk lockdown (blocking the system swipe-up/home gesture and
+// notification-shade swipe) is not something a web page/PWA can do — that
+// needs Android's own Screen Pinning feature or a dedicated kiosk-launcher
+// app with Device Owner permissions, set up at the OS level, not in this
+// code. The in-app Exit button + passkey flow was removed since Screen
+// Pinning/kiosk-launcher already handles getting out of the app (PIN-gated),
+// making it redundant.
+//
+// This trap just stops the in-page Back button from navigating away; kept
+// as a harmless extra layer alongside Screen Pinning.
 document.addEventListener("DOMContentLoaded", () => {
-  // 1. Anti-Back Trap: Device ka back button dabane par app se bahar na jaane dena
   history.pushState(null, null, location.href);
   window.addEventListener("popstate", () => {
     history.pushState(null, null, location.href);
   });
-
-  // 2. Kiosk Exit Modal Listeners
-  const exitBtn = document.getElementById("openKioskExitModal");
-  const exitModal = document.getElementById("kioskExitModal");
-  const closeBtn = document.getElementById("closeKioskModalBtn");
-  const cancelBtn = document.getElementById("kioskCancelBtn");
-  const exitForm = document.getElementById("kioskExitForm");
-
-  if (exitBtn && exitModal) {
-    exitBtn.addEventListener("click", () => {
-      document.getElementById("kioskAdminEmail").value = "";
-      document.getElementById("kioskAdminPassword").value = "";
-      document.getElementById("kioskExitError").classList.add("hidden");
-      exitModal.classList.remove("hidden");
-    });
-  }
-
-  const closeKioskModal = () => {
-    if (exitModal) exitModal.classList.add("hidden");
-  };
-
-  if (closeBtn) closeBtn.addEventListener("click", closeKioskModal);
-  if (cancelBtn) cancelBtn.addEventListener("click", closeKioskModal);
-
-  // 3. Real Passkey Verification via Firebase Auth (Jaise Admin Panel mein hota hai)
-  if (exitForm) {
-    exitForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const email = document.getElementById("kioskAdminEmail").value.trim();
-      const password = document.getElementById("kioskAdminPassword").value;
-      const errorEl = document.getElementById("kioskExitError");
-      const submitBtn = document.getElementById("kioskSubmitBtn");
-
-      errorEl.classList.add("hidden");
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Verifying...";
-
-      try {
-        // Firebase se real credentials verify karna
-        const userCredential = await auth.signInWithEmailAndPassword(email, password);
-        const user = userCredential.user;
-
-        // Check karna ki ye user admin whitelist (`admins` collection) mein hai ya nahi
-        const doc = await db.collection("admins").doc(email.toLowerCase()).get();
-        
-        if (!doc.exists) {
-          await auth.signOut();
-          throw new Error("This account is not authorized as a gym admin.");
-        }
-
-        // Sahi credentials milne par app close ya admin panel par redirect kar do
-        alert("Passkey verified successfully!");
-        window.location.href = "admin.html"; // Ya app close karne ke liye window.close()
-      } catch (err) {
-        console.error("Kiosk exit auth error:", err);
-        let msg = "Invalid admin credentials. Access denied.";
-        if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
-          msg = "Incorrect password.";
-        } else if (err.code === "auth/user-not-found") {
-          msg = "Admin account not found.";
-        } else if (err.message) {
-          msg = err.message;
-        }
-        errorEl.textContent = msg;
-        errorEl.classList.remove("hidden");
-      } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = "Verify & Exit";
-      }
-    });
-  }
 });
