@@ -577,19 +577,17 @@ async function loadMemberCheckinHistory(memberId) {
 }
 
 // ==================== KIOSK SECURITY ====================
-// Real kiosk lockdown (blocking the system swipe-up/home gesture and
-// notification-shade swipe) is not something a web page/PWA can do — that
-// needs Android's own Screen Pinning feature or a dedicated kiosk-launcher
-// app with Device Owner permissions, set up at the OS level, not in this
-// code. The in-app Exit button + passkey flow was removed since Screen
-// Pinning/kiosk-launcher already handles getting out of the app (PIN-gated),
-// making it redundant.
+// Real kiosk lockdown (blocking the system swipe-up/home gesture, the
+// notification-shade swipe, and the Back button) is Android's own Screen
+// Pinning feature (or a dedicated kiosk-launcher app with Device Owner
+// permissions) — set up at the OS level, not in this code. Once Screen
+// Pinning is on, Android itself intercepts the Back button and shows its
+// own "touch & hold Back and Overview to unpin" hint on repeated presses —
+// that's expected, not a bug.
 //
-// This trap just stops the in-page Back button from navigating away; kept
-// as a harmless extra layer alongside Screen Pinning.
-document.addEventListener("DOMContentLoaded", () => {
-  history.pushState(null, null, location.href);
-  window.addEventListener("popstate", () => {
-    history.pushState(null, null, location.href);
-  });
-});
+// There used to be a JS "back-trap" here (history.pushState on every
+// popstate) meant as an extra layer, but rapid back-button taps could race
+// with it and force a full page reload (the splash screen flashing back
+// up). Since Screen Pinning already handles this properly at the OS level,
+// the JS trap was removed rather than fixed — it was redundant and the
+// glitchier of the two.
