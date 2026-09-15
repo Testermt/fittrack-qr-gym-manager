@@ -521,18 +521,34 @@ async function loadMemberCheckinHistory(memberId) {
   const historyList = document.getElementById("memberCheckinHistory");
   const streakContainer = document.getElementById("streakBadgeContainer");
   const streakText = document.getElementById("streakText");
-  
-  historyList.innerHTML = '<li class="text-slate-400 px-3 py-2 text-xs">Loading history</li>';
+
+  historyList.innerHTML = '<li class="text-slate-400 px-3 py-2 text-xs">Loading history</li>';
 
   try {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-    const cutoffKey = toDateKey(sevenDaysAgo);
+    // Members aren't signed in (no Firebase Auth session), so
+    // firestore.rules can't scope a `list` query to "only this member's
+    // own docs" -- the rules only allow `list` on /checkins for verified
+    // admins (otherwise anyone could enumerate every check-in for every
+    // member). So instead of a `.where("memberId","==",...).get()` query
+    // (which needs `list` and would get rejected with permission-denied --
+    // that was the actual bug behind "Could not load check-in history"),
+    // we fetch each of the last 7 days' check-in docs individually by ID
+    // (`${memberId}_${dateKey}`) using `.get()`, which firestore.rules
+    // allows publicly per-document -- same pattern as the members
+    // collection's public `get`.
+    const dateKeys = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      dateKeys.push(toDateKey(d));
+    }
 
-    const snapshot = await checkinsCol.where("memberId", "==", memberId).get();
-    const records = snapshot.docs
-      .map(doc => doc.data())
-      .filter(r => r.dateKey >= cutoffKey)
+    const snapshots = await Promise.all(
+      dateKeys.map((dateKey) => checkinsCol.doc(checkinDocId(memberId, dateKey)).get())
+    );
+    const records = snapshots
+      .filter((doc) => doc.exists)
+      .map((doc) => doc.data())
       .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
 
     if (records.length === 0) {
