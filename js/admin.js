@@ -130,6 +130,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Manual member registration modal
   document.getElementById("openAddMemberBtn").addEventListener("click", openAddMemberModal);
+  document.getElementById("exportCsvBtn").addEventListener("click", exportMembersToCsv);
   document.getElementById("addMemberCancelBtn").addEventListener("click", closeAddMemberModal);
   document.getElementById("addMemberCloseBtn").addEventListener("click", closeAddMemberModal);
   document.getElementById("addMemberBackdrop").addEventListener("click", closeAddMemberModal);
@@ -551,6 +552,13 @@ function renderMemberTable() {
     if (currentMemberFilter === "pending" && m.paymentStatus === "paid") return false;
     // 🔥 Pending approval filter check
     if (currentMemberFilter === "pending-approval" && m.approved === true) return false;
+    // Due Soon: still active, but expiring within the next 3 days (0-3
+    // inclusive) — the window the gym owner should be sending renewal
+    // reminders for.
+    if (currentMemberFilter === "due-soon") {
+      const d = daysUntil(m.expiryDate);
+      if (!(d >= 0 && d <= 3)) return false;
+    }
     return true;
   });
 
@@ -1111,6 +1119,54 @@ async function manualCheckIn(member, btn) {
   }
 }
 
+
+/**
+ * Exports the currently loaded member list (allMembers -- already in
+ * memory, so this is a zero-extra-read operation) as a CSV file the
+ * browser downloads directly. No backend/Cloud Function involved -- just
+ * builds the CSV string client-side and triggers a download via a
+ * temporary <a> tag, same trick used everywhere for browser-side exports.
+ */
+function exportMembersToCsv() {
+  if (!allMembers.length) {
+    alert("No members to export yet.");
+    return;
+  }
+
+  const headers = ["Name", "Phone", "Address", "Plan", "Join Date", "Expiry Date", "Days Remaining", "Payment Status", "Approved", "Monthly Check-ins"];
+
+  // Wrap each field in quotes and escape any embedded quotes, so commas or
+  // quote characters inside a member's name/address don't break columns.
+  const escapeCsvField = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+  const rows = allMembers.map((m) => [
+    m.name,
+    m.phone,
+    m.address,
+    (PLANS[m.plan] || { label: m.plan }).label,
+    formatDate(m.joinDate),
+    formatDate(m.expiryDate),
+    daysUntil(m.expiryDate),
+    m.paymentStatus === "paid" ? "Paid" : "Pending",
+    m.approved === true ? "Yes" : "No",
+    m.monthlyCheckinCount || 0,
+  ].map(escapeCsvField).join(","));
+
+  const csvContent = [headers.map(escapeCsvField).join(","), ...rows].join("\r\n");
+
+  // BOM prefix so Excel (including on Windows) opens the file with correct
+  // UTF-8 rendering instead of mangling non-ASCII characters in names.
+  const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const today = toDateKey(new Date());
+  link.href = url;
+  link.download = `${GYM_SETTINGS.name.replace(/\s+/g, "-")}-members-${today}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
 function sendWhatsAppReminder(member) {
   const number = toWhatsAppNumber(member.phone);
