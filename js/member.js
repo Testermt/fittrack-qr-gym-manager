@@ -88,7 +88,7 @@ function initTabs() {
 // shown, the page reloads back to the blank "enter your number" screen on
 // its own, whether or not anyone touches it again.
 let statusAutoResetTimer = null;
-const STATUS_AUTO_RESET_MS = 30000; // 30s -- long enough to read, short enough not to linger
+const STATUS_AUTO_RESET_MS = 12000; // 12s -- enough to read, clears fast for the next member
 
 function scheduleStatusAutoReset() {
   clearTimeout(statusAutoResetTimer);
@@ -686,11 +686,19 @@ async function loadMemberCheckinHistory(memberId) {
         ? record.timestamp.toDate().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) 
         : "";
       
+      // Only last 7 days are ever shown here, so the full "YYYY-MM-DD" is
+      // more than needed -- weekday name + day number ("Wed 17") reads
+      // instantly and is more useful than a bare date, since a member
+      // remembers "I came Mon, Wed, Thu" more naturally than raw numbers.
+      const [y, m, d] = record.dateKey.split("-").map(Number);
+      const recordDate = new Date(y, m - 1, d);
+      const weekday = recordDate.toLocaleDateString("en-US", { weekday: "short" });
+
       const li = document.createElement("li");
       // Light theme ke liye crisp white box, clear border, aur dark text
       li.className = "flex items-center justify-between bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-xs font-medium";
       li.innerHTML = `
-        <span class="text-slate-900 font-bold">${record.dateKey}</span>
+        <span class="text-slate-900 font-bold">${weekday} ${d}</span>
         <span class="text-slate-600 font-semibold">${timeStr} <span class="text-slate-400 font-normal">(${record.method || 'gps'})</span></span>
       `;
       historyList.appendChild(li);
