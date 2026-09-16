@@ -461,6 +461,7 @@ async function performAutoCheckin(member) {
 
     await checkinsCol.doc(docId).set({
       memberId: member.id,
+      name: member.name,
       phone: member.phone,
       dateKey: todayKey,
       method: "manual",
