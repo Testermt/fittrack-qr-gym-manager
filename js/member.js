@@ -345,21 +345,35 @@ async function handleStatusCheck(e) {
   }
 }
 
-/** Masks a phone number for display, keeping only the last 3 digits visible (e.g. "•••••0638"). */
+/** Masks a phone number for display -- last 4 digits visible (industry
+ *  standard, same as what banks/apps show), rest as dots. */
 function maskPhone(phone) {
   const digits = String(phone || "");
-  if (digits.length <= 3) return digits;
-  return "•".repeat(digits.length - 3) + digits.slice(-3);
+  if (digits.length <= 4) return digits;
+  return "•".repeat(digits.length - 4) + digits.slice(-4);
 }
 
-/** Masks a name the same way as the phone number -- last 3 letters visible,
- *  everything before that replaced with dots (e.g. "Monster" -> "••••ster").
- *  Lets the member confirm it's their own record at a glance without a
- *  full name being readable by anyone standing behind them. */
+/** Shows the member's first name in FULL, and masks everything after it
+ *  (surname/middle names) down to just the first letter of each remaining
+ *  word -- e.g. "Ramesh Kumar Sharma" -> "Ramesh K. S.". A first name alone
+ *  is common enough across members that showing it in full doesn't
+ *  meaningfully identify someone to a stranger glancing at the screen, but
+ *  it DOES let the member instantly recognize their own record -- which
+ *  the old "only last 3 letters visible" scheme didn't reliably do, since
+ *  many members share the same surname ending (a real problem raised by
+ *  the gym owner). If there's no surname at all, falls back to the old
+ *  last-3-letters style so a one-word name isn't shown fully in plain text. */
 function maskName(name) {
-  const str = String(name || "").trim();
-  if (str.length <= 3) return str;
-  return "•".repeat(str.length - 3) + str.slice(-3);
+  const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+  if (words.length === 1) {
+    const str = words[0];
+    if (str.length <= 3) return str;
+    return "•".repeat(str.length - 3) + str.slice(-3);
+  }
+  const [first, ...rest] = words;
+  const initials = rest.map((w) => `${w[0].toUpperCase()}.`).join(" ");
+  return `${first} ${initials}`;
 }
 
 function renderStatusCard(member, checkinStatus) {
