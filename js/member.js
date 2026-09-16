@@ -672,11 +672,13 @@ async function loadMemberCheckinHistory(memberId) {
 
   function openKeypadFor(input) {
     activeInput = input;
+    // Snap the real field into view above the sheet FIRST, instantly (no
+    // smooth-scroll animation, no delay) -- so there's no in-between frame
+    // where the field/Go button are still cut off by the keypad before it
+    // settles. Only then reveal the keypad itself.
+    input.scrollIntoView({ behavior: "auto", block: "start" });
     input.classList.add("keypad-focused");
     overlay.classList.remove("hidden");
-    // Bring the real field into view above the sheet so what's typed is
-    // visible right where it's always been -- no separate preview needed.
-    setTimeout(() => input.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
   }
 
   function closeKeypad() {
@@ -719,159 +721,4 @@ async function loadMemberCheckinHistory(memberId) {
   if (backspaceBtn) backspaceBtn.addEventListener("click", backspace);
   if (clearBtn) clearBtn.addEventListener("click", clearAll);
   if (backdrop) backdrop.addEventListener("click", closeKeypad);
-})();
-
-// ==================== CUSTOM TEXT KEYBOARD (name, address, etc.) ====================
-// Same reasoning as the numeric keypad above, extended to free-text fields
-// (name, address): readonly input + a custom on-screen QWERTY keyboard, so
-// the native keyboard (and its autofill bar) never opens for these either.
-// Two layers -- letters (with a shift/caps toggle) and numbers/symbols
-// (for house numbers, pin codes, etc. in an address) -- switchable with
-// the "123"/"ABC" key, same as a normal phone keyboard.
-(function setupCustomTextKeyboard() {
-  const overlay = document.getElementById("customTextKeyboardOverlay");
-  if (!overlay) return;
-
-  const backdrop = document.getElementById("customTextKeyboardBackdrop");
-  const doneBtn = document.getElementById("textKeyboardDoneBtn");
-  const label = document.getElementById("textKeyboardLabel");
-  const keysContainer = document.getElementById("textKeyboardKeys");
-
-  const LETTERS = [
-    ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
-    ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
-    ["\u21E7", "z", "x", "c", "v", "b", "n", "m", "\u232B"],
-  ];
-  const NUMBERS = [
-    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
-    ["-", "/", ":", ";", "(", ")", "\u20B9", "&", "@", '"'],
-    ["#+=", ".", ",", "?", "!", "'", "\u232B"],
-  ];
-
-  let activeInput = null;
-  let mode = "letters"; // "letters" | "numbers"
-  let shift = false; // caps toggle, letters mode only
-
-  function fireInputEvent(input) {
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }
-
-  function insertAtCursor(input, text) {
-    const start = input.selectionStart ?? input.value.length;
-    const end = input.selectionEnd ?? input.value.length;
-    input.value = input.value.slice(0, start) + text + input.value.slice(end);
-    const pos = start + text.length;
-    if (input.setSelectionRange) input.setSelectionRange(pos, pos);
-    fireInputEvent(input);
-  }
-
-  function backspaceAtCursor(input) {
-    const start = input.selectionStart ?? input.value.length;
-    const end = input.selectionEnd ?? input.value.length;
-    if (start === end) {
-      if (start === 0) return;
-      input.value = input.value.slice(0, start - 1) + input.value.slice(end);
-      if (input.setSelectionRange) input.setSelectionRange(start - 1, start - 1);
-    } else {
-      input.value = input.value.slice(0, start) + input.value.slice(end);
-      if (input.setSelectionRange) input.setSelectionRange(start, start);
-    }
-    fireInputEvent(input);
-  }
-
-  function keyLabel(key) {
-    if (key === "\u21E7") return shift ? "\u21E7" : "\u21E7"; // shift icon (state shown via active class instead)
-    if (mode === "letters" && key.length === 1) return shift ? key.toUpperCase() : key;
-    return key;
-  }
-
-  function render() {
-    keysContainer.innerHTML = "";
-    const rows = mode === "letters" ? LETTERS : NUMBERS;
-
-    rows.forEach((row) => {
-      const rowEl = document.createElement("div");
-      rowEl.className = "text-key-row";
-      row.forEach((key) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = keyLabel(key);
-        btn.className = "text-key";
-        if (key === "\u21E7" && shift) btn.style.background = "#BAE6FD";
-        btn.addEventListener("click", () => handleKey(key));
-        rowEl.appendChild(btn);
-      });
-      keysContainer.appendChild(rowEl);
-    });
-
-    // Bottom row: mode toggle + space bar (Done is the top-right button).
-    const bottomRow = document.createElement("div");
-    bottomRow.className = "text-key-row";
-    const toggleBtn = document.createElement("button");
-    toggleBtn.type = "button";
-    toggleBtn.className = "text-key text-key-wide";
-    toggleBtn.textContent = mode === "letters" ? "123" : "ABC";
-    toggleBtn.addEventListener("click", () => {
-      mode = mode === "letters" ? "numbers" : "letters";
-      render();
-    });
-    const spaceBtn = document.createElement("button");
-    spaceBtn.type = "button";
-    spaceBtn.className = "text-key";
-    spaceBtn.style.flex = "5";
-    spaceBtn.textContent = "space";
-    spaceBtn.addEventListener("click", () => {
-      if (activeInput) insertAtCursor(activeInput, " ");
-    });
-    bottomRow.appendChild(toggleBtn);
-    bottomRow.appendChild(spaceBtn);
-    keysContainer.appendChild(bottomRow);
-  }
-
-  function handleKey(key) {
-    if (!activeInput) return;
-    if (key === "\u21E7") {
-      shift = !shift;
-      render();
-      return;
-    }
-    if (key === "\u232B") {
-      backspaceAtCursor(activeInput);
-      return;
-    }
-    if (key === "#+=") {
-      // Reserved for a future symbols-only layer; numbers layer already
-      // covers the common ones an address/name needs.
-      return;
-    }
-    const char = mode === "letters" && shift ? key.toUpperCase() : key;
-    insertAtCursor(activeInput, char);
-    if (mode === "letters" && shift) {
-      shift = false; // one-shot capital, like a normal phone keyboard
-      render();
-    }
-  }
-
-  function openKeyboardFor(input) {
-    activeInput = input;
-    mode = "letters";
-    shift = false;
-    input.classList.add("keypad-focused");
-    label.textContent = input.placeholder || "Enter text";
-    render();
-    overlay.classList.remove("hidden");
-    setTimeout(() => input.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
-  }
-
-  function closeKeyboard() {
-    if (activeInput) activeInput.classList.remove("keypad-focused");
-    activeInput = null;
-    overlay.classList.add("hidden");
-  }
-
-  document.querySelectorAll(".custom-text-input").forEach((input) => {
-    input.addEventListener("click", () => openKeyboardFor(input));
-  });
-  if (doneBtn) doneBtn.addEventListener("click", closeKeyboard);
-  if (backdrop) backdrop.addEventListener("click", closeKeyboard);
 })();

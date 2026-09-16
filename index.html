@@ -76,12 +76,10 @@
   /* Readonly phone inputs use the custom keypad below instead of the native
      OS keyboard — but should still look/feel like a normal focused input
      when the keypad is open, cursor included. */
-  .custom-keypad-input,
-  .custom-text-input {
+  .custom-keypad-input {
     caret-color: #0284C7;
   }
-  .custom-keypad-input.keypad-focused,
-  .custom-text-input.keypad-focused {
+  .custom-keypad-input.keypad-focused {
     outline: none;
     border-color: #0284C7;
     box-shadow: 0 0 0 4px rgba(14,165,233,0.16);
@@ -101,35 +99,6 @@
   .keypad-btn:active {
     background: #E2E8F0;
     transform: translateY(1px);
-  }
-
-  /* QWERTY custom keyboard keys (name/address/etc.) — smaller and denser
-     than the numeric keypad buttons since a full row of 10 has to fit. */
-  .text-key {
-    background: #F1F5F9;
-    border-radius: 10px;
-    padding: 12px 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #0F172A;
-    transition: background 0.1s ease;
-    user-select: none;
-    flex: 1;
-    text-align: center;
-  }
-  .text-key:active {
-    background: #E2E8F0;
-    transform: translateY(1px);
-  }
-  .text-key.text-key-wide {
-    flex: 1.6;
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: #475569;
-  }
-  .text-key-row {
-    display: flex;
-    gap: 6px;
   }
   
         #welcomeModal {
@@ -546,7 +515,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1.5">Full name</label>
-            <input name="name" type="text" readonly required placeholder="e.g. Priya Chaudhary" class="field-input custom-text-input" />
+            <input name="name" type="text" required placeholder="e.g. Priya Chaudhary" class="field-input" />
           </div>
 
           <div>
@@ -557,7 +526,7 @@
 
         <div>
           <label class="block text-sm font-medium text-slate-700 mb-1.5">Address</label>
-          <textarea name="address" rows="2" readonly required placeholder="e.g. 12 MG Road, Indiranagar, Bengaluru" class="field-input resize-none custom-text-input"></textarea>
+          <textarea name="address" rows="2" required placeholder="e.g. 12 MG Road, Indiranagar, Bengaluru" class="field-input resize-none"></textarea>
         </div>
 
         <div>
@@ -744,21 +713,6 @@
       <button type="button" class="keypad-btn" data-key="0">0</button>
       <button type="button" id="keypadBackspaceBtn" class="keypad-btn flex items-center justify-center">⌫</button>
     </div>
-  </div>
-</div>
-
-<!-- ============= CUSTOM TEXT KEYBOARD (name, address, etc.) ============= -->
-<!-- Same idea as the numeric keypad above, but a full QWERTY layout for
-     free-text fields — keeps the native keyboard (and its autofill bar)
-     out of the picture for these fields too. -->
-<div id="customTextKeyboardOverlay" class="hidden fixed inset-0 z-[70] flex items-end justify-center pointer-events-none">
-  <div class="absolute inset-0 pointer-events-auto" id="customTextKeyboardBackdrop"></div>
-  <div class="relative w-full max-w-lg md:max-w-xl paper-card rounded-t-3xl rounded-b-none p-3 pb-5 shadow-2xl pointer-events-auto">
-    <div class="flex items-center justify-between mb-2.5 px-1">
-      <span id="textKeyboardLabel" class="text-xs font-bold text-slate-400 uppercase tracking-wider">Enter text</span>
-      <button type="button" id="textKeyboardDoneBtn" class="text-sm font-bold text-accentDark px-3 py-1.5 rounded-lg hover:bg-sky-50 transition">Done</button>
-    </div>
-    <div id="textKeyboardKeys" class="space-y-1.5"></div>
   </div>
 </div>
 
