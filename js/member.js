@@ -639,3 +639,76 @@ async function loadMemberCheckinHistory(memberId) {
 ["contextmenu", "selectstart", "copy", "cut"].forEach((evt) => {
   document.addEventListener(evt, (e) => e.preventDefault());
 });
+
+// ==================== CUSTOM NUMERIC KEYPAD ====================
+// Phone-number inputs are `readonly` (see index.html) so tapping them can
+// never trigger the native Android/Chrome keyboard at all — this custom
+// on-screen keypad drives their value instead. Since the native keyboard
+// never opens, Chrome's autofill accessory bar (the key/card/location-pin
+// icons) and the "Save password?" prompt never have a keyboard to attach
+// to either — this fixes that problem as a side effect, not just a
+// cosmetic one, and makes the number-entry UI feel like a dedicated part
+// of this app rather than a generic browser text field.
+(function setupCustomKeypad() {
+  const overlay = document.getElementById("customKeypadOverlay");
+  if (!overlay) return;
+
+  const doneBtn = document.getElementById("keypadDoneBtn");
+  const clearBtn = document.getElementById("keypadClearBtn");
+  const backspaceBtn = document.getElementById("keypadBackspaceBtn");
+  const MAX_DIGITS = 10; // Indian mobile numbers
+
+  let activeInput = null;
+
+  function fireInputEvent(input) {
+    // Keeps any other listeners (validation, live formatting, etc.) that
+    // watch for a normal "input" event in sync with a keypad-driven value.
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  function openKeypadFor(input) {
+    activeInput = input;
+    input.classList.add("keypad-focused");
+    overlay.classList.remove("hidden");
+  }
+
+  function closeKeypad() {
+    if (activeInput) activeInput.classList.remove("keypad-focused");
+    activeInput = null;
+    overlay.classList.add("hidden");
+  }
+
+  function appendDigit(digit) {
+    if (!activeInput || activeInput.value.length >= MAX_DIGITS) return;
+    activeInput.value += digit;
+    fireInputEvent(activeInput);
+  }
+
+  function backspace() {
+    if (!activeInput) return;
+    activeInput.value = activeInput.value.slice(0, -1);
+    fireInputEvent(activeInput);
+  }
+
+  function clearAll() {
+    if (!activeInput) return;
+    activeInput.value = "";
+    fireInputEvent(activeInput);
+  }
+
+  document.querySelectorAll(".custom-keypad-input").forEach((input) => {
+    input.addEventListener("click", () => openKeypadFor(input));
+  });
+
+  overlay.querySelectorAll("[data-key]").forEach((btn) => {
+    btn.addEventListener("click", () => appendDigit(btn.dataset.key));
+  });
+  if (backspaceBtn) backspaceBtn.addEventListener("click", backspace);
+  if (clearBtn) clearBtn.addEventListener("click", clearAll);
+  if (doneBtn) doneBtn.addEventListener("click", closeKeypad);
+
+  // Tapping the dimmed backdrop (not the keypad sheet itself) also closes it.
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeKeypad();
+  });
+})();

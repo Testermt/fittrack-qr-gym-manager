@@ -72,6 +72,34 @@
   .masked-number-input {
     -webkit-text-security: disc;
   }
+
+  /* Readonly phone inputs use the custom keypad below instead of the native
+     OS keyboard — but should still look/feel like a normal focused input
+     when the keypad is open, cursor included. */
+  .custom-keypad-input {
+    caret-color: #0284C7;
+  }
+  .custom-keypad-input.keypad-focused {
+    outline: none;
+    border-color: #0284C7;
+    box-shadow: 0 0 0 4px rgba(14,165,233,0.16);
+    background: #FFFFFF;
+  }
+
+  .keypad-btn {
+    background: #F1F5F9;
+    border-radius: 14px;
+    padding: 18px 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0F172A;
+    transition: background 0.1s ease;
+    user-select: none;
+  }
+  .keypad-btn:active {
+    background: #E2E8F0;
+    transform: translateY(1px);
+  }
   
         #welcomeModal {
     position: fixed !important;
@@ -492,7 +520,7 @@
 
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1.5">Mobile number</label>
-            <input name="phone" type="tel" required placeholder="e.g. 9876543210" class="field-input" />
+            <input name="phone" type="tel" inputmode="none" readonly required placeholder="e.g. 9876543210" class="field-input custom-keypad-input" />
           </div>
         </div>
 
@@ -525,9 +553,9 @@
       <p class="text-sm text-slate-500 mb-7">Enter your mobile number to check in and view your membership.</p>
 
       <form id="statusForm" class="flex gap-3 mb-5">
-        <input id="statusPhoneInput" name="phone" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+        <input id="statusPhoneInput" name="phone" type="text" inputmode="none" pattern="[0-9]*" autocomplete="off"
           autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-form-type="other"
-          required placeholder="Registered mobile number" class="field-input flex-1 masked-number-input" />
+          readonly required placeholder="Registered mobile number" class="field-input flex-1 masked-number-input custom-keypad-input" />
         <button type="submit" class="btn-primary px-7">
           Go
         </button>
@@ -663,6 +691,33 @@
   </div>
 </div>
 
+<!-- ============= CUSTOM NUMERIC KEYPAD ============= -->
+<!-- Replaces the native OS keyboard for phone-number inputs entirely — no
+     native keyboard means no Chrome autofill accessory bar (key/card/pin
+     icons), no "Save password?" prompt, and it looks like a dedicated part
+     of this app rather than a generic browser text field. -->
+<div id="customKeypadOverlay" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[70] flex items-end justify-center">
+  <div class="w-full max-w-lg md:max-w-xl paper-card rounded-t-3xl rounded-b-none p-4 pb-6 shadow-2xl">
+    <div class="flex items-center justify-between mb-3.5 px-1">
+      <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Enter mobile number</span>
+      <button type="button" id="keypadDoneBtn" class="text-sm font-bold text-accentDark px-3 py-1.5 rounded-lg hover:bg-sky-50 transition">Done</button>
+    </div>
+    <div class="grid grid-cols-3 gap-2.5">
+      <button type="button" class="keypad-btn" data-key="1">1</button>
+      <button type="button" class="keypad-btn" data-key="2">2</button>
+      <button type="button" class="keypad-btn" data-key="3">3</button>
+      <button type="button" class="keypad-btn" data-key="4">4</button>
+      <button type="button" class="keypad-btn" data-key="5">5</button>
+      <button type="button" class="keypad-btn" data-key="6">6</button>
+      <button type="button" class="keypad-btn" data-key="7">7</button>
+      <button type="button" class="keypad-btn" data-key="8">8</button>
+      <button type="button" class="keypad-btn" data-key="9">9</button>
+      <button type="button" id="keypadClearBtn" class="keypad-btn text-rose-500 text-xs font-bold">Clear</button>
+      <button type="button" class="keypad-btn" data-key="0">0</button>
+      <button type="button" id="keypadBackspaceBtn" class="keypad-btn flex items-center justify-center">⌫</button>
+    </div>
+  </div>
+</div>
 
 
 
