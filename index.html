@@ -35,6 +35,19 @@
 <style>
   :root { color-scheme: light; }
 
+  /* Kiosk mode: no text/element should be selectable, copyable, or
+     right-click/long-press-menu-able anywhere in this app (status card
+     data, phone number field, everything). Inputs still work fine for
+     typing/editing — this only blocks highlighting + the Copy/Select
+     all/Web search popup and the native long-press callout. */
+  * {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none; /* iOS Safari: disables the long-press callout menu */
+  }
+
   body {
     font-family: "Inter", system-ui, sans-serif;
     background-color: #EEF2F7;
@@ -47,6 +60,17 @@
        gesture or notification-shade pull-down (those are OS-level and no
        web page can intercept them; see the note in member.js). */
     overscroll-behavior-y: none;
+  }
+
+  /* Visually masks the phone number as dots (like a password field) WITHOUT
+     using type="password" — Chrome treats real password fields as
+     credentials and shows the Password Manager/Payment/Address autofill
+     suggestion bar above the keyboard, plus a "Save password?" prompt
+     afterward. This is a plain type="text" input; -webkit-text-security
+     just changes how the characters are *drawn*, so Chrome never
+     classifies it as a credential field and none of that UI shows up. */
+  .masked-number-input {
+    -webkit-text-security: disc;
   }
   
         #welcomeModal {
@@ -501,7 +525,9 @@
       <p class="text-sm text-slate-500 mb-7">Enter your mobile number to check in and view your membership.</p>
 
       <form id="statusForm" class="flex gap-3 mb-5">
-        <input name="phone" type="password" inputmode="numeric" autocomplete="off" required placeholder="Registered mobile number" class="field-input flex-1" />
+        <input id="statusPhoneInput" name="phone" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+          autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-form-type="other"
+          required placeholder="Registered mobile number" class="field-input flex-1 masked-number-input" />
         <button type="submit" class="btn-primary px-7">
           Go
         </button>
