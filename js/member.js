@@ -660,7 +660,6 @@ async function loadMemberCheckinHistory(memberId) {
   if (!overlay) return;
 
   const backdrop = document.getElementById("customKeypadBackdrop");
-  const doneBtn = document.getElementById("keypadDoneBtn");
   const clearBtn = document.getElementById("keypadClearBtn");
   const backspaceBtn = document.getElementById("keypadBackspaceBtn");
   const MAX_DIGITS = 10; // Indian mobile numbers
@@ -690,6 +689,12 @@ async function loadMemberCheckinHistory(memberId) {
     if (!activeInput || activeInput.value.length >= MAX_DIGITS) return;
     activeInput.value += digit;
     fireInputEvent(activeInput);
+    // No "Done" button on this keypad -- once a full 10-digit number is
+    // in, there's nothing more to type, so close automatically instead of
+    // making the person tap something to dismiss it.
+    if (activeInput.value.length >= MAX_DIGITS) {
+      closeKeypad();
+    }
   }
 
   function backspace() {
@@ -713,7 +718,6 @@ async function loadMemberCheckinHistory(memberId) {
   });
   if (backspaceBtn) backspaceBtn.addEventListener("click", backspace);
   if (clearBtn) clearBtn.addEventListener("click", clearAll);
-  if (doneBtn) doneBtn.addEventListener("click", closeKeypad);
   if (backdrop) backdrop.addEventListener("click", closeKeypad);
 })();
 
