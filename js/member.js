@@ -65,11 +65,45 @@ function initTabs() {
       });
       if (tab.dataset.tabTarget === "status") {
         speakText("Welcome to the gym. Please check in.");
+        // Resume the privacy auto-reset clock if a status card is still
+        // sitting on screen from before (see scheduleStatusAutoReset).
+        const card = document.getElementById("statusCard");
+        if (card && !card.classList.contains("hidden")) scheduleStatusAutoReset();
       } else if (tab.dataset.tabTarget === "register") {
         speakText("Hey, please enter your details to join the gym.");
+        // Don't let a kiosk-reset reload wipe out an in-progress
+        // registration form -- only the status view needs the timeout.
+        cancelStatusAutoReset();
       }
     });
   });
+}
+
+// ==================== PRIVACY: AUTO-RESET AFTER VIEWING STATUS ====================
+// This runs on a shared gym-desk phone/tablet -- one member checks in,
+// reads their status, and walks off, but their name/plan/expiry stays on
+// screen until the NEXT member happens to tap "Go" and overwrite it. In
+// between, anyone at the desk can see the previous person's details. A
+// short auto-reset closes that window: 30 seconds after a status card is
+// shown, the page reloads back to the blank "enter your number" screen on
+// its own, whether or not anyone touches it again.
+let statusAutoResetTimer = null;
+const STATUS_AUTO_RESET_MS = 30000; // 30s -- long enough to read, short enough not to linger
+
+function scheduleStatusAutoReset() {
+  clearTimeout(statusAutoResetTimer);
+  statusAutoResetTimer = setTimeout(() => {
+    // A soft reset (clear the form, hide the card) rather than
+    // location.reload() -- a full reload re-launches the PWA from scratch
+    // and briefly shows its splash screen, which would make the kiosk
+    // flash back to the launch screen every 30 seconds on its own. This
+    // gets the same "blank screen for the next person" result without that.
+    resetStatusView();
+  }, STATUS_AUTO_RESET_MS);
+}
+
+function cancelStatusAutoReset() {
+  clearTimeout(statusAutoResetTimer);
 }
 
 /** Renders a row of selectable plan cards into a container, wiring up a hidden input. */
@@ -258,6 +292,19 @@ async function handleRegisterSubmit(e) {
 // --------------------------------------------------------- status check --
 let currentMember = null;
 
+/** After a check/check-in has been showing on screen for a while, wipe it
+ *  back to the blank "enter mobile number" state on its own -- so the next
+ *  person walking up doesn't see the previous member's name, plan, or
+ *  check-in history left on screen. */
+function resetStatusView() {
+  currentMember = null;
+  cancelStatusAutoReset();
+  document.getElementById("statusCard").classList.add("hidden");
+  hideBanner("statusBanner");
+  const statusForm = document.getElementById("statusForm");
+  if (statusForm) statusForm.phone.value = "";
+}
+
 async function handleStatusCheck(e) {
   e.preventDefault();
   hideBanner("statusBanner");
@@ -305,6 +352,16 @@ function maskPhone(phone) {
   return "•".repeat(digits.length - 3) + digits.slice(-3);
 }
 
+/** Masks a name the same way as the phone number -- last 3 letters visible,
+ *  everything before that replaced with dots (e.g. "Monster" -> "••••ster").
+ *  Lets the member confirm it's their own record at a glance without a
+ *  full name being readable by anyone standing behind them. */
+function maskName(name) {
+  const str = String(name || "").trim();
+  if (str.length <= 3) return str;
+  return "•".repeat(str.length - 3) + str.slice(-3);
+}
+
 function renderStatusCard(member, checkinStatus) {
   const days = daysUntil(member.expiryDate);
   const isActive = days >= 0;
@@ -313,11 +370,22 @@ function renderStatusCard(member, checkinStatus) {
   const card = document.getElementById("statusCard");
   card.classList.remove("hidden");
 
-  document.getElementById("statusName").textContent = member.name;
+  // Privacy: full name isn't shown -- masked the same way as the phone
+  // number (last 3 letters visible) so anyone standing behind the member
+  // checking in can't just read their full name off a shared screen, but
+  // the member themself still gets a quick "yes, this is me" confirmation.
+  const nameEl = document.getElementById("statusName");
+  nameEl.textContent = maskName(member.name);
+  nameEl.classList.remove("hidden");
   document.getElementById("statusPhone").textContent = `+${GYM_SETTINGS.defaultCountryCode} ${maskPhone(member.phone)}`;
   document.getElementById("statusPlan").textContent = plan.label;
   document.getElementById("statusJoin").textContent = formatDate(member.joinDate);
   document.getElementById("statusExpiry").textContent = formatDate(member.expiryDate);
+
+  // Privacy auto-reset: whatever happens below (active/expired/pending),
+  // a status card is now showing personal info on a shared screen, so
+  // start (or restart) the 30s countdown back to the blank kiosk screen.
+  scheduleStatusAutoReset();
 
   const badge = document.getElementById("statusBadge");
   badge.textContent = isActive ? "ACTIVE" : "EXPIRED";
@@ -339,10 +407,6 @@ function renderStatusCard(member, checkinStatus) {
   if (checkinStatus === "pending-approval") {
     checkinNote.textContent = "Your registration is pending admin approval.";
     checkinNote.className = "text-sm text-amber-500 font-semibold";
-    // Delayed (setTimeout) so this plays AFTER the mascot's automatic
-    // "Welcome back!" cheer (which fires async off the statusCard becoming
-    // visible) instead of being cut off/overridden by it.
-    setTimeout(() => speakText(`${member.name}, your registration is pending admin approval. Please speak to the admin at the front desk.`), 0);
   } else if (!isActive) {
     checkinNote.textContent = "";
     checkinNote.classList.add("hidden");
@@ -355,13 +419,6 @@ function renderStatusCard(member, checkinStatus) {
   renewSection.classList.toggle("hidden", isActive && member.paymentStatus === "paid");
   if (!renewSection.classList.contains("hidden")) {
     buildPlanPicker("renewPlanPicker", "renewPlan");
-  }
-
-  // Voice feedback — check-in itself is voiced by the kiosk app now; this
-  // page only needs to flag an expired/invalid membership when viewed.
-  // Delayed for the same reason as above — plays after the mascot's cheer.
-  if (!isActive && checkinStatus !== "pending-approval") {
-    setTimeout(() => speakText(`${member.name}, please check your membership status or contact the front desk.`), 0);
   }
 }
 
@@ -413,7 +470,6 @@ async function performAutoCheckin(member) {
     checkinNote.textContent = "Checked in today! ✅";
     checkinNote.className = "text-sm text-emerald-600 font-semibold";
     checkinNote.classList.remove("hidden");
-    speakText(`Checked in successfully. Welcome, ${member.name}!`);
 
     loadMemberCheckinHistory(member.id);
   } catch (err) {
