@@ -1158,13 +1158,22 @@ function renderCheckinLog(rows) {
     const time = row.timestamp?.toDate
       ? row.timestamp.toDate().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
       : "—";
+
+    // 🔥 Fallback: Agar row.name missing hai toh allMembers se name dhoond lo
+    let displayName = row.name;
+    if (!displayName && row.memberId) {
+      const foundMember = allMembers.find((m) => m.id === row.memberId);
+      if (foundMember) displayName = foundMember.name;
+    }
+    if (!displayName) displayName = "Member";
+
     const li = document.createElement("li");
     li.className = "flex items-center justify-between py-2.5 border-b border-slate-800/70 last:border-0";
     li.innerHTML = `
       <div class="flex items-center gap-3">
         <span class="w-2 h-2 rounded-full bg-success"></span>
         <div>
-          <p class="text-sm font-medium text-slate-100">${escapeHtml(row.name)}</p>
+          <p class="text-sm font-medium text-slate-100">${escapeHtml(displayName)}</p>
           <p class="text-xs text-slate-500">+${GYM_SETTINGS.defaultCountryCode} ${row.phone}</p>
         </div>
       </div>
@@ -1173,6 +1182,7 @@ function renderCheckinLog(rows) {
     list.appendChild(li);
   });
 }
+
 
 
 function subscribeMonthlyRevenue() {
