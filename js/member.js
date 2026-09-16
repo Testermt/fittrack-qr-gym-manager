@@ -672,19 +672,36 @@ async function loadMemberCheckinHistory(memberId) {
 
   function openKeypadFor(input) {
     activeInput = input;
-    // Snap the real field into view above the sheet FIRST, instantly (no
-    // smooth-scroll animation, no delay) -- so there's no in-between frame
-    // where the field/Go button are still cut off by the keypad before it
-    // settles. Only then reveal the keypad itself.
-    input.scrollIntoView({ behavior: "auto", block: "start" });
-    input.classList.add("keypad-focused");
+    const sheet = document.getElementById("customKeypadSheet");
+    const spacer = document.getElementById("keypadScrollSpacer");
+
+    // Make the sheet visible first (off-screen-safe, since overlay itself
+    // is position:fixed and doesn't affect page layout/height) so we can
+    // measure its real rendered height.
     overlay.classList.remove("hidden");
+    const sheetHeight = sheet ? sheet.getBoundingClientRect().height : 320;
+
+    // On a short page that already fits on one screen, there's normally
+    // NOTHING to scroll -- scrollIntoView has no room to work with. Giving
+    // the page a temporary bottom spacer exactly as tall as the keypad
+    // creates that room, so the field can actually be scrolled clear of it.
+    if (spacer) spacer.style.height = `${sheetHeight}px`;
+
+    input.classList.add("keypad-focused");
+    // Scroll on the next frame, after the spacer has actually applied and
+    // the browser has recalculated page height -- doing it in the same
+    // tick would still measure the old (too-short) page height.
+    requestAnimationFrame(() => {
+      input.scrollIntoView({ behavior: "auto", block: "start" });
+    });
   }
 
   function closeKeypad() {
     if (activeInput) activeInput.classList.remove("keypad-focused");
     activeInput = null;
     overlay.classList.add("hidden");
+    const spacer = document.getElementById("keypadScrollSpacer");
+    if (spacer) spacer.style.height = "0px";
   }
 
   function appendDigit(digit) {

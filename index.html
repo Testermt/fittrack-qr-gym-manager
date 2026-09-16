@@ -616,6 +616,13 @@
     <p class="text-center text-xs text-slate-400 mt-10">
       Having trouble? Ask a trainer at the front desk for help.
     </p>
+
+    <!-- Empty by default; JS gives this a height equal to the keypad's
+         height while it's open, so the page actually has room to scroll
+         the focused field above the keypad. Without this, scrollIntoView
+         can't move anything on a short page that already fits on screen —
+         there's simply nowhere for it to scroll TO. -->
+    <div id="keypadScrollSpacer" style="height: 0px;"></div>
   </main>
 
   <!-- ============= UPI PAYMENT MODAL ============= -->
@@ -698,7 +705,7 @@
      of this app rather than a generic browser text field. -->
 <div id="customKeypadOverlay" class="hidden fixed inset-0 z-[70] flex items-end justify-center pointer-events-none">
   <div class="absolute inset-0 pointer-events-auto" id="customKeypadBackdrop"></div>
-  <div class="relative w-full max-w-lg md:max-w-xl paper-card rounded-t-3xl rounded-b-none p-4 pb-6 pt-5 shadow-2xl pointer-events-auto">
+  <div id="customKeypadSheet" class="relative w-full max-w-lg md:max-w-xl paper-card rounded-t-3xl rounded-b-none p-4 pb-6 pt-5 shadow-2xl pointer-events-auto">
     <div class="grid grid-cols-3 gap-2.5">
       <button type="button" class="keypad-btn" data-key="1">1</button>
       <button type="button" class="keypad-btn" data-key="2">2</button>
