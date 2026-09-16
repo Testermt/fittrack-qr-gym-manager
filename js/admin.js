@@ -1090,6 +1090,19 @@ async function manualCheckIn(member, btn) {
       method: "manual",
       loggedBy: auth.currentUser ? auth.currentUser.email : null,
     });
+
+    // Bump the monthly check-in counter too, same "YYYY-MM" reset logic as
+    // the member kiosk's self-checkin — `member` is already in memory
+    // (allMembers), so this costs zero extra reads.
+    const currentMonthKey = `${today.slice(0, 4)}-${today.slice(5, 7)}`; // today is YYYY-MM-DD
+    const isSameMonth = member.checkinMonthKey === currentMonthKey;
+    const newCount = isSameMonth ? (member.monthlyCheckinCount || 0) + 1 : 1;
+    await membersCol.doc(member.id).update({
+      monthlyCheckinCount: newCount,
+      checkinMonthKey: currentMonthKey,
+    });
+    member.monthlyCheckinCount = newCount;
+    member.checkinMonthKey = currentMonthKey;
   } catch (err) {
     console.error(err);
     alert("Could not log check-in. Please try again.");

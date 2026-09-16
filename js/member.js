@@ -387,6 +387,10 @@ function renderStatusCard(member, checkinStatus) {
   // start (or restart) the 30s countdown back to the blank kiosk screen.
   scheduleStatusAutoReset();
 
+  // Monthly check-in badge reflects whatever's already stored on the member
+  // doc — shown immediately regardless of pending/active/expired state.
+  renderMonthlyCheckinBadge(member);
+
   const badge = document.getElementById("statusBadge");
   badge.textContent = isActive ? "ACTIVE" : "EXPIRED";
   badge.className = `badge ${isActive ? "badge-success" : "badge-danger"}`;
@@ -441,6 +445,55 @@ function checkinDocId(memberId, dateKey) {
   return `${memberId}_${dateKey}`;
 }
 
+/** "YYYY-MM" for the given date (defaults to now) — used as the monthly
+ *  check-in counter's reset key. */
+function getMonthKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Bumps this member's monthly check-in counter. Zero extra Firestore
+ * reads: `member` is already the doc we fetched for the status check, so
+ * we compare/increment in memory and send a single field-only `update`.
+ * If the stored month doesn't match the current month, it resets to 1
+ * automatically — no separate cron/reset job needed anywhere.
+ */
+async function bumpMonthlyCheckinCount(member) {
+  const currentMonthKey = getMonthKey();
+  const isSameMonth = member.checkinMonthKey === currentMonthKey;
+  const newCount = isSameMonth ? (member.monthlyCheckinCount || 0) + 1 : 1;
+
+  try {
+    await membersCol.doc(member.id).update({
+      monthlyCheckinCount: newCount,
+      checkinMonthKey: currentMonthKey,
+    });
+    // Keep the in-memory copy in sync so the badge reflects it right away.
+    member.monthlyCheckinCount = newCount;
+    member.checkinMonthKey = currentMonthKey;
+    renderMonthlyCheckinBadge(member);
+  } catch (err) {
+    // Non-fatal — worst case the badge is one check-in behind for this visit.
+    console.warn("Could not update monthly check-in count:", err);
+  }
+}
+
+/** Shows "N check-ins this month" using whatever count is already on the
+ *  member doc we have in memory — no query, no extra read. */
+function renderMonthlyCheckinBadge(member) {
+  const streakContainer = document.getElementById("streakBadgeContainer");
+  const streakText = document.getElementById("streakText");
+  const count = member.monthlyCheckinCount || 0;
+
+  if (count > 0) {
+    streakText.textContent = `${count} check-in${count === 1 ? "" : "s"} this month! Keep it up!`;
+    streakContainer.classList.remove("hidden");
+    streakContainer.classList.add("flex");
+  } else {
+    streakContainer.classList.add("hidden");
+  }
+}
+
 /** Attempts today's check-in for an active, approved member and reports the outcome in checkinNote. */
 async function performAutoCheckin(member) {
   const checkinNote = document.getElementById("checkinNote");
@@ -472,6 +525,7 @@ async function performAutoCheckin(member) {
     checkinNote.className = "text-sm text-emerald-600 font-semibold";
     checkinNote.classList.remove("hidden");
 
+    bumpMonthlyCheckinCount(member);
     loadMemberCheckinHistory(member.id);
   } catch (err) {
     console.error("Auto check-in failed:", err);
@@ -576,8 +630,6 @@ async function handleCopyUpiId() {
 // just taking the most recent N documents.
 async function loadMemberCheckinHistory(memberId) {
   const historyList = document.getElementById("memberCheckinHistory");
-  const streakContainer = document.getElementById("streakBadgeContainer");
-  const streakText = document.getElementById("streakText");
 
   historyList.innerHTML = '<li class="text-slate-400 px-3 py-2 text-xs">Loading history</li>';
 
@@ -610,7 +662,6 @@ async function loadMemberCheckinHistory(memberId) {
 
     if (records.length === 0) {
       historyList.innerHTML = '<li class="text-slate-400 italic px-3 py-2 text-xs">No check-ins recorded yet.</li>';
-      streakContainer.classList.add("hidden");
       return;
     }
 
@@ -631,17 +682,9 @@ async function loadMemberCheckinHistory(memberId) {
       historyList.appendChild(li);
     });
 
-    // 2. Calculate Streak (Unique days count in recent records)
-    const uniqueDays = [...new Set(records.map(r => r.dateKey))];
-    const streakCount = uniqueDays.length;
-
-    if (streakCount > 0) {
-      streakText.textContent = `${streakCount} check-in${streakCount === 1 ? '' : 's'} logged total! Keep it up!`;
-      streakContainer.classList.remove("hidden");
-      streakContainer.classList.add("flex");
-    } else {
-      streakContainer.classList.add("hidden");
-    }
+    // Streak/monthly badge is handled separately by renderMonthlyCheckinBadge()
+    // using the member doc's monthlyCheckinCount field — no need to derive
+    // it from this 7-day history fetch.
 
   } catch (err) {
     console.error("Error loading history:", err);
