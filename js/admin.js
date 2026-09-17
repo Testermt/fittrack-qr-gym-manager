@@ -160,7 +160,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Plan & Features modal (Basic/Prime/Advance tier + which features that
   // unlocks) — controls hasFeature() everywhere else in the app.
-  document.getElementById("planFeaturesBtn").addEventListener("click", openPlanFeaturesModal);
+  document.getElementById("planFeaturesBtn").addEventListener("click", () => openPlanFeaturesModal(false));
   document.getElementById("planFeaturesCancelBtn").addEventListener("click", closePlanFeaturesModal);
   document.getElementById("planFeaturesCloseBtn").addEventListener("click", closePlanFeaturesModal);
   document.getElementById("planFeaturesBackdrop").addEventListener("click", closePlanFeaturesModal);
@@ -318,9 +318,13 @@ function showLogin() {
   if (unsubCheckins) unsubCheckins();
   if (unsubPayments) unsubPayments();
   if (unsubAllPayments) unsubAllPayments();   // <-- yeh line missing thi, add karo
+  if (planLockCheckInterval) { clearInterval(planLockCheckInterval); planLockCheckInterval = null; }
+  planModalLocked = false;
   closeReauthModal();
 }
 
+
+let planLockCheckInterval = null;
 
 function showDashboard(user) {
   showScreen("dashboardScreen");
@@ -330,6 +334,18 @@ function showDashboard(user) {
   subscribeWeeklyAndTodayCheckins(); // <-- Yeh dono cheezein ek sath handle karega (Chart + Today's List)
   subscribeMonthlyRevenue();
   subscribeMonthlyHistory();
+
+  // Trial/plan gate — checked against the control project's live doc
+  // (already fetched by tierConfigReady before this runs), so a cleared
+  // cache + fresh login always re-checks the real status. Locks the
+  // whole dashboard behind a non-dismissible plan picker if expired.
+  enforcePlanLock();
+
+  // Also re-check every minute while the session stays open, so a trial/
+  // plan that expires mid-session locks immediately instead of waiting
+  // for the next login.
+  if (planLockCheckInterval) clearInterval(planLockCheckInterval);
+  planLockCheckInterval = setInterval(enforcePlanLock, 60 * 1000);
 }
 
 // 🔥 Offline banner — reflects real connectivity, not just Firestore state,
@@ -835,27 +851,34 @@ function renderPlanFeaturesList() {
 function renderPlanStatusBanner() {
   const el = document.getElementById("planStatusBanner");
   const current = tierLabel(TIER_STATE.current);
-  if (TIER_STATE.status === "trial") {
-    const days = trialDaysLeft();
-    el.innerHTML = days > 0
-      ? `You're on <strong class="text-accent">${current}</strong> — free trial, <strong>${days}</strong> day${days === 1 ? "" : "s"} left.`
-      : `Your <strong class="text-accent">${current}</strong> trial has ended — pick a plan below to continue.`;
+  const days = daysUntilExpiry();
+
+  if (days === null) {
+    el.innerHTML = `Pick a plan below to activate your account.`;
+  } else if (isAccessLocked()) {
+    el.innerHTML = TIER_STATE.status === "trial"
+      ? `Your <strong class="text-accent">${current}</strong> free trial has ended — pick a plan below to continue.`
+      : `Your <strong class="text-accent">${current}</strong> plan has expired — renew below to continue.`;
+  } else if (TIER_STATE.status === "trial") {
+    el.innerHTML = `You're on <strong class="text-accent">${current}</strong> — free trial, <strong>${days}</strong> day${days === 1 ? "" : "s"} left.`;
   } else {
-    el.innerHTML = `You're on <strong class="text-accent">${current}</strong> — active subscription.`;
+    el.innerHTML = `You're on <strong class="text-accent">${current}</strong> — active, renews in <strong>${days}</strong> day${days === 1 ? "" : "s"}.`;
   }
 }
 
 /** Decides what the footer button says and does, based on the tier
  *  currently selected in the radio group vs. the gym's real plan:
- *  - same as the current plan       -> disabled "Current Plan"
- *  - free trial never used yet      -> "Start Free Trial" (no payment)
- *  - anything else                  -> "Pay ₹X & Upgrade" (real payment) */
+ *  - same as the current plan, still valid -> disabled "Current Plan"
+ *  - free trial never used yet             -> "Start Free Trial" (no payment)
+ *  - current plan but expired              -> "Pay ₹X & Renew"
+ *  - anything else                         -> "Pay ₹X & Upgrade" */
 function renderPlanActionButton() {
   const btn = document.getElementById("planFeaturesSaveBtn");
   const selected = document.querySelector('input[name="planTier"]:checked')?.value || TIER_STATE.current;
   const price = TIER_PRICING[selected]?.price ?? 0;
+  const locked = isAccessLocked();
 
-  if (selected === TIER_STATE.current && TIER_STATE.status === "active") {
+  if (selected === TIER_STATE.current && TIER_STATE.status === "active" && !locked) {
     btn.textContent = "Current Plan";
     btn.disabled = true;
     btn.dataset.mode = "none";
@@ -863,6 +886,10 @@ function renderPlanActionButton() {
     btn.textContent = `Start Free Trial (${DEFAULT_TRIAL_DAYS} days)`;
     btn.disabled = false;
     btn.dataset.mode = "trial";
+  } else if (selected === TIER_STATE.current && locked) {
+    btn.textContent = `Pay ₹${price} & Renew`;
+    btn.disabled = false;
+    btn.dataset.mode = "pay";
   } else {
     btn.textContent = `Pay ₹${price} & Upgrade`;
     btn.disabled = false;
@@ -871,18 +898,45 @@ function renderPlanActionButton() {
   btn.dataset.tier = selected;
 }
 
-function openPlanFeaturesModal() {
+// True while the plan modal is showing because access is LOCKED (trial/
+// plan expired, or never started) — as opposed to the admin voluntarily
+// opening it from the header button. Gates closePlanFeaturesModal() so
+// the backdrop, X, and Cancel can't dismiss a lock screen.
+let planModalLocked = false;
+
+function openPlanFeaturesModal(locked = false) {
+  planModalLocked = locked;
   renderPlanTierOptions(TIER_STATE.current);
   renderPlanFeaturesList();
   renderPlanStatusBanner();
   renderPlanActionButton();
   document.getElementById("planFeaturesError").classList.add("hidden");
   document.getElementById("planFeaturesSuccess").classList.add("hidden");
+  document.getElementById("planFeaturesCloseBtn").classList.toggle("hidden", locked);
+  document.getElementById("planFeaturesCancelBtn").classList.toggle("hidden", locked);
   document.getElementById("planFeaturesModal").classList.remove("hidden");
 }
 
 function closePlanFeaturesModal() {
+  if (planModalLocked) return; // locked screen can't be dismissed
   document.getElementById("planFeaturesModal").classList.add("hidden");
+}
+
+/**
+ * Call right after login/dashboard render (and again after any successful
+ * trial-start/payment). Shows the full-screen, non-dismissible plan
+ * picker whenever isAccessLocked() is true — based on the live value
+ * loadTierConfig() just fetched from the control project, not a local
+ * cache, so clearing storage and logging in again can never be used to
+ * bypass it. Closes it again once a trial/plan is actually active.
+ */
+function enforcePlanLock() {
+  if (isAccessLocked()) {
+    openPlanFeaturesModal(true);
+  } else if (planModalLocked) {
+    planModalLocked = false;
+    closePlanFeaturesModal();
+  }
 }
 
 /** ============================================================
@@ -942,7 +996,7 @@ async function handlePlanActionClick() {
         gymName: GYM_SETTINGS.name, // 🔥 Yeh line add kar de
         current: tier,
         status: "trial",
-        trialEndsAt: Date.now() + DEFAULT_TRIAL_DAYS * 86400000,
+        expiresAt: Date.now() + DEFAULT_TRIAL_DAYS * 86400000,
         subscribedAt: null,
         trialUsed: true,
       };
@@ -952,7 +1006,7 @@ async function handlePlanActionClick() {
         gymName: GYM_SETTINGS.name, // 🔥 Yeh line add kar de
         current: tier,
         status: "active",
-        trialEndsAt: null,
+        expiresAt: Date.now() + 30 * 86400000, // one billing cycle; renews on next payment
         subscribedAt: Date.now(),
         trialUsed: true,
       };
@@ -967,7 +1021,7 @@ async function handlePlanActionClick() {
     successEl.classList.remove("hidden");
     renderPlanStatusBanner();
     renderPlanActionButton();
-    setTimeout(closePlanFeaturesModal, 1200);
+    setTimeout(enforcePlanLock, 1200);
   } catch (err) {
     console.error("Could not update plan:", err);
     errorEl.textContent = err?.message === "Payment cancelled" ? "Payment cancelled." : "Could not update plan. Please try again.";

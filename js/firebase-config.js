@@ -13,29 +13,28 @@ const FIREBASE_CONFIG = {
 };
 
 // ---- Developer/control Firebase project ---------------------------------
-// A SEPARATE Firebase project from the gym's own one above — the SAME
-// project across EVERY gym's install. Used ONLY for things YOU control
-// centrally: SaaS pricing and each gym's subscription/trial status. It
-// never touches gym data (members/check-ins/payments/gym settings) —
-// that always stays isolated in the gym's own project (FIREBASE_CONFIG),
-// so every gym's usage stays on its own free-tier quota.
+// A SEPARATE Firebase project (fittrack-control-hub) from every gym's own
+// project above — the SAME control project across EVERY gym's install.
+// Used ONLY for things YOU control centrally: SaaS pricing and each gym's
+// subscription/trial status. It never touches gym data (members/
+// check-ins/payments/gym settings) — that always stays isolated in each
+// gym's own project (FIREBASE_CONFIG), so every gym's usage stays on its
+// own free-tier quota.
 //
-// SETUP NEEDED (one-time, by you):
-//   1. Create one new Firebase project for yourself (e.g. "fittrack-control").
-//   2. Firebase Console -> Project Settings -> General -> "Your apps" ->
-//      add a Web app -> copy its config object below, replacing the
-//      placeholders. This SAME object gets pasted into every gym's copy
-//      of this file — it's the one constant across all installs.
-//   3. Firestore Database -> Create database (production mode is fine).
-//   4. Firestore Rules for this control project — since there's no admin
-//      backend yet, keep it simple and trust-based for now:
-//        match /pricing/{doc}   { allow read: if true;  allow write: if false; }
-//        match /subscriptions/{gymId} { allow read, write: if true; }
-//      (Tighten `subscriptions` write access later once you add real
-//      payment verification — right now the client sets it directly,
-//      matching the trust-based payAndUpgradeTier() flow in admin.js.)
-//   5. Edit pricing anytime: Firestore -> pricing -> current -> tiers/
-//      trialDays fields. Every gym's app picks it up on its next load.
+// Firestore rules already set on this project:
+//   match /pricing/{doc}         { allow read: if true;  allow write: if false; }
+//   match /subscriptions/{gymId} { allow read, write: if true; }
+// (Tighten `subscriptions` write access later once you add real payment
+// verification — right now the client sets it directly, matching the
+// trust-based payAndUpgradeTier() flow in admin.js.)
+//
+// This SAME config object goes into every gym's copy of this file — that's
+// what makes pricing/subscriptions shared and centrally editable across
+// all of them from one Firebase Console, regardless of which gym's own
+// separate Firebase project they use for their own data.
+//
+// Edit pricing anytime: Firestore -> pricing -> current -> tiers/
+// trialDays fields. Every gym's app picks it up on its next load.
 const CONTROL_FIREBASE_CONFIG = {
   apiKey: "AIzaSyAadN_EljSklCV9Jtdp_F6pHLYmr8-cx9k",
   authDomain: "fittrack-control-hub-8360c.firebaseapp.com",
@@ -374,16 +373,20 @@ const pricingConfigReady = loadPricingConfig();
 
 // Seeded default (used until the control project's subscription doc
 // loads, and as the last-resort fallback if that read fails) —
-// deliberately the LOWEST tier, so a feature never appears "on" before
-// we've actually confirmed the gym's plan. Mutated in place by
-// loadTierConfig(), same pattern as GYM_SETTINGS.
-// status: "trial" | "active". trialEndsAt/subscribedAt are ms-epoch
-// timestamps; trialUsed flips true the first time any trial or paid
-// upgrade is applied, so the free trial can only ever be used once.
+// deliberately the LOWEST tier AND locked, so nothing ever appears "on"
+// before we've actually confirmed the gym's plan from the control
+// project. Mutated in place by loadTierConfig(), same pattern as
+// GYM_SETTINGS.
+// status: "trial" | "active". expiresAt is a ms-epoch timestamp — access
+// locks the moment Date.now() passes it, whether the plan was a trial or
+// a paid one (paid upgrades also set a fresh 30-day expiresAt, so a
+// lapsed payment locks the app the same way an expired trial does).
+// trialUsed flips true the first time any trial or paid upgrade is
+// applied, so the free trial can only ever be used once.
 let TIER_STATE = {
   current: "basic",
   status: "trial",
-  trialEndsAt: null,
+  expiresAt: null,
   subscribedAt: null,
   trialUsed: false,
 };
@@ -394,10 +397,22 @@ function hasFeature(featureKey) {
   return TIER_ORDER.indexOf(TIER_STATE.current) >= TIER_ORDER.indexOf(feature.minTier);
 }
 
-/** Days left in the free trial, 0 if not on trial or it's expired. */
-function trialDaysLeft() {
-  if (TIER_STATE.status !== "trial" || !TIER_STATE.trialEndsAt) return 0;
-  return Math.max(0, Math.ceil((TIER_STATE.trialEndsAt - Date.now()) / 86400000));
+/**
+ * True the moment access should be locked behind the plan-picker screen:
+ * no plan/trial ever started, or the trial/subscription's expiresAt has
+ * passed. admin.js checks this right after login (and again after any
+ * successful trial-start/payment) to decide whether to show the
+ * full-screen, non-dismissible plan modal.
+ */
+function isAccessLocked() {
+  if (!TIER_STATE.expiresAt) return true; // never started a trial or plan
+  return Date.now() > TIER_STATE.expiresAt;
+}
+
+/** Days left until expiresAt, or null if nothing has ever been started. */
+function daysUntilExpiry() {
+  if (!TIER_STATE.expiresAt) return null;
+  return Math.max(0, Math.ceil((TIER_STATE.expiresAt - Date.now()) / 86400000));
 }
 
 const TIER_CONFIG_CACHE_KEY = "fittrack:tierConfig:v1";
@@ -406,7 +421,12 @@ function applyTierConfig(data) {
   if (!data || typeof data.current !== "string") return;
   if (TIER_ORDER.includes(data.current)) TIER_STATE.current = data.current;
   if (data.status === "trial" || data.status === "active") TIER_STATE.status = data.status;
-  if (typeof data.trialEndsAt === "number" || data.trialEndsAt === null) TIER_STATE.trialEndsAt = data.trialEndsAt;
+  if (typeof data.expiresAt === "number" || data.expiresAt === null) {
+    TIER_STATE.expiresAt = data.expiresAt;
+  } else if (typeof data.trialEndsAt === "number") {
+    // Back-compat with docs written before this field was renamed.
+    TIER_STATE.expiresAt = data.trialEndsAt;
+  }
   if (typeof data.subscribedAt === "number" || data.subscribedAt === null) TIER_STATE.subscribedAt = data.subscribedAt;
   if (typeof data.trialUsed === "boolean") TIER_STATE.trialUsed = data.trialUsed;
 }
@@ -419,6 +439,10 @@ async function loadTierConfig() {
     console.warn("Could not read cached tier config:", err);
   }
 
+  // NOTE: locking decisions (isAccessLocked) must be based on this LIVE
+  // read whenever we can reach it — the cached copy above is only the
+  // UI's instant-paint value while this fetch is in flight, so clearing
+  // local storage / logging in fresh can never be used to dodge a lock.
   try {
     const snap = await Promise.race([
       controlDb.collection("subscriptions").doc(GYM_ID).get(),
