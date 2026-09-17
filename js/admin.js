@@ -136,6 +136,26 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("addMemberBackdrop").addEventListener("click", closeAddMemberModal);
   document.getElementById("addMemberForm").addEventListener("submit", handleAddMemberSubmit);
 
+  // Gym Settings modal (name / currency / country code / plans) — lets the
+  // owner change these themselves instead of needing someone to edit
+  // Firestore directly.
+  document.getElementById("gymSettingsBtn").addEventListener("click", openGymSettingsModal);
+  document.getElementById("gymSettingsCancelBtn").addEventListener("click", closeGymSettingsModal);
+  document.getElementById("gymSettingsCloseBtn").addEventListener("click", closeGymSettingsModal);
+  document.getElementById("gymSettingsBackdrop").addEventListener("click", closeGymSettingsModal);
+  document.getElementById("gymSettingsForm").addEventListener("submit", handleGymSettingsSubmit);
+  document.getElementById("settingsAddPlanBtn").addEventListener("click", () => addPlanRow(generatePlanId(), { label: "", months: 1, price: 0 }));
+  document.getElementById("settingsPlanRows").addEventListener("click", (e) => {
+    const btn = e.target.closest('button[data-action="remove-plan-row"]');
+    if (!btn) return;
+    const rows = document.querySelectorAll("#settingsPlanRows .settings-plan-row");
+    if (rows.length <= 1) {
+      alert("At least one plan is required.");
+      return;
+    }
+    btn.closest(".settings-plan-row").remove();
+  });
+
 
 
   document.getElementById("deviceVerifyRetryBtn").addEventListener("click", () => {
@@ -774,6 +794,111 @@ function populateAddMemberPlanOptions() {
   select.innerHTML = Object.entries(PLANS)
     .map(([id, plan]) => `<option value="${id}">${plan.label} — ${formatCurrency(plan.price)}</option>`)
     .join("");
+}
+
+// ==================== GYM SETTINGS (name / currency / country code / plans) ====================
+// Previously gym name & plan pricing could only be changed by editing
+// settings/gymConfig directly in the Firebase console — this modal lets
+// the gym owner do it themselves from the admin panel.
+
+function generatePlanId() {
+  return `plan_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Appends one plan row (label/months/price inputs + remove button) to the
+ *  settings modal, cloned from the <template>. `id` is kept on the row via
+ *  a data attribute — not shown to the admin, just carried through to the
+ *  saved plans map so existing member records (which reference plan IDs)
+ *  keep working after a save. */
+function addPlanRow(id, plan) {
+  const template = document.getElementById("settingsPlanRowTemplate");
+  const row = template.content.firstElementChild.cloneNode(true);
+  row.dataset.planId = id;
+  row.querySelector('[data-field="label"]').value = plan.label || "";
+  row.querySelector('[data-field="months"]').value = plan.months || 1;
+  row.querySelector('[data-field="price"]').value = plan.price ?? 0;
+  document.getElementById("settingsPlanRows").appendChild(row);
+}
+
+function openGymSettingsModal() {
+  document.getElementById("settingsGymName").value = GYM_SETTINGS.name || "";
+  document.getElementById("settingsCurrencySymbol").value = GYM_SETTINGS.currencySymbol || "₹";
+  document.getElementById("settingsCountryCode").value = GYM_SETTINGS.defaultCountryCode || "91";
+
+  const rowsContainer = document.getElementById("settingsPlanRows");
+  rowsContainer.innerHTML = "";
+  Object.entries(PLANS).forEach(([id, plan]) => addPlanRow(id, plan));
+
+  document.getElementById("gymSettingsError").classList.add("hidden");
+  document.getElementById("gymSettingsSuccess").classList.add("hidden");
+  document.getElementById("gymSettingsModal").classList.remove("hidden");
+}
+
+function closeGymSettingsModal() {
+  document.getElementById("gymSettingsModal").classList.add("hidden");
+}
+
+async function handleGymSettingsSubmit(e) {
+  e.preventDefault();
+  const errorEl = document.getElementById("gymSettingsError");
+  const successEl = document.getElementById("gymSettingsSuccess");
+  errorEl.classList.add("hidden");
+  successEl.classList.add("hidden");
+
+  const name = document.getElementById("settingsGymName").value.trim();
+  const currencySymbol = document.getElementById("settingsCurrencySymbol").value.trim();
+  const defaultCountryCode = document.getElementById("settingsCountryCode").value.trim();
+
+  const plans = {};
+  const rows = document.querySelectorAll("#settingsPlanRows .settings-plan-row");
+  for (const row of rows) {
+    const id = row.dataset.planId;
+    const label = row.querySelector('[data-field="label"]').value.trim();
+    const months = Number(row.querySelector('[data-field="months"]').value);
+    const price = Number(row.querySelector('[data-field="price"]').value);
+    if (!label || !months || months < 1 || price < 0) {
+      errorEl.textContent = "Every plan needs a label, at least 1 month, and a valid price.";
+      errorEl.classList.remove("hidden");
+      return;
+    }
+    plans[id] = { label, months, price };
+  }
+
+  if (!name || !defaultCountryCode || Object.keys(plans).length === 0) {
+    errorEl.textContent = "Gym name, country code, and at least one plan are required.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  const saveBtn = document.getElementById("gymSettingsSaveBtn");
+  const originalLabel = saveBtn.textContent;
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Saving…";
+
+  const data = { name, currencySymbol, defaultCountryCode, plans };
+
+  try {
+    await db.collection("settings").doc("gymConfig").set(data);
+
+    // Reflect immediately across the app — GYM_SETTINGS/PLANS are mutated
+    // in place (see firebase-config.js), so every existing reference
+    // (plan pickers, gym name labels) picks up the new values without a
+    // page reload.
+    applyGymConfig(data);
+    cacheGymConfig(data);
+    document.getElementById("gymNameLabelAdmin").textContent = GYM_SETTINGS.name;
+
+    successEl.textContent = "Settings saved!";
+    successEl.classList.remove("hidden");
+    setTimeout(closeGymSettingsModal, 1200);
+  } catch (err) {
+    console.error("Could not save gym settings:", err);
+    errorEl.textContent = "Could not save settings. Please try again.";
+    errorEl.classList.remove("hidden");
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = originalLabel;
+  }
 }
 
 function showAddMemberError(message) {

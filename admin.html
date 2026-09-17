@@ -161,6 +161,7 @@
           </div>
         </div>
         <div class="flex items-center gap-3 sm:gap-4 shrink-0">
+          <button id="gymSettingsBtn" type="button" class="text-xs font-medium text-slate-500 hover:text-slate-300 transition whitespace-nowrap">⚙ Gym Settings</button>
           <button id="deviceLockToggleBtn" type="button" class="hidden text-xs font-medium text-slate-500 hover:text-slate-300 transition whitespace-nowrap"></button>
           <button id="logoutBtn" class="text-sm font-medium text-slate-400 hover:text-slate-200 transition whitespace-nowrap">Sign Out</button>
         </div>
@@ -362,6 +363,81 @@
 </div>
 
 <!-- ============= ADD MEMBER MODAL (Manual Registration) ============= -->
+<!-- Gym Settings modal: lets the owner change gym name / country code /
+     plans (name, duration, price) themselves — previously only editable
+     directly in Firebase, which the owner could never do on their own. -->
+<div id="gymSettingsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div id="gymSettingsBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-slate-50">Gym Settings</h3>
+      <button type="button" id="gymSettingsCloseBtn" class="text-slate-500 hover:text-slate-300 transition text-xl leading-none">&times;</button>
+    </div>
+
+    <form id="gymSettingsForm" class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1" for="settingsGymName">Gym Name</label>
+        <input id="settingsGymName" type="text" required
+          class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="e.g. Iron Pulse Fitness" />
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1" for="settingsCurrencySymbol">Currency Symbol</label>
+          <input id="settingsCurrencySymbol" type="text" required maxlength="3"
+            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="₹" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1" for="settingsCountryCode">Country Code</label>
+          <input id="settingsCountryCode" type="text" required maxlength="4"
+            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="91" />
+        </div>
+      </div>
+
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-xs font-medium text-slate-400">Membership Plans</label>
+          <button type="button" id="settingsAddPlanBtn" class="text-xs font-semibold text-accent hover:opacity-80 transition">+ Add Plan</button>
+        </div>
+        <div id="settingsPlanRows" class="space-y-2"></div>
+        <p class="text-[11px] text-slate-500 mt-1.5">Plan ID stays fixed once created (used internally) — edit the label, months, or price freely.</p>
+      </div>
+
+      <p id="gymSettingsError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"></p>
+      <p id="gymSettingsSuccess" class="hidden text-xs text-success bg-success/10 border border-success/30 rounded-lg px-3 py-2"></p>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" id="gymSettingsCancelBtn"
+          class="flex-1 rounded-lg border border-slate-700 text-slate-300 text-sm font-medium py-2 hover:bg-slate-800 transition">Cancel</button>
+        <button type="submit" id="gymSettingsSaveBtn"
+          class="flex-1 rounded-lg bg-accent text-slate-950 text-sm font-semibold py-2 hover:opacity-90 transition">Save Settings</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Row template for one plan in the settings modal — cloned via JS -->
+<template id="settingsPlanRowTemplate">
+  <div class="settings-plan-row flex items-end gap-2 bg-slate-900/60 border border-slate-800 rounded-lg p-2.5">
+    <div class="flex-1 min-w-0">
+      <label class="block text-[10px] text-slate-500 mb-1">Label</label>
+      <input type="text" data-field="label" required placeholder="e.g. 1 Month"
+        class="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent" />
+    </div>
+    <div class="w-16 shrink-0">
+      <label class="block text-[10px] text-slate-500 mb-1">Months</label>
+      <input type="number" data-field="months" required min="1" step="1"
+        class="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent" />
+    </div>
+    <div class="w-20 shrink-0">
+      <label class="block text-[10px] text-slate-500 mb-1">Price</label>
+      <input type="number" data-field="price" required min="0" step="1"
+        class="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent" />
+    </div>
+    <button type="button" data-action="remove-plan-row" class="shrink-0 text-rose-400 hover:text-rose-300 transition text-lg leading-none px-1.5 py-1.5" title="Remove plan">&times;</button>
+  </div>
+</template>
+
 <div id="addMemberModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div id="addMemberBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
   <div class="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">

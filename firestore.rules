@@ -37,7 +37,7 @@ service cloud.firestore {
       }
 
       allow create: if
-        // Public self-registration: always starts unapproved & unpaid â€”
+        // Public self-registration: always starts unapproved & unpaid —
         // this branch is unchanged from before.
         (hasValidMemberShape()
           && request.resource.data.paymentStatus == "pending"
@@ -51,22 +51,47 @@ service cloud.firestore {
           && request.resource.data.approved == true);
 
       allow get: if true;
-      allow list, update, delete: if isVerifiedAdminDirect();
+      allow list, delete: if isVerifiedAdminDirect();
+
+      // Update: admins can change anything. The public self-checkin kiosk
+      // (member.js, no auth) additionally gets a narrow carve-out to bump
+      // its OWN doc's monthly check-in counter after a successful checkin —
+      // this is a harmless display stat, not a trust boundary, so it's
+      // fine to allow without admin auth. `affectedKeys().hasOnly(...)`
+      // guarantees no other field (approved, paymentStatus, plan, etc.) can
+      // be touched through this branch, even if someone crafts the request
+      // by hand.
+      allow update: if isVerifiedAdminDirect()
+        ||
+        (request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['monthlyCheckinCount', 'checkinMonthKey'])
+          && request.resource.data.monthlyCheckinCount is int
+          && request.resource.data.monthlyCheckinCount >= 0
+          && request.resource.data.checkinMonthKey is string);
     }
 
-    // Checkins collection: Prevent fake check-ins from unapproved members
+    // Checkins collection: Prevent fake check-ins from unapproved members.
+    // `get` is public (same pattern as members/{phone} below) because
+    // members aren't signed in — the kiosk app needs to fetch a specific
+    // check-in doc by its deterministic ID (`${memberId}_${dateKey}`) to
+    // show "already checked in today" and the last-7-days history, and
+    // there's no auth session to scope a broader query to. `list` stays
+    // admin-only so nobody can enumerate every check-in (and thus every
+    // memberId) across the whole gym.
     match /checkins/{checkinId} {
   allow create: if request.resource.data.memberId is string
                 && request.resource.data.phone is string
                 && request.resource.data.phone.size() >= 7
                 && request.resource.data.dateKey is string
-                && request.resource.data.dateKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') //  Yeh format check add karein
+                && request.resource.data.dateKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') //  Yeh format check add karein
                 && request.resource.data.method in ["geofenced-gps", "manual"]
                 && request.resource.data.timestamp == request.time
                 && checkinId == request.resource.data.memberId + '_' + request.resource.data.dateKey
                 && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.approved == true;
                 
-  allow read, update, delete: if isVerifiedAdminDirect();
+  allow get: if true;
+  allow list: if isVerifiedAdminDirect();
+  allow update, delete: if isVerifiedAdminDirect();
 }
 
     
@@ -77,7 +102,7 @@ service cloud.firestore {
 
     // Settings collection: Public read (UPI config, gym config/plans),
     // admin-only write. `gymConfig` gets an extra shape check purely for
-    // data-integrity â€” every page's plan picker and pricing display reads
+    // data-integrity — every page's plan picker and pricing display reads
     // this doc, so a malformed write (already gated to admins-only; this
     // isn't a new trust boundary) shouldn't be able to break the app for
     // every member at once.
