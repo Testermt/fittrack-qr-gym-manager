@@ -263,9 +263,6 @@ async function handleRegisterSubmit(e) {
   const joinDate = form.joinDate.value;
   const planId = form.plan.value;
   const whatsappBotOptIn = hasFeature("whatsappBot") && form.whatsappBotOptIn.checked;
-  // Marketing opt-in only makes sense if the bot itself is enabled â€”
-  // force it false if the bot checkbox is off, regardless of what the
-  // (hidden/disabled) marketing checkbox's own state happens to be.
   const whatsappMarketingOptIn = whatsappBotOptIn && form.whatsappMarketingOptIn.checked;
 
   if (!name || phone.length < 7 || !address || !joinDate || !planId) {
@@ -274,7 +271,7 @@ async function handleRegisterSubmit(e) {
     return;
   }
 
-  setBusy(submitBtn, true, "Registering");
+  setBusy(submitBtn, true, "Registering…");
   try {
     const existingDoc = await membersCol.doc(phone).get();
     if (existingDoc.exists) {
@@ -286,10 +283,18 @@ async function handleRegisterSubmit(e) {
     }
 
     const plan = PLANS[planId];
-    const expiryDate = addMonthsToDateKey(joinDate, plan.months);
+    
+    //  Naya logic: Days aur Months dono ko support karega
+    let expiryDate;
+    if (plan.days) {
+      const [y, m, d] = joinDate.split("-").map(Number);
+      const date = new Date(y, m - 1, d);
+      date.setDate(date.getDate() + plan.days);
+      expiryDate = toDateKey(date);
+    } else {
+      expiryDate = addMonthsToDateKey(joinDate, plan.months || 1);
+    }
 
-    // Sirf Member Profile Save Hogi (Registration ke waqt koi auto check-in nahi!)
-    // Sirf Member Profile Save Hogi (Registration ke waqt default unapproved rahegi)
     await membersCol.doc(phone).set({
       name,
       phone,
@@ -298,14 +303,12 @@ async function handleRegisterSubmit(e) {
       plan: planId,
       expiryDate,
       paymentStatus: "pending",
-      approved: false, // <-- Naya user default unapproved rahega
+      approved: false,
       whatsappBotOptIn,
       whatsappMarketingOptIn,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
-
-    //  yahan se await logCheckinIfNeeded() ko bilkul hata diya hai!
 
     form.reset();
     document.getElementById("joinDate").value = toDateKey(new Date());
@@ -320,6 +323,7 @@ async function handleRegisterSubmit(e) {
     setBusy(submitBtn, false);
   }
 }
+
 
 
 // --------------------------------------------------------- status check --
@@ -608,8 +612,12 @@ async function openPaymentModal(planId) {
   pendingPaymentPlanId = planId;
   const plan = PLANS[planId];
 
-  document.getElementById("modalPlanLabel").textContent = plan.label;
-  document.getElementById("modalPlanPrice").textContent = formatCurrency(plan.price);
+  // Agar plan mein label ya price missing ho toh fallback handle karna
+  const planLabel = plan ? plan.label : "Membership Plan";
+  const planPrice = plan ? plan.price : 0;
+
+  document.getElementById("modalPlanLabel").textContent = planLabel;
+  document.getElementById("modalPlanPrice").textContent = formatCurrency(planPrice);
 
   const payLink = document.getElementById("upiPayLink");
   const fallback = document.getElementById("upiIdFallback");
@@ -629,12 +637,12 @@ async function openPaymentModal(planId) {
     return;
   }
 
-  const note = `${GYM_SETTINGS.name} - ${plan.label} - ${currentMember.name}`;
+  const note = `${GYM_SETTINGS.name} - ${planLabel} - ${currentMember.name}`;
   const transactionRef = `${currentMember.id}-${Date.now()}`;
   const upiLink = buildUpiLink({
     upiId: settings.upiId,
     payeeName: settings.payeeName,
-    amount: plan.price,
+    amount: planPrice,
     note,
     transactionRef,
   });

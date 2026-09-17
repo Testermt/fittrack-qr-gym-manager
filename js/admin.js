@@ -973,6 +973,9 @@ function buildMemberActionsHtml(m, dotSizeClass) {
   `;
 }
 
+
+
+
 function renderMemberTable() {
   const query = document.getElementById("memberSearch").value.trim().toLowerCase();
   const tbody = document.getElementById("memberTableBody");
@@ -1595,9 +1598,7 @@ async function handleAddMemberSubmit(e) {
   submitBtn.textContent = "Registering…";
 
   try {
-    // Phone number is the document ID for members (same convention as
-    // self-registration in member.js), so this also naturally prevents
-    // duplicate registrations for the same number.
+    // 1. Pehle check kar ki member pehle se exist karta hai ya nahi
     const existingDoc = await membersCol.doc(phone).get();
     if (existingDoc.exists) {
       showAddMemberError("A member with this phone number already exists.");
@@ -1605,8 +1606,21 @@ async function handleAddMemberSubmit(e) {
     }
 
     const plan = PLANS[planId];
-    const expiryDate = addMonthsToDateKey(joinDate, plan.months);
+    
+    // 2. Naya logic: Days aur Months dono ko support karega
+    let expiryDate;
+    if (plan.days) {
+      // Agar plan days mein hai (jaise 1 day, 7 days)
+      const [y, m, d] = joinDate.split("-").map(Number);
+      const date = new Date(y, m - 1, d);
+      date.setDate(date.getDate() + plan.days);
+      expiryDate = toDateKey(date);
+    } else {
+      // Agar plan months mein hai (jaise 1m, 3m, etc.)
+      expiryDate = addMonthsToDateKey(joinDate, plan.months || 1);
+    }
 
+    // 3. Firestore mein member save karna
     await membersCol.doc(phone).set({
       name,
       phone,
@@ -1620,9 +1634,6 @@ async function handleAddMemberSubmit(e) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
 
-    // If the admin is registering them as already paid, log a matching
-    // payment record too — keeps monthly revenue/history consistent with
-    // what executeMarkAsPaid() does for existing members.
     if (paymentStatus === "paid") {
       await paymentsCol.add({
         memberId: phone,
@@ -1636,8 +1647,6 @@ async function handleAddMemberSubmit(e) {
       });
     }
 
-    // No manual re-render needed — subscribeMembers()'s onSnapshot listener
-    // picks up the new doc and calls renderMemberTable()/renderStats() itself.
     closeAddMemberModal();
   } catch (err) {
     console.error(err);
@@ -1647,6 +1656,7 @@ async function handleAddMemberSubmit(e) {
     submitBtn.textContent = originalLabel;
   }
 }
+
 
 // --------------------------------------------- quick check-in by phone --
 /**
