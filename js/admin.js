@@ -161,6 +161,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Plan & Features modal (Basic/Prime/Advance tier + which features that
   // unlocks) — controls hasFeature() everywhere else in the app.
   document.getElementById("planFeaturesBtn").addEventListener("click", () => openPlanFeaturesModal(false));
+
+  // Profile menu (photo/name button -> Sign Out dropdown)
+  document.getElementById("profileMenuBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleProfileMenu();
+  });
+  document.addEventListener("click", (e) => {
+    const wrap = document.getElementById("profileMenuWrap");
+    if (wrap && !wrap.contains(e.target)) toggleProfileMenu(true);
+  });
   document.getElementById("planFeaturesCancelBtn").addEventListener("click", closePlanFeaturesModal);
   document.getElementById("planFeaturesCloseBtn").addEventListener("click", closePlanFeaturesModal);
   document.getElementById("planFeaturesBackdrop").addEventListener("click", closePlanFeaturesModal);
@@ -314,6 +324,7 @@ async function handleGoogleSignIn() {
 
 function showLogin() {
   showScreen("loginScreen");
+  toggleProfileMenu(true);
   if (unsubMembers) unsubMembers();
   if (unsubCheckins) unsubCheckins();
   if (unsubPayments) unsubPayments();
@@ -329,6 +340,7 @@ let planLockCheckInterval = null;
 function showDashboard(user) {
   showScreen("dashboardScreen");
   document.getElementById("adminEmailLabel").textContent = user.email;
+  renderProfileMenu(user);
 
   subscribeMembers();
   subscribeWeeklyAndTodayCheckins(); // <-- Yeh dono cheezein ek sath handle karega (Chart + Today's List)
@@ -341,11 +353,46 @@ function showDashboard(user) {
   // whole dashboard behind a non-dismissible plan picker if expired.
   enforcePlanLock();
 
-  // Also re-check every minute while the session stays open, so a trial/
-  // plan that expires mid-session locks immediately instead of waiting
-  // for the next login.
+  // Also re-check every minute while the session stays open — and this
+  // is a LIVE re-fetch from the control project (not just re-reading
+  // cached TIER_STATE), so if someone pokes TIER_STATE.expiresAt via the
+  // browser console to fake an unlock, it gets overwritten with the real
+  // server value on the very next tick instead of staying bypassed for
+  // the rest of the session.
   if (planLockCheckInterval) clearInterval(planLockCheckInterval);
-  planLockCheckInterval = setInterval(enforcePlanLock, 60 * 1000);
+  planLockCheckInterval = setInterval(() => {
+    loadTierConfig().then(enforcePlanLock);
+  }, 60 * 1000);
+}
+
+// Shows the signed-in Google account's photo (or an initial-letter
+// fallback if no photoURL) + display name in the header profile button.
+function renderProfileMenu(user) {
+  const img = document.getElementById("profileAvatarImg");
+  const fallback = document.getElementById("profileAvatarFallback");
+  const nameLabel = document.getElementById("profileNameLabel");
+
+  const name = user.displayName || (user.email ? user.email.split("@")[0] : "Admin");
+  nameLabel.textContent = name;
+
+  if (user.photoURL) {
+    img.src = user.photoURL;
+    img.classList.remove("hidden");
+    fallback.classList.add("hidden");
+  } else {
+    img.classList.add("hidden");
+    fallback.classList.remove("hidden");
+    fallback.textContent = name.charAt(0).toUpperCase();
+  }
+}
+
+function toggleProfileMenu(forceClose) {
+  const dropdown = document.getElementById("profileMenuDropdown");
+  if (forceClose) {
+    dropdown.classList.add("hidden");
+  } else {
+    dropdown.classList.toggle("hidden");
+  }
 }
 
 // 🔥 Offline banner — reflects real connectivity, not just Firestore state,

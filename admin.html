@@ -163,7 +163,26 @@
         <div class="flex items-center flex-wrap gap-x-2 gap-y-1.5 sm:gap-2.5 shrink-0">
           <button id="planFeaturesBtn" type="button" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300 bg-transparent border border-slate-700 rounded-lg px-3 py-1.5 hover:border-accent/60 hover:text-accent hover:bg-accent/10 transition whitespace-nowrap"><span class="text-accent">📦</span> Plan &amp; Features</button>
           <button id="gymSettingsBtn" type="button" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300 bg-transparent border border-slate-700 rounded-lg px-3 py-1.5 hover:border-accent/60 hover:text-accent hover:bg-accent/10 transition whitespace-nowrap"><span class="text-accent">⚙</span> Gym Settings</button>
-          <button id="logoutBtn" class="text-sm font-medium text-slate-400 hover:text-slate-200 transition whitespace-nowrap ml-1">Sign Out</button>
+
+          <!-- Profile menu: shows the signed-in Google account's photo/name,
+               with Sign Out tucked inside a dropdown instead of sitting in
+               the header as its own line. -->
+          <div class="relative" id="profileMenuWrap">
+            <button id="profileMenuBtn" type="button"
+              class="flex items-center gap-2 rounded-full border border-slate-700 pl-1 pr-2.5 py-1 hover:border-accent/60 hover:bg-accent/10 transition ml-1">
+              <img id="profileAvatarImg" src="" alt="" referrerpolicy="no-referrer"
+                class="hidden w-7 h-7 rounded-full object-cover" />
+              <span id="profileAvatarFallback"
+                class="w-7 h-7 rounded-full bg-accent/20 text-accent text-xs font-semibold flex items-center justify-center"></span>
+              <span id="profileNameLabel" class="text-xs font-medium text-slate-300 max-w-[110px] truncate"></span>
+              <span class="text-slate-500 text-[10px]">▾</span>
+            </button>
+            <div id="profileMenuDropdown"
+              class="hidden absolute right-0 mt-2 w-40 rounded-lg border border-slate-700 bg-panel shadow-xl overflow-hidden z-20">
+              <button id="logoutBtn" type="button"
+                class="w-full text-left px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 transition">Sign Out</button>
+            </div>
+          </div>
         </div>
       </div>
     </header>
