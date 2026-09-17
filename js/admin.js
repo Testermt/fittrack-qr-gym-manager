@@ -583,7 +583,7 @@ function renderMemberTable() {
         <p class="text-xs text-slate-500">+${GYM_SETTINGS.defaultCountryCode} ${m.phone}</p>
       </td>
       <td class="py-3 pr-4 text-slate-300 max-w-[200px] truncate" title="${escapeHtml(m.address || "")}">${escapeHtml(m.address || "—")}</td>
-      <td class="py-3 pr-4 text-slate-300">${plan.label}</td>
+      <td class="py-3 pr-4"><span class="badge badge-plan">👑 ${plan.label}</span></td>
       <td class="py-3 pr-4 text-slate-300">${formatDate(m.expiryDate)}</td>
       <td class="py-3 pr-4">
         <span class="badge ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>
@@ -620,7 +620,7 @@ function renderMemberTable() {
       </div>
 
       <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-400 mt-2.5 pt-2.5 border-t border-slate-800/70">
-        <p class="truncate"><span class="text-slate-600">Plan:</span> ${plan.label}</p>
+        <p class="truncate flex items-center gap-1"><span class="text-slate-600">Plan:</span> <span class="badge badge-plan">👑 ${plan.label}</span></p>
         <p class="truncate"><span class="text-slate-600">Expiry:</span> ${formatDate(m.expiryDate)} · ${isActive ? days + "d left" : Math.abs(days) + "d ago"}</p>
         ${m.address ? `<p class="col-span-2 truncate" title="${escapeHtml(m.address)}"><span class="text-slate-600">Address:</span> ${escapeHtml(m.address)}</p>` : ""}
       </div>
