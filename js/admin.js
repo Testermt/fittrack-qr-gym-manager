@@ -107,6 +107,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("gymNameLabelAdmin").textContent = GYM_SETTINGS.name;
 
+  // Initial paint of the SaaS trial/plan-expiry notifications (new-member
+  // notifications get added once subscribeMembers()'s listener fires) and
+  // a periodic refresh so "expires in N days" rolls over correctly even on
+  // a tab left open past midnight.
+  renderNotifications();
+  setInterval(renderNotifications, 5 * 60 * 1000);
+
   // Email/Password form listeners hata diye gaye hain kyunki form remove kar diya hai
   document.getElementById("googleSignInBtn").addEventListener("click", handleGoogleSignIn);
   document.getElementById("logoutBtn").addEventListener("click", () => auth.signOut());
@@ -160,16 +167,45 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Plan & Features modal (Basic/Prime/Advance tier + which features that
   // unlocks) — controls hasFeature() everywhere else in the app.
-  document.getElementById("planFeaturesBtn").addEventListener("click", () => openPlanFeaturesModal(false));
+  document.getElementById("planFeaturesBtn").addEventListener("click", () => {
+    toggleMoreMenu(true);
+    openPlanFeaturesModal(false);
+  });
+  document.getElementById("gymSettingsBtn").addEventListener("click", () => toggleMoreMenu(true));
+
+  // Round "more options" menu (Plan & Features / Gym Settings list)
+  document.getElementById("moreMenuBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleNotifDropdown(true);
+    toggleMoreMenu();
+  });
+
+  // Notification bell (new member / SaaS trial-plan expiry / custom broadcasts)
+  document.getElementById("notifBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMoreMenu(true);
+    toggleNotifDropdown();
+  });
+  document.getElementById("notifMarkAllReadBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    markAllNotificationsRead();
+  });
+  subscribeBroadcasts();
 
   // Profile menu (photo/name button -> Sign Out dropdown)
   document.getElementById("profileMenuBtn").addEventListener("click", (e) => {
     e.stopPropagation();
+    toggleMoreMenu(true);
+    toggleNotifDropdown(true);
     toggleProfileMenu();
   });
   document.addEventListener("click", (e) => {
     const wrap = document.getElementById("profileMenuWrap");
     if (wrap && !wrap.contains(e.target)) toggleProfileMenu(true);
+    const moreWrap = document.getElementById("moreMenuWrap");
+    if (moreWrap && !moreWrap.contains(e.target)) toggleMoreMenu(true);
+    const notifWrap = document.getElementById("notifWrap");
+    if (notifWrap && !notifWrap.contains(e.target)) toggleNotifDropdown(true);
   });
   document.getElementById("planFeaturesCancelBtn").addEventListener("click", closePlanFeaturesModal);
   document.getElementById("planFeaturesCloseBtn").addEventListener("click", closePlanFeaturesModal);
@@ -395,6 +431,31 @@ function toggleProfileMenu(forceClose) {
   }
 }
 
+// Round "more options" menu — Plan & Features / Gym Settings list.
+function toggleMoreMenu(forceClose) {
+  const dropdown = document.getElementById("moreMenuDropdown");
+  if (!dropdown) return;
+  if (forceClose) {
+    dropdown.classList.add("hidden");
+  } else {
+    dropdown.classList.toggle("hidden");
+  }
+}
+
+// Notification bell dropdown. Opening it doesn't silently mark everything
+// read (same as Play Store) — that only happens on "Mark all read" or by
+// tapping an individual notification.
+function toggleNotifDropdown(forceClose) {
+  const dropdown = document.getElementById("notifDropdown");
+  if (!dropdown) return;
+  if (forceClose) {
+    dropdown.classList.add("hidden");
+  } else {
+    dropdown.classList.toggle("hidden");
+    if (!dropdown.classList.contains("hidden")) renderNotifications();
+  }
+}
+
 // 🔥 Offline banner — reflects real connectivity, not just Firestore state,
 // so it shows the moment wifi/data drops and clears the moment it's back.
 function updateOfflineBanner() {
@@ -572,11 +633,200 @@ function subscribeMembers() {
       
       renderMemberTable();
       renderStats();
+      renderNotifications();
     },
     (err) => console.error("members listener error:", err)
   );
 }
 
+
+// ----------------------------------------------------------------------
+// Notifications (bell dropdown)
+//
+// Three sources, none of which need a new Firestore write path:
+//  1. New members — computed straight from allMembers (createdAt/joinDate
+//     within the last NEW_MEMBER_WINDOW_MS), refreshed every time the
+//     members listener fires.
+//  2. This gym's own SaaS trial/plan expiring soon or already expired —
+//     read from TIER_STATE (already loaded from the control project's
+//     subscriptions/{GYM_ID} doc by loadTierConfig() in firebase-config.js).
+//  3. Custom messages the owner drops by hand into the control project's
+//     broadcasts/{GYM_ID}/items collection (read-only from the client —
+//     see the Firestore rule for it). Live via onSnapshot so a message
+//     shows up without a page reload.
+//
+// Read/unread state lives in localStorage (per device) since #1 and #2
+// are computed on the fly, not stored docs — there's nothing to write
+// "read: true" onto server-side.
+// ----------------------------------------------------------------------
+
+const NOTIF_READ_KEY = "fittrack:notifRead:v1";
+const NEW_MEMBER_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // show "new member" for 3 days
+const PLAN_EXPIRY_WARNING_DAYS = 3; // "expiring soon" starts this many days out
+
+let broadcastMessages = []; // [{ id, title, message, createdAtMs }]
+let unsubBroadcasts = null;
+
+function getReadNotifIds() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(NOTIF_READ_KEY) || "[]"));
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function markNotifRead(id) {
+  const read = getReadNotifIds();
+  read.add(id);
+  try { localStorage.setItem(NOTIF_READ_KEY, JSON.stringify([...read])); } catch (e) {}
+}
+
+function markAllNotificationsRead() {
+  const all = computeNotifications().map((n) => n.id);
+  try { localStorage.setItem(NOTIF_READ_KEY, JSON.stringify(all)); } catch (e) {}
+  renderNotifications();
+}
+
+// Subscribes to hand-added broadcast messages in the shared control
+// Firebase project. Rule (add to the CONTROL project's firestore.rules,
+// not this gym's own):
+//   match /broadcasts/{gymId}/items/{itemId} {
+//     allow read: if true;
+//     allow write: if false;   // you add these from the Firebase Console
+//   }
+function subscribeBroadcasts() {
+  if (unsubBroadcasts) return;
+  try {
+    unsubBroadcasts = controlDb
+      .collection("broadcasts")
+      .doc(GYM_ID)
+      .collection("items")
+      .orderBy("createdAt", "desc")
+      .limit(20)
+      .onSnapshot(
+        (snap) => {
+          broadcastMessages = snap.docs.map((d) => {
+            const data = d.data();
+            const createdAtMs = data.createdAt?.toDate ? data.createdAt.toDate().getTime() : Date.now();
+            return {
+              id: `broadcast-${d.id}`,
+              title: data.title || "Message",
+              message: data.message || "",
+              createdAtMs,
+            };
+          });
+          renderNotifications();
+        },
+        (err) => console.warn("broadcasts listener error (non-fatal):", err)
+      );
+  } catch (err) {
+    console.warn("Could not subscribe to broadcasts:", err);
+  }
+}
+
+/** Builds the current notification list, newest first. */
+function computeNotifications() {
+  const items = [];
+  const now = Date.now();
+
+  // 1. New members
+  allMembers.forEach((m) => {
+    const createdAtMs = m.createdAt?.toDate
+      ? m.createdAt.toDate().getTime()
+      : m.joinDate
+      ? new Date(m.joinDate).getTime()
+      : null;
+    if (createdAtMs && now - createdAtMs <= NEW_MEMBER_WINDOW_MS) {
+      items.push({
+        id: `member-${m.id}`,
+        icon: "🆕",
+        title: "New member joined",
+        subtitle: m.name || "A new member",
+        timeMs: createdAtMs,
+      });
+    }
+  });
+
+  // 2. This gym's SaaS trial/plan status (from TIER_STATE, control project)
+  if (TIER_STATE.expiresAt) {
+    if (isAccessLocked()) {
+      items.push({
+        id: "sub-expired",
+        icon: "🔴",
+        title: TIER_STATE.status === "trial" ? "Your free trial has expired" : "Your plan has expired",
+        subtitle: "Renew to keep using the dashboard.",
+        timeMs: TIER_STATE.expiresAt,
+      });
+    } else {
+      const days = daysUntilExpiry();
+      if (days !== null && days <= PLAN_EXPIRY_WARNING_DAYS) {
+        items.push({
+          id: "sub-expiring",
+          icon: "⏳",
+          title: TIER_STATE.status === "trial" ? "Your free trial is ending soon" : "Your plan is expiring soon",
+          subtitle: days === 0 ? "Expires today." : `Expires in ${days} day${days === 1 ? "" : "s"}.`,
+          timeMs: now,
+        });
+      }
+    }
+  }
+
+  // 3. Custom broadcasts (owner-authored, from control Firebase)
+  broadcastMessages.forEach((b) => {
+    items.push({
+      id: b.id,
+      icon: "📣",
+      title: b.title,
+      subtitle: b.message,
+      timeMs: b.createdAtMs,
+    });
+  });
+
+  items.sort((a, b) => b.timeMs - a.timeMs);
+  return items;
+}
+
+function renderNotifications() {
+  const list = document.getElementById("notifList");
+  const emptyState = document.getElementById("notifEmptyState");
+  const badge = document.getElementById("notifBadge");
+  if (!list || !badge) return; // dashboard not painted yet (e.g. still on login screen)
+
+  const items = computeNotifications();
+  const readIds = getReadNotifIds();
+  const unreadCount = items.filter((n) => !readIds.has(n.id)).length;
+
+  badge.classList.toggle("hidden", unreadCount === 0);
+  badge.textContent = unreadCount > 9 ? "9+" : String(unreadCount);
+
+  emptyState.classList.toggle("hidden", items.length > 0);
+  list.innerHTML = "";
+
+  items.forEach((n) => {
+    const isUnread = !readIds.has(n.id);
+    const li = document.createElement("button");
+    li.type = "button";
+    li.dataset.notifId = n.id;
+    li.className = `w-full text-left flex items-start gap-2.5 px-3 py-2.5 hover:bg-slate-800 transition ${
+      isUnread ? "bg-accent/5" : ""
+    }`;
+    li.innerHTML = `
+      <span class="text-base leading-none mt-0.5">${n.icon}</span>
+      <span class="flex-1 min-w-0">
+        <span class="flex items-center gap-1.5">
+          <span class="text-sm font-medium text-slate-100 truncate">${escapeHtml(n.title)}</span>
+          ${isUnread ? '<span class="w-1.5 h-1.5 rounded-full bg-accent shrink-0"></span>' : ""}
+        </span>
+        <span class="block text-xs text-slate-500 truncate">${escapeHtml(n.subtitle || "")}</span>
+      </span>
+    `;
+    li.addEventListener("click", () => {
+      markNotifRead(n.id);
+      renderNotifications();
+    });
+    list.appendChild(li);
+  });
+}
 
 function buildMemberActionsHtml(m, dotSizeClass) {
   const days = daysUntil(m.expiryDate);
