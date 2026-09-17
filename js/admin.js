@@ -936,9 +936,10 @@ async function handlePlanActionClick() {
   btn.textContent = mode === "trial" ? "Starting trial…" : "Opening payment…";
 
   try {
-    let update;
+        let update;
     if (mode === "trial") {
       update = {
+        gymName: GYM_SETTINGS.name, // 🔥 Yeh line add kar de
         current: tier,
         status: "trial",
         trialEndsAt: Date.now() + DEFAULT_TRIAL_DAYS * 86400000,
@@ -948,6 +949,7 @@ async function handlePlanActionClick() {
     } else {
       await payAndUpgradeTier(tier);
       update = {
+        gymName: GYM_SETTINGS.name, // 🔥 Yeh line add kar de
         current: tier,
         status: "active",
         trialEndsAt: null,
@@ -957,6 +959,7 @@ async function handlePlanActionClick() {
     }
 
     await controlDb.collection("subscriptions").doc(GYM_ID).set(update);
+
     applyTierConfig(update);
     try { localStorage.setItem(TIER_CONFIG_CACHE_KEY, JSON.stringify(update)); } catch (err) {}
 
