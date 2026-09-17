@@ -379,7 +379,8 @@ let planLockCheckInterval = null;
 
 function showDashboard(user) {
   showScreen("dashboardScreen");
-  document.getElementById("adminEmailLabel").textContent = user.email;
+  document.getElementById("adminEmailLabel").textContent =
+    user.displayName || (user.email ? user.email.split("@")[0] : "Admin");
   renderProfileMenu(user);
 
   subscribeMembers();
