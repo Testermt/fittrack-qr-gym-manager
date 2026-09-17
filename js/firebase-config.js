@@ -12,6 +12,50 @@ const FIREBASE_CONFIG = {
   measurementId: "G-XGQ8Q3J78Z"
 };
 
+// ---- Developer/control Firebase project ---------------------------------
+// A SEPARATE Firebase project from the gym's own one above — the SAME
+// project across EVERY gym's install. Used ONLY for things YOU control
+// centrally: SaaS pricing and each gym's subscription/trial status. It
+// never touches gym data (members/check-ins/payments/gym settings) —
+// that always stays isolated in the gym's own project (FIREBASE_CONFIG),
+// so every gym's usage stays on its own free-tier quota.
+//
+// SETUP NEEDED (one-time, by you):
+//   1. Create one new Firebase project for yourself (e.g. "fittrack-control").
+//   2. Firebase Console -> Project Settings -> General -> "Your apps" ->
+//      add a Web app -> copy its config object below, replacing the
+//      placeholders. This SAME object gets pasted into every gym's copy
+//      of this file — it's the one constant across all installs.
+//   3. Firestore Database -> Create database (production mode is fine).
+//   4. Firestore Rules for this control project — since there's no admin
+//      backend yet, keep it simple and trust-based for now:
+//        match /pricing/{doc}   { allow read: if true;  allow write: if false; }
+//        match /subscriptions/{gymId} { allow read, write: if true; }
+//      (Tighten `subscriptions` write access later once you add real
+//      payment verification — right now the client sets it directly,
+//      matching the trust-based payAndUpgradeTier() flow in admin.js.)
+//   5. Edit pricing anytime: Firestore -> pricing -> current -> tiers/
+//      trialDays fields. Every gym's app picks it up on its next load.
+const CONTROL_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAadN_EljSklCV9Jtdp_F6pHLYmr8-cx9k",
+  authDomain: "fittrack-control-hub-8360c.firebaseapp.com",
+  projectId: "fittrack-control-hub-8360c",
+  storageBucket: "fittrack-control-hub-8360c.firebasestorage.app",
+  messagingSenderId: "377833081446",
+  appId: "1:377833081446:web:a6cf27895db5e19fb4bba7"
+};
+
+
+// A stable ID for THIS gym inside your control project. Reuses the gym's
+// own Firebase projectId (already unique per install) so there's no
+// separate gymId to invent or configure anywhere.
+const GYM_ID = FIREBASE_CONFIG.projectId;
+
+// Named secondary app so it runs alongside the gym's default Firebase
+// app without conflicting with it.
+const controlApp = firebase.initializeApp(CONTROL_FIREBASE_CONFIG, "control");
+const controlDb = controlApp.firestore();
+
 // ---- Gym-level settings ------------------------------------------------
 // These two objects are now LIVE CONFIG, sourced from Firestore
 // (settings/gymConfig) and only *seeded* with the values below as a
@@ -236,11 +280,113 @@ const FEATURE_CATALOG = {
   // },
 };
 
-// Seeded default (used until settings/tier loads, and as the last-resort
-// fallback if that read fails) — deliberately the LOWEST tier, so a
-// feature never appears "on" before we've actually confirmed the gym's
-// plan. Mutated in place by loadTierConfig(), same pattern as GYM_SETTINGS.
-let TIER_STATE = { current: "basic" };
+// ---- Pricing shown in the upgrade UI (Plan & Features modal) -----------
+// LIVE CONFIG from Firestore (settings/pricing), same pattern as
+// GYM_SETTINGS/PLANS above — so YOU can change Prime/Advance prices or the
+// free trial length from the Firebase Console at any time, from any
+// device, without ever touching the gym owner's laptop/phone/tablet or
+// redeploying files. The numbers below are only the last-resort seed,
+// used before the first successful Firestore read ever completes.
+let TIER_PRICING = {
+  basic: { price: 249 },
+  prime: { price: 599 },
+  advance: { price: 699 },
+};
+
+// How long the one-time free trial lasts, in days. Also live-controlled
+// via settings/pricing (field: trialDays). The trial can be started once,
+// on whichever tier the gym owner picks first — after that, switching
+// tiers goes through payment.
+let DEFAULT_TRIAL_DAYS = 30;
+
+const PRICING_CONFIG_CACHE_KEY = "fittrack:pricingConfig:v1";
+const PRICING_CONFIG_FETCH_TIMEOUT_MS = 4000;
+
+function applyPricingConfig(data) {
+  if (!data || typeof data !== "object") return;
+  if (data.tiers && typeof data.tiers === "object") {
+    for (const tier of TIER_ORDER) {
+      const price = data.tiers[tier]?.price;
+      if (typeof price === "number") TIER_PRICING[tier] = { price };
+    }
+  }
+  if (typeof data.trialDays === "number" && data.trialDays >= 0) {
+    DEFAULT_TRIAL_DAYS = data.trialDays;
+  }
+}
+
+function loadCachedPricingConfig() {
+  try {
+    const raw = localStorage.getItem(PRICING_CONFIG_CACHE_KEY);
+    if (raw) applyPricingConfig(JSON.parse(raw));
+  } catch (err) {
+    console.warn("Could not read cached pricing config:", err);
+  }
+}
+
+function cachePricingConfig(data) {
+  try {
+    localStorage.setItem(PRICING_CONFIG_CACHE_KEY, JSON.stringify(data));
+  } catch (err) {
+    console.warn("Could not cache pricing config:", err);
+  }
+}
+
+/**
+ * Loads pricing/current from YOUR control Firebase project (not the gym's
+ * own project) and mutates TIER_PRICING/DEFAULT_TRIAL_DAYS in place. Never
+ * throws and never blocks longer than PRICING_CONFIG_FETCH_TIMEOUT_MS —
+ * always resolves, so callers can safely `await pricingConfigReady`
+ * without a try/catch of their own. Load order: hardcoded seed -> last
+ * cached copy -> live Firestore value.
+ *
+ * To change prices/trial length: open the CONTROL project (not any gym's
+ * project) in Firebase Console -> Firestore -> pricing -> current, and
+ * edit/create:
+ *   { tiers: { basic: { price: 249 }, prime: { price: 599 },
+ *              advance: { price: 699 } },
+ *     trialDays: 30 }
+ * Every gym's app picks this up on its next load — one edit updates every
+ * install at once, no code changes, no redeploy, no touching any device.
+ */
+async function loadPricingConfig() {
+  loadCachedPricingConfig();
+
+  try {
+    const snap = await Promise.race([
+      controlDb.collection("pricing").doc("current").get(),
+      timeoutAfter(PRICING_CONFIG_FETCH_TIMEOUT_MS),
+    ]);
+    if (snap && snap.exists) {
+      const data = snap.data();
+      applyPricingConfig(data);
+      cachePricingConfig(data);
+    }
+  } catch (err) {
+    console.warn("Pricing config fetch failed, using cached/default values:", err);
+  }
+}
+
+// Kicked off immediately at script load; every page's DOMContentLoaded
+// handler should `await pricingConfigReady` before building any UI that
+// reads TIER_PRICING or DEFAULT_TRIAL_DAYS (the Plan & Features modal).
+const pricingConfigReady = loadPricingConfig();
+
+// Seeded default (used until the control project's subscription doc
+// loads, and as the last-resort fallback if that read fails) —
+// deliberately the LOWEST tier, so a feature never appears "on" before
+// we've actually confirmed the gym's plan. Mutated in place by
+// loadTierConfig(), same pattern as GYM_SETTINGS.
+// status: "trial" | "active". trialEndsAt/subscribedAt are ms-epoch
+// timestamps; trialUsed flips true the first time any trial or paid
+// upgrade is applied, so the free trial can only ever be used once.
+let TIER_STATE = {
+  current: "basic",
+  status: "trial",
+  trialEndsAt: null,
+  subscribedAt: null,
+  trialUsed: false,
+};
 
 function hasFeature(featureKey) {
   const feature = FEATURE_CATALOG[featureKey];
@@ -248,11 +394,21 @@ function hasFeature(featureKey) {
   return TIER_ORDER.indexOf(TIER_STATE.current) >= TIER_ORDER.indexOf(feature.minTier);
 }
 
+/** Days left in the free trial, 0 if not on trial or it's expired. */
+function trialDaysLeft() {
+  if (TIER_STATE.status !== "trial" || !TIER_STATE.trialEndsAt) return 0;
+  return Math.max(0, Math.ceil((TIER_STATE.trialEndsAt - Date.now()) / 86400000));
+}
+
 const TIER_CONFIG_CACHE_KEY = "fittrack:tierConfig:v1";
 
 function applyTierConfig(data) {
   if (!data || typeof data.current !== "string") return;
   if (TIER_ORDER.includes(data.current)) TIER_STATE.current = data.current;
+  if (data.status === "trial" || data.status === "active") TIER_STATE.status = data.status;
+  if (typeof data.trialEndsAt === "number" || data.trialEndsAt === null) TIER_STATE.trialEndsAt = data.trialEndsAt;
+  if (typeof data.subscribedAt === "number" || data.subscribedAt === null) TIER_STATE.subscribedAt = data.subscribedAt;
+  if (typeof data.trialUsed === "boolean") TIER_STATE.trialUsed = data.trialUsed;
 }
 
 async function loadTierConfig() {
@@ -263,10 +419,9 @@ async function loadTierConfig() {
     console.warn("Could not read cached tier config:", err);
   }
 
-  await appCheckReady;
   try {
     const snap = await Promise.race([
-      db.collection("settings").doc("tier").get(),
+      controlDb.collection("subscriptions").doc(GYM_ID).get(),
       timeoutAfter(GYM_CONFIG_FETCH_TIMEOUT_MS),
     ]);
     if (snap && snap.exists) {

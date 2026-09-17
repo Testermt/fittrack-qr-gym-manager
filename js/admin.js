@@ -103,6 +103,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // even offline, so this doesn't meaningfully delay the admin login screen.
   await gymConfigReady;
   await tierConfigReady;
+  await pricingConfigReady;
 
   document.getElementById("gymNameLabelAdmin").textContent = GYM_SETTINGS.name;
 
@@ -163,7 +164,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("planFeaturesCancelBtn").addEventListener("click", closePlanFeaturesModal);
   document.getElementById("planFeaturesCloseBtn").addEventListener("click", closePlanFeaturesModal);
   document.getElementById("planFeaturesBackdrop").addEventListener("click", closePlanFeaturesModal);
-  document.getElementById("planFeaturesForm").addEventListener("submit", handlePlanFeaturesSubmit);
+  document.getElementById("planFeaturesSaveBtn").addEventListener("click", handlePlanActionClick);
+  document.getElementById("planTierOptions").addEventListener("change", () => {
+    renderPlanFeaturesList();
+    renderPlanActionButton();
+  });
 
 
 
@@ -781,12 +786,18 @@ function tierLabel(tier) {
 
 function renderPlanTierOptions(selectedTier) {
   const container = document.getElementById("planTierOptions");
-  container.innerHTML = TIER_ORDER.map((tier) => `
+  container.innerHTML = TIER_ORDER.map((tier) => {
+    const price = TIER_PRICING[tier]?.price ?? 0;
+    return `
     <label class="cursor-pointer">
       <input type="radio" name="planTier" value="${tier}" class="sr-only peer" ${tier === selectedTier ? "checked" : ""} />
-      <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-2 py-2 text-slate-400 peer-checked:bg-accent/15 peer-checked:text-accent peer-checked:border-accent/40 transition">${tierLabel(tier)}</span>
+      <span class="block text-center rounded-lg border border-slate-700 px-2 py-2 text-slate-400 peer-checked:bg-accent/15 peer-checked:text-accent peer-checked:border-accent/40 transition">
+        <span class="block text-sm font-medium">${tierLabel(tier)}</span>
+        <span class="block text-[10px] opacity-80">₹${price}/mo</span>
+      </span>
     </label>
-  `).join("");
+  `;
+  }).join("");
 }
 
 /** Renders every feature in the catalog, grouped by the tier that unlocks
@@ -818,55 +829,148 @@ function renderPlanFeaturesList() {
   }).join("");
 }
 
+/** Shows the gym owner's current subscription status just above the tier
+ *  picker — which plan they're on, and whether it's a free trial (with
+ *  days remaining) or an active paid subscription. */
+function renderPlanStatusBanner() {
+  const el = document.getElementById("planStatusBanner");
+  const current = tierLabel(TIER_STATE.current);
+  if (TIER_STATE.status === "trial") {
+    const days = trialDaysLeft();
+    el.innerHTML = days > 0
+      ? `You're on <strong class="text-accent">${current}</strong> — free trial, <strong>${days}</strong> day${days === 1 ? "" : "s"} left.`
+      : `Your <strong class="text-accent">${current}</strong> trial has ended — pick a plan below to continue.`;
+  } else {
+    el.innerHTML = `You're on <strong class="text-accent">${current}</strong> — active subscription.`;
+  }
+}
+
+/** Decides what the footer button says and does, based on the tier
+ *  currently selected in the radio group vs. the gym's real plan:
+ *  - same as the current plan       -> disabled "Current Plan"
+ *  - free trial never used yet      -> "Start Free Trial" (no payment)
+ *  - anything else                  -> "Pay ₹X & Upgrade" (real payment) */
+function renderPlanActionButton() {
+  const btn = document.getElementById("planFeaturesSaveBtn");
+  const selected = document.querySelector('input[name="planTier"]:checked')?.value || TIER_STATE.current;
+  const price = TIER_PRICING[selected]?.price ?? 0;
+
+  if (selected === TIER_STATE.current && TIER_STATE.status === "active") {
+    btn.textContent = "Current Plan";
+    btn.disabled = true;
+    btn.dataset.mode = "none";
+  } else if (!TIER_STATE.trialUsed) {
+    btn.textContent = `Start Free Trial (${DEFAULT_TRIAL_DAYS} days)`;
+    btn.disabled = false;
+    btn.dataset.mode = "trial";
+  } else {
+    btn.textContent = `Pay ₹${price} & Upgrade`;
+    btn.disabled = false;
+    btn.dataset.mode = "pay";
+  }
+  btn.dataset.tier = selected;
+}
+
 function openPlanFeaturesModal() {
   renderPlanTierOptions(TIER_STATE.current);
   renderPlanFeaturesList();
+  renderPlanStatusBanner();
+  renderPlanActionButton();
   document.getElementById("planFeaturesError").classList.add("hidden");
   document.getElementById("planFeaturesSuccess").classList.add("hidden");
   document.getElementById("planFeaturesModal").classList.remove("hidden");
-
-  // Re-render the feature list live as the admin clicks between tiers.
-  document.getElementById("planTierOptions").addEventListener("change", renderPlanFeaturesList);
 }
 
 function closePlanFeaturesModal() {
   document.getElementById("planFeaturesModal").classList.add("hidden");
 }
 
-async function handlePlanFeaturesSubmit(e) {
-  e.preventDefault();
+/** ============================================================
+ *  PAYMENT ENTRY POINT — this is the ONLY function you need to replace
+ *  when you're ready to plug in Razorpay. Keep the same signature: takes
+ *  a tier key, returns a Promise that resolves once payment is confirmed
+ *  and rejects (with an Error) if the user cancels or it fails.
+ *  handlePlanActionClick() below calls this and doesn't care how the
+ *  promise settles — so nothing else in the app needs to change.
+ *
+ *  Real swap-in, once you have a Razorpay key:
+ *    function payAndUpgradeTier(tier) {
+ *      return new Promise((resolve, reject) => {
+ *        const rzp = new Razorpay({
+ *          key: "rzp_live_xxxxxxxx",
+ *          amount: TIER_PRICING[tier].price * 100, // paise
+ *          currency: "INR",
+ *          name: GYM_SETTINGS.name,
+ *          description: `${tierLabel(tier)} plan — monthly`,
+ *          handler: (response) => resolve(response),
+ *          modal: { ondismiss: () => reject(new Error("Payment cancelled")) },
+ *        });
+ *        rzp.open();
+ *      });
+ *    }
+ * ============================================================ */
+function payAndUpgradeTier(tier) {
+  const price = TIER_PRICING[tier]?.price ?? 0;
+  return new Promise((resolve, reject) => {
+    const confirmed = confirm(
+      `Pay ₹${price}/month for the ${tierLabel(tier)} plan?\n\n(Payment gateway isn't connected yet — this marks it as a confirmed test upgrade.)`
+    );
+    if (confirmed) resolve({ trust: true });
+    else reject(new Error("Payment cancelled"));
+  });
+}
+
+async function handlePlanActionClick() {
   const errorEl = document.getElementById("planFeaturesError");
   const successEl = document.getElementById("planFeaturesSuccess");
   errorEl.classList.add("hidden");
   successEl.classList.add("hidden");
 
-  const selected = document.querySelector('input[name="planTier"]:checked')?.value;
-  if (!TIER_ORDER.includes(selected)) {
-    errorEl.textContent = "Please choose a plan.";
-    errorEl.classList.remove("hidden");
-    return;
-  }
+  const btn = document.getElementById("planFeaturesSaveBtn");
+  const tier = btn.dataset.tier;
+  const mode = btn.dataset.mode;
+  if (!TIER_ORDER.includes(tier) || mode === "none") return;
 
-  const saveBtn = document.getElementById("planFeaturesSaveBtn");
-  const originalLabel = saveBtn.textContent;
-  saveBtn.disabled = true;
-  saveBtn.textContent = "Saving…";
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = mode === "trial" ? "Starting trial…" : "Opening payment…";
 
   try {
-    await db.collection("settings").doc("tier").set({ current: selected });
-    applyTierConfig({ current: selected });
-    try { localStorage.setItem(TIER_CONFIG_CACHE_KEY, JSON.stringify({ current: selected })); } catch (err) {}
+    let update;
+    if (mode === "trial") {
+      update = {
+        current: tier,
+        status: "trial",
+        trialEndsAt: Date.now() + DEFAULT_TRIAL_DAYS * 86400000,
+        subscribedAt: null,
+        trialUsed: true,
+      };
+    } else {
+      await payAndUpgradeTier(tier);
+      update = {
+        current: tier,
+        status: "active",
+        trialEndsAt: null,
+        subscribedAt: Date.now(),
+        trialUsed: true,
+      };
+    }
 
-    successEl.textContent = "Plan updated!";
+    await controlDb.collection("subscriptions").doc(GYM_ID).set(update);
+    applyTierConfig(update);
+    try { localStorage.setItem(TIER_CONFIG_CACHE_KEY, JSON.stringify(update)); } catch (err) {}
+
+    successEl.textContent = mode === "trial" ? "Free trial started!" : "Payment confirmed — plan upgraded!";
     successEl.classList.remove("hidden");
+    renderPlanStatusBanner();
+    renderPlanActionButton();
     setTimeout(closePlanFeaturesModal, 1200);
   } catch (err) {
-    console.error("Could not save plan/tier:", err);
-    errorEl.textContent = "Could not save. Please try again.";
+    console.error("Could not update plan:", err);
+    errorEl.textContent = err?.message === "Payment cancelled" ? "Payment cancelled." : "Could not update plan. Please try again.";
     errorEl.classList.remove("hidden");
-  } finally {
-    saveBtn.disabled = false;
-    saveBtn.textContent = originalLabel;
+    btn.textContent = originalLabel;
+    btn.disabled = false;
   }
 }
 
