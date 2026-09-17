@@ -139,7 +139,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Manual member registration modal
   document.getElementById("openAddMemberBtn").addEventListener("click", openAddMemberModal);
-  document.getElementById("exportCsvBtn").addEventListener("click", exportMembersToCsv);
   document.getElementById("addMemberCancelBtn").addEventListener("click", closeAddMemberModal);
   document.getElementById("addMemberCloseBtn").addEventListener("click", closeAddMemberModal);
   document.getElementById("addMemberBackdrop").addEventListener("click", closeAddMemberModal);
@@ -170,6 +169,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("planFeaturesBtn").addEventListener("click", () => {
     toggleMoreMenu(true);
     openPlanFeaturesModal(false);
+  });
+  document.getElementById("exportCsvBtn").addEventListener("click", () => {
+    toggleMoreMenu(true);
+    exportMembersToCsv();
   });
   document.getElementById("gymSettingsBtn").addEventListener("click", () => toggleMoreMenu(true));
 
