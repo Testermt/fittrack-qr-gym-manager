@@ -985,7 +985,7 @@ function renderMemberTable() {
   const filtered = allMembers.filter((m) => {
     if (query && !(m.name.toLowerCase().includes(query) || m.phone.includes(query))) return false;
     if (currentMemberFilter === "active" && (m.approved !== true || daysUntil(m.expiryDate) < 0)) return false;
-    if (currentMemberFilter === "pending" && m.paymentStatus === "paid") return false;
+    if (currentMemberFilter === "pending" && (m.approved !== true || m.paymentStatus === "paid")) return false;
     // 🔥 Pending approval filter check
     if (currentMemberFilter === "pending-approval" && m.approved === true) return false;
     // Due Soon: still active, but expiring within the next 3 days (0-3
@@ -1021,13 +1021,21 @@ function renderMemberTable() {
       <td class="py-3 pr-4 text-slate-300">${plan.label}</td>
       <td class="py-3 pr-4 text-slate-300">${formatDate(m.expiryDate)}</td>
       <td class="py-3 pr-4">
-        <span class="badge ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>
-        <p class="text-xs text-slate-500 mt-1">${isActive ? days + "d left" : Math.abs(days) + "d ago"}</p>
+        <!-- 🔥 Unapproved members: sirf "Pending Approval" dikhega, ACTIVE/EXPIRED nahi (kyunki abhi member confirm hi nahi hai) -->
+        ${isApproved ? `
+          <span class="badge ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>
+          <p class="text-xs text-slate-500 mt-1">${isActive ? days + "d left" : Math.abs(days) + "d ago"}</p>
+        ` : `
+          <span class="badge badge-warning">Pending Approval</span>
+        `}
       </td>
       <td class="py-3 pr-4">
-        <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "Payment Pending"}</span>
-        <!-- 🔥 Approval Status Badge -->
-        <span class="badge mt-1 ${isApproved ? "badge-success" : "badge-warning"}">${isApproved ? "APPROVED" : "Approval Pending"}</span>
+        <!-- 🔥 Payment status sirf tab dikhega jab member approve ho chuka ho -->
+        ${isApproved ? `
+          <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "Payment Pending"}</span>
+        ` : `
+          <span class="text-xs text-slate-500">—</span>
+        `}
       </td>
       <td class="py-3 pr-0">
         <div class="flex flex-wrap gap-2 justify-end items-center">
@@ -1046,13 +1054,18 @@ function renderMemberTable() {
           <p class="font-medium text-slate-100 truncate">${escapeHtml(m.name)}</p>
           <p class="text-xs text-slate-500">+${GYM_SETTINGS.defaultCountryCode} ${m.phone}</p>
         </div>
-        <span class="badge shrink-0 ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>
+        ${isApproved
+          ? `<span class="badge shrink-0 ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>`
+          : `<span class="badge shrink-0 badge-warning">Pending Approval</span>`
+        }
       </div>
 
-      <div class="flex flex-wrap gap-1.5 mt-2.5">
-        <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "Payment Pending"}</span>
-        <span class="badge ${isApproved ? "badge-success" : "badge-warning"}">${isApproved ? "APPROVED" : "Approval Pending"}</span>
-      </div>
+      <!-- 🔥 Payment badge sirf approved members ke liye -->
+      ${isApproved ? `
+        <div class="flex flex-wrap gap-1.5 mt-2.5">
+          <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "Payment Pending"}</span>
+        </div>
+      ` : ""}
 
       <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-400 mt-2.5 pt-2.5 border-t border-slate-800/70">
         <p class="truncate"><span class="text-slate-600">Plan:</span> ${plan.label}</p>
@@ -2062,11 +2075,18 @@ function subscribeMonthlyRevenue() {
 function renderStats() {
   // 🔥 Ab active members mein sirf wahi count honge jo approved bhi hain aur expiry bhi bachi hai
   const active = allMembers.filter((m) => m.approved === true && daysUntil(m.expiryDate) >= 0).length;
-  
-  const pending = allMembers.filter((m) => m.paymentStatus !== "paid").length;
+
+  // 🔥 Payment Pending ab sirf approved members mein count hoga (unapproved ka payment status abhi maayne nahi rakhta)
+  const pending = allMembers.filter((m) => m.approved === true && m.paymentStatus !== "paid").length;
+
+  // 🔥 Total non-approved (naye/self-registered) members ka alag count
+  const pendingApproval = allMembers.filter((m) => m.approved !== true).length;
+
   document.getElementById("statActive").textContent = active;
   document.getElementById("statPending").textContent = pending;
   document.getElementById("statTotal").textContent = allMembers.length;
+  const pendingApprovalEl = document.getElementById("statPendingApproval");
+  if (pendingApprovalEl) pendingApprovalEl.textContent = pendingApproval;
 }
 
 
