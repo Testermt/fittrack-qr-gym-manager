@@ -539,6 +539,22 @@
           <div id="planPicker" class="grid grid-cols-2 gap-3"></div>
         </div>
 
+        <div id="whatsappOptInBlock" class="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5">
+          <label class="flex items-start gap-2.5 cursor-pointer">
+            <input id="whatsappBotOptIn" name="whatsappBotOptIn" type="checkbox" checked
+              class="mt-0.5 h-4 w-4 rounded border-slate-300 text-accent focus:ring-accent" />
+            <span class="text-sm text-slate-700">
+              <span class="font-medium">Enable WhatsApp Bot</span> — check your status, check in,
+              and renew your plan by messaging us on WhatsApp. Also sends you due-date reminders.
+            </span>
+          </label>
+          <label id="whatsappMarketingRow" class="flex items-start gap-2.5 cursor-pointer pl-6">
+            <input id="whatsappMarketingOptIn" name="whatsappMarketingOptIn" type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-slate-300 text-accent focus:ring-accent" />
+            <span class="text-sm text-slate-600">Also send me offers &amp; promotions on WhatsApp</span>
+          </label>
+        </div>
+
         <div id="registerBanner" class="hidden text-sm rounded-2xl px-4 py-3.5 paper-card"></div>
 
         <button type="submit" class="btn-primary w-full">
@@ -734,7 +750,7 @@
       <p id="mascotBubbleText">Hey there! Ready to crush today's workout?</p>
     </div>
 
-    <button id="mascotBtn" type="button" class="mascot-btn" data-state="idle" aria-label="Toggle Sparky, your Iron Pulse assistant">
+    <button id="mascotBtn" type="button" class="mascot-btn" data-state="idle" aria-label="Toggle Sparky, your gym assistant">
       <svg id="mascotChar" viewBox="0 0 120 140" xmlns="http://www.w3.org/2000/svg">
         <!-- feet -->
         <ellipse cx="60" cy="126" rx="20" ry="3" fill="#000" opacity="0.28"/>
@@ -812,6 +828,11 @@
     var confettiHost = document.getElementById('mascotConfetti');
     if (!dock || !btn) return;
 
+    // aria-label was hardcoded to "Iron Pulse" -- make it reflect whatever
+    // gym this instance is actually running for.
+    var gymNameForA11y = (window.GYM_SETTINGS && GYM_SETTINGS.name) || "the gym";
+    btn.setAttribute('aria-label', 'Toggle Sparky, your ' + gymNameForA11y + ' assistant');
+
     var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     var revertTimer = null;
     var minimized = false;
@@ -883,7 +904,7 @@
     // ---------- Greeting on load ----------
     var greetings = [
       "Hey there! Ready to crush today's workout? 💪",
-      "Welcome to Iron Pulse! I'm Sparky ⚡ — let's get you set up.",
+      "Welcome to " + (window.GYM_SETTINGS && GYM_SETTINGS.name || "the gym") + "! I'm Sparky ⚡ — let's get you set up.",
       "Hi! Fill in your details and I'll cheer you on 🎉"
     ];
     setTimeout(function () {
@@ -977,7 +998,7 @@
           var titleEl = document.getElementById('welcomeModalTitle');
           var titleText = titleEl && titleEl.textContent ? titleEl.textContent.trim() : '';
           setState('success', {
-            message: titleText ? (titleText + " You're all set — welcome to Iron Pulse! 💪") : "You're all set — welcome to Iron Pulse! 💪🎉",
+            message: titleText ? (titleText + " You're all set — welcome to " + (window.GYM_SETTINGS && GYM_SETTINGS.name || "the gym") + "! 💪") : "You're all set — welcome! 💪🎉",
             confetti: true,
             confettiCount: 20,
             revertAfter: 3600

@@ -185,6 +185,75 @@ async function loadGymConfig() {
 // reads GYM_SETTINGS or PLANS (plan pickers, gym name labels, etc.).
 const gymConfigReady = loadGymConfig();
 
+// ---- Feature Tiers (the SaaS plan YOU sell to the gym owner — Basic /
+// Prime / Advance — separate from the gym's own member plans like 1m/3m).
+// This is the single place to register a new gated feature: add its key
+// here with the minimum tier it needs, and gate any UI/logic behind
+// hasFeature('key') — nothing else needs to change when adding a feature.
+const TIER_ORDER = ["basic", "prime", "advance"];
+
+const FEATURE_CATALOG = {
+  whatsappBot: {
+    minTier: "prime",
+    label: "WhatsApp Bot",
+    description: "Automated reminders, member self-service (status/check-in/renew), and broadcast offers.",
+  },
+  // Example for later: uncomment and fill in when you build it.
+  // fingerprintScanner: {
+  //   minTier: "advance",
+  //   label: "Fingerprint Scanner",
+  //   description: "USB biometric check-in via the local bridge app.",
+  // },
+};
+
+// Seeded default (used until settings/tier loads, and as the last-resort
+// fallback if that read fails) — deliberately the LOWEST tier, so a
+// feature never appears "on" before we've actually confirmed the gym's
+// plan. Mutated in place by loadTierConfig(), same pattern as GYM_SETTINGS.
+let TIER_STATE = { current: "basic" };
+
+function hasFeature(featureKey) {
+  const feature = FEATURE_CATALOG[featureKey];
+  if (!feature) return false; // unknown key -> fail closed, never silently "on"
+  return TIER_ORDER.indexOf(TIER_STATE.current) >= TIER_ORDER.indexOf(feature.minTier);
+}
+
+const TIER_CONFIG_CACHE_KEY = "fittrack:tierConfig:v1";
+
+function applyTierConfig(data) {
+  if (!data || typeof data.current !== "string") return;
+  if (TIER_ORDER.includes(data.current)) TIER_STATE.current = data.current;
+}
+
+async function loadTierConfig() {
+  try {
+    const raw = localStorage.getItem(TIER_CONFIG_CACHE_KEY);
+    if (raw) applyTierConfig(JSON.parse(raw));
+  } catch (err) {
+    console.warn("Could not read cached tier config:", err);
+  }
+
+  await appCheckReady;
+  try {
+    const snap = await Promise.race([
+      db.collection("settings").doc("tier").get(),
+      timeoutAfter(GYM_CONFIG_FETCH_TIMEOUT_MS),
+    ]);
+    if (snap && snap.exists) {
+      const data = snap.data();
+      applyTierConfig(data);
+      try { localStorage.setItem(TIER_CONFIG_CACHE_KEY, JSON.stringify(data)); } catch (e) {}
+    }
+  } catch (err) {
+    console.warn("Tier config fetch failed, using cached/default value:", err);
+  }
+}
+
+// Every page's DOMContentLoaded handler should `await tierConfigReady`
+// before rendering anything gated by hasFeature() — same convention as
+// gymConfigReady above.
+const tierConfigReady = loadTierConfig();
+
 // ---- Shared helpers -----------------------------------------------------
 
 function normalizePhone(raw) {

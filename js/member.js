@@ -40,13 +40,39 @@ document.addEventListener("DOMContentLoaded", async () => {
   // anything that reads GYM_SETTINGS/PLANS. This resolves quickly from
   // cache/defaults even offline — see loadGymConfig() in firebase-config.js.
   await gymConfigReady;
+  await tierConfigReady;
 
   document.getElementById("gymNameLabel").textContent = GYM_SETTINGS.name;
   document.getElementById("joinDate").value = toDateKey(new Date());
   buildPlanPicker("planPicker", "plan");
   initTabs();
 
+  // WhatsApp bot opt-in is a Prime+ feature — hide the whole block for
+  // gyms on Basic instead of showing a checkbox for something that won't
+  // actually do anything.
+  const whatsappOptInBlock = document.getElementById("whatsappOptInBlock");
+  if (!hasFeature("whatsappBot")) {
+    whatsappOptInBlock.remove();
+  }
+
   document.getElementById("registerForm").addEventListener("submit", handleRegisterSubmit);
+
+  // Marketing opt-in is a sub-option of the WhatsApp bot — grey it out
+  // (and uncheck it) whenever the bot itself is turned off, so the form
+  // never implies "get offers" without "bot enabled". Only wired up when
+  // the block above wasn't removed (i.e. this gym's plan includes it).
+  if (hasFeature("whatsappBot")) {
+    const botCheckbox = document.getElementById("whatsappBotOptIn");
+    const marketingCheckbox = document.getElementById("whatsappMarketingOptIn");
+    const marketingRow = document.getElementById("whatsappMarketingRow");
+    function syncMarketingRow() {
+      marketingCheckbox.disabled = !botCheckbox.checked;
+      marketingRow.classList.toggle("opacity-40", !botCheckbox.checked);
+      if (!botCheckbox.checked) marketingCheckbox.checked = false;
+    }
+    botCheckbox.addEventListener("change", syncMarketingRow);
+    syncMarketingRow();
+  }
   document.getElementById("statusForm").addEventListener("submit", handleStatusCheck);
   document.getElementById("closeModalBtn").addEventListener("click", closeModal);
   document.getElementById("copyUpiIdBtn").addEventListener("click", handleCopyUpiId);
@@ -236,6 +262,11 @@ async function handleRegisterSubmit(e) {
   const address = form.address.value.trim();
   const joinDate = form.joinDate.value;
   const planId = form.plan.value;
+  const whatsappBotOptIn = hasFeature("whatsappBot") && form.whatsappBotOptIn.checked;
+  // Marketing opt-in only makes sense if the bot itself is enabled —
+  // force it false if the bot checkbox is off, regardless of what the
+  // (hidden/disabled) marketing checkbox's own state happens to be.
+  const whatsappMarketingOptIn = whatsappBotOptIn && form.whatsappMarketingOptIn.checked;
 
   if (!name || phone.length < 7 || !address || !joinDate || !planId) {
     showBanner("registerBanner", "Please fill every field with a valid phone number.");
@@ -268,6 +299,8 @@ async function handleRegisterSubmit(e) {
       expiryDate,
       paymentStatus: "pending",
       approved: false, // <-- Naya user default unapproved rahega
+      whatsappBotOptIn,
+      whatsappMarketingOptIn,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });

@@ -161,6 +161,7 @@
           </div>
         </div>
         <div class="flex items-center gap-3 sm:gap-4 shrink-0">
+          <button id="planFeaturesBtn" type="button" class="text-xs font-medium text-slate-500 hover:text-slate-300 transition whitespace-nowrap">📦 Plan &amp; Features</button>
           <button id="gymSettingsBtn" type="button" class="text-xs font-medium text-slate-500 hover:text-slate-300 transition whitespace-nowrap">⚙ Gym Settings</button>
           <button id="deviceLockToggleBtn" type="button" class="hidden text-xs font-medium text-slate-500 hover:text-slate-300 transition whitespace-nowrap"></button>
           <button id="logoutBtn" class="text-sm font-medium text-slate-400 hover:text-slate-200 transition whitespace-nowrap">Sign Out</button>
@@ -197,8 +198,6 @@
       </section>
 
       <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-
-
 
 
 <!-- ============= MONTHLY REVENUE HISTORY SECTION ============= -->
@@ -439,6 +438,43 @@
     <button type="button" data-action="remove-plan-row" class="shrink-0 text-rose-400 hover:text-rose-300 transition text-lg leading-none px-1.5 py-1.5" title="Remove plan">&times;</button>
   </div>
 </template>
+
+<!-- Plan & Features modal: lets you (the developer/operator) control which
+     optional modules are unlocked for this gym's install — Basic / Prime /
+     Advance. The feature list below is rendered entirely from
+     FEATURE_CATALOG in firebase-config.js, so adding a new gated feature
+     later needs zero HTML changes here — just register it in the catalog. -->
+<div id="planFeaturesModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div id="planFeaturesBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-slate-50">Plan &amp; Features</h3>
+      <button type="button" id="planFeaturesCloseBtn" class="text-slate-500 hover:text-slate-300 transition text-xl leading-none">&times;</button>
+    </div>
+
+    <form id="planFeaturesForm" class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-2">Active Plan</label>
+        <div id="planTierOptions" class="grid grid-cols-3 gap-2"></div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-2">Features by Plan</label>
+        <div id="planFeaturesList" class="space-y-2"></div>
+      </div>
+
+      <p id="planFeaturesError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"></p>
+      <p id="planFeaturesSuccess" class="hidden text-xs text-success bg-success/10 border border-success/30 rounded-lg px-3 py-2"></p>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" id="planFeaturesCancelBtn"
+          class="flex-1 rounded-lg border border-slate-700 text-slate-300 text-sm font-medium py-2 hover:bg-slate-800 transition">Cancel</button>
+        <button type="submit" id="planFeaturesSaveBtn"
+          class="flex-1 rounded-lg bg-accent text-slate-950 text-sm font-semibold py-2 hover:opacity-90 transition">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <div id="addMemberModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div id="addMemberBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>

@@ -102,6 +102,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Same gymConfigReady gate as member.js — resolves fast (cache/defaults)
   // even offline, so this doesn't meaningfully delay the admin login screen.
   await gymConfigReady;
+  await tierConfigReady;
 
   document.getElementById("gymNameLabelAdmin").textContent = GYM_SETTINGS.name;
 
@@ -155,6 +156,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     btn.closest(".settings-plan-row").remove();
   });
+
+  // Plan & Features modal (Basic/Prime/Advance tier + which features that
+  // unlocks) — controls hasFeature() everywhere else in the app.
+  document.getElementById("planFeaturesBtn").addEventListener("click", openPlanFeaturesModal);
+  document.getElementById("planFeaturesCancelBtn").addEventListener("click", closePlanFeaturesModal);
+  document.getElementById("planFeaturesCloseBtn").addEventListener("click", closePlanFeaturesModal);
+  document.getElementById("planFeaturesBackdrop").addEventListener("click", closePlanFeaturesModal);
+  document.getElementById("planFeaturesForm").addEventListener("submit", handlePlanFeaturesSubmit);
 
 
 
@@ -787,6 +796,106 @@ function openAddMemberModal() {
 
 function closeAddMemberModal() {
   document.getElementById("addMemberModal").classList.add("hidden");
+}
+
+// ==================== PLAN & FEATURES (Basic / Prime / Advance) ====================
+// This entire modal is driven by FEATURE_CATALOG + TIER_ORDER (both in
+// firebase-config.js) — adding a new gated feature later means adding one
+// entry to FEATURE_CATALOG there. Nothing here needs to change.
+
+function tierLabel(tier) {
+  return tier.charAt(0).toUpperCase() + tier.slice(1);
+}
+
+function renderPlanTierOptions(selectedTier) {
+  const container = document.getElementById("planTierOptions");
+  container.innerHTML = TIER_ORDER.map((tier) => `
+    <label class="cursor-pointer">
+      <input type="radio" name="planTier" value="${tier}" class="sr-only peer" ${tier === selectedTier ? "checked" : ""} />
+      <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-2 py-2 text-slate-400 peer-checked:bg-accent/15 peer-checked:text-accent peer-checked:border-accent/40 transition">${tierLabel(tier)}</span>
+    </label>
+  `).join("");
+}
+
+/** Renders every feature in the catalog, grouped by the tier that unlocks
+ *  it, with a live "Included / Not included" badge based on whichever
+ *  radio is currently selected — updates on every click, no page reload. */
+function renderPlanFeaturesList() {
+  const selected = document.querySelector('input[name="planTier"]:checked')?.value || "basic";
+  const container = document.getElementById("planFeaturesList");
+  const entries = Object.entries(FEATURE_CATALOG);
+
+  if (entries.length === 0) {
+    container.innerHTML = '<p class="text-xs text-slate-500 italic">No gated features registered yet.</p>';
+    return;
+  }
+
+  container.innerHTML = entries.map(([key, feature]) => {
+    const included = TIER_ORDER.indexOf(selected) >= TIER_ORDER.indexOf(feature.minTier);
+    return `
+      <div class="flex items-start justify-between gap-3 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2.5">
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-slate-200">${feature.label}</p>
+          <p class="text-[11px] text-slate-500">${feature.description || ""} · requires ${tierLabel(feature.minTier)}+</p>
+        </div>
+        <span class="shrink-0 text-[10px] font-semibold rounded-full px-2 py-1 ${included ? "bg-success/15 text-success" : "bg-slate-800 text-slate-500"}">
+          ${included ? "Included" : "Not included"}
+        </span>
+      </div>
+    `;
+  }).join("");
+}
+
+function openPlanFeaturesModal() {
+  renderPlanTierOptions(TIER_STATE.current);
+  renderPlanFeaturesList();
+  document.getElementById("planFeaturesError").classList.add("hidden");
+  document.getElementById("planFeaturesSuccess").classList.add("hidden");
+  document.getElementById("planFeaturesModal").classList.remove("hidden");
+
+  // Re-render the feature list live as the admin clicks between tiers.
+  document.getElementById("planTierOptions").addEventListener("change", renderPlanFeaturesList);
+}
+
+function closePlanFeaturesModal() {
+  document.getElementById("planFeaturesModal").classList.add("hidden");
+}
+
+async function handlePlanFeaturesSubmit(e) {
+  e.preventDefault();
+  const errorEl = document.getElementById("planFeaturesError");
+  const successEl = document.getElementById("planFeaturesSuccess");
+  errorEl.classList.add("hidden");
+  successEl.classList.add("hidden");
+
+  const selected = document.querySelector('input[name="planTier"]:checked')?.value;
+  if (!TIER_ORDER.includes(selected)) {
+    errorEl.textContent = "Please choose a plan.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  const saveBtn = document.getElementById("planFeaturesSaveBtn");
+  const originalLabel = saveBtn.textContent;
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Saving…";
+
+  try {
+    await db.collection("settings").doc("tier").set({ current: selected });
+    applyTierConfig({ current: selected });
+    try { localStorage.setItem(TIER_CONFIG_CACHE_KEY, JSON.stringify({ current: selected })); } catch (err) {}
+
+    successEl.textContent = "Plan updated!";
+    successEl.classList.remove("hidden");
+    setTimeout(closePlanFeaturesModal, 1200);
+  } catch (err) {
+    console.error("Could not save plan/tier:", err);
+    errorEl.textContent = "Could not save. Please try again.";
+    errorEl.classList.remove("hidden");
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = originalLabel;
+  }
 }
 
 function populateAddMemberPlanOptions() {
