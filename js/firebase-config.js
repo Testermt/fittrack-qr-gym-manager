@@ -193,6 +193,36 @@ const gymConfigReady = loadGymConfig();
 const TIER_ORDER = ["basic", "prime", "advance"];
 
 const FEATURE_CATALOG = {
+  memberManagement: {
+    minTier: "basic",
+    label: "Member Management",
+    description: "Add, edit, and manage your full member directory.",
+  },
+  checkInSystem: {
+    minTier: "basic",
+    label: "Check-In System",
+    description: "Daily member check-ins with morning/afternoon/evening tracking.",
+  },
+  dashboardAnalytics: {
+    minTier: "basic",
+    label: "Dashboard & Analytics",
+    description: "Total/active members, pending payments, revenue and weekly check-in trends.",
+  },
+  paymentTracking: {
+    minTier: "basic",
+    label: "Payment Tracking",
+    description: "Track paid/pending payments and monthly revenue history.",
+  },
+  exportCsv: {
+    minTier: "basic",
+    label: "Export CSV",
+    description: "Export your full member directory as a CSV file.",
+  },
+  gymSettings: {
+    minTier: "basic",
+    label: "Gym Settings",
+    description: "Manage gym name, country code, and membership plans.",
+  },
   whatsappBot: {
     minTier: "prime",
     label: "WhatsApp Bot",
