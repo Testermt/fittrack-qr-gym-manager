@@ -7,7 +7,7 @@ service cloud.firestore {
     // the target document's data but do not need `allow read` on that
     // target path themselves (that's how Firestore rules avoid circular
     // permission checks). So this works even though /admins/{email} below
-    // has no public read access — do not "fix" that by loosening the
+    // has no public read access â€” do not "fix" that by loosening the
     // admins read rule, it isn't broken.
        function isVerifiedAdminDirect() {
       return request.auth != null 
@@ -37,7 +37,7 @@ service cloud.firestore {
       }
 
       allow create: if
-        // Public self-registration: always starts unapproved & unpaid —
+        // Public self-registration: always starts unapproved & unpaid â€”
         // this branch is unchanged from before.
         (hasValidMemberShape()
           && request.resource.data.paymentStatus == "pending"
@@ -55,7 +55,7 @@ service cloud.firestore {
 
       // Update: admins can change anything. The public self-checkin kiosk
       // (member.js, no auth) additionally gets a narrow carve-out to bump
-      // its OWN doc's monthly check-in counter after a successful checkin —
+      // its OWN doc's monthly check-in counter after a successful checkin â€”
       // this is a harmless display stat, not a trust boundary, so it's
       // fine to allow without admin auth. `affectedKeys().hasOnly(...)`
       // guarantees no other field (approved, paymentStatus, plan, etc.) can
@@ -72,7 +72,7 @@ service cloud.firestore {
 
     // Checkins collection: Prevent fake check-ins from unapproved members.
     // `get` is public (same pattern as members/{phone} below) because
-    // members aren't signed in — the kiosk app needs to fetch a specific
+    // members aren't signed in â€” the kiosk app needs to fetch a specific
     // check-in doc by its deterministic ID (`${memberId}_${dateKey}`) to
     // show "already checked in today" and the last-7-days history, and
     // there's no auth session to scope a broader query to. `list` stays
@@ -102,15 +102,15 @@ service cloud.firestore {
 
     // Settings collection: Public read (UPI config, gym config/plans),
     // admin-only write. `gymConfig` gets an extra shape check purely for
-    // data-integrity — every page's plan picker and pricing display reads
+    // data-integrity â€” every page's plan picker and pricing display reads
     // this doc, so a malformed write (already gated to admins-only; this
     // isn't a new trust boundary) shouldn't be able to break the app for
     // every member at once.
         // Settings collection rules update:
     match /settings/{docId} {
       function isValidGymConfig() {
-        return request.resource.data.gymName is string
-              && request.resource.data.gymName.size() > 0
+        return request.resource.data.name is string
+              && request.resource.data.name.size() > 0
               && request.resource.data.defaultCountryCode is string
               && request.resource.data.plans is map
               && request.resource.data.plans.size() > 0;
@@ -128,7 +128,7 @@ service cloud.firestore {
     // A signed-in user may read ONLY their own doc ID (needed by the
     // client's direct isVerifiedAdmin() lookup in admin.js). Nobody, not
     // even an authenticated admin, can list the whole collection, and no
-    // client write is ever allowed — the whitelist is managed exclusively
+    // client write is ever allowed â€” the whitelist is managed exclusively
     // from the Firebase Console / Admin SDK.
     match /admins/{email} {
       allow get: if request.auth != null && request.auth.token.email.lower() == email.lower();
