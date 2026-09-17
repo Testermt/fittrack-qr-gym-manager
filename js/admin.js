@@ -175,7 +175,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("deviceVerifySignOutBtn").addEventListener("click", () => auth.signOut());
   document.getElementById("biometricSetupEnableBtn").addEventListener("click", handleBiometricSetup);
   document.getElementById("biometricSetupSkipBtn").addEventListener("click", handleBiometricSkip);
-  document.getElementById("deviceLockToggleBtn").addEventListener("click", handleDeviceLockToggle);
 
   auth.onAuthStateChanged((user) => {
     if (user) {
@@ -321,7 +320,6 @@ function showLogin() {
 function showDashboard(user) {
   showScreen("dashboardScreen");
   document.getElementById("adminEmailLabel").textContent = user.email;
-  updateDeviceLockToggle(user);
 
   subscribeMembers();
   subscribeWeeklyAndTodayCheckins(); // <-- Yeh dono cheezein ek sath handle karega (Chart + Today's List)
@@ -469,32 +467,6 @@ function handleBiometricSkip() {
   const user = auth.currentUser;
   if (user) markBiometricSetupSkipped(user.uid);
   showDashboard(user);
-}
-
-function updateDeviceLockToggle(user) {
-  const btn = document.getElementById("deviceLockToggleBtn");
-  const signedInWithGoogle = user.providerData.some((p) => p.providerId === "google.com");
-  if (!signedInWithGoogle) {
-    btn.classList.add("hidden");
-    return;
-  }
-  btn.classList.remove("hidden");
-  const enabled = !!getStoredCredentialId(user.uid);
-  btn.textContent = enabled ? "🔓 Remove device lock" : "🔒 Enable device lock";
-}
-
-async function handleDeviceLockToggle() {
-  const user = auth.currentUser;
-  if (!user) return;
-  if (getStoredCredentialId(user.uid)) {
-    const confirmed = confirm("Remove the device lock from this browser?");
-    if (confirmed) {
-      clearStoredCredentialId(user.uid);
-      updateDeviceLockToggle(user);
-    }
-    return;
-  }
-  showScreen("biometricSetupScreen");
 }
 
 function credentialStorageKey(uid) { return `ft_biometric_cred_${uid}`; }
