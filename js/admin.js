@@ -1483,8 +1483,10 @@ function addPlanRow(id, plan) {
   const template = document.getElementById("settingsPlanRowTemplate");
   const row = template.content.firstElementChild.cloneNode(true);
   row.dataset.planId = id;
+  const isDays = plan.days != null;
   row.querySelector('[data-field="label"]').value = plan.label || "";
-  row.querySelector('[data-field="months"]').value = plan.months || 1;
+  row.querySelector('[data-field="duration"]').value = isDays ? plan.days : (plan.months || 1);
+  row.querySelector('[data-field="durationUnit"]').value = isDays ? "days" : "months";
   row.querySelector('[data-field="price"]').value = plan.price ?? 0;
   document.getElementById("settingsPlanRows").appendChild(row);
 }
@@ -1523,14 +1525,20 @@ async function handleGymSettingsSubmit(e) {
   for (const row of rows) {
     const id = row.dataset.planId;
     const label = row.querySelector('[data-field="label"]').value.trim();
-    const months = Number(row.querySelector('[data-field="months"]').value);
+    const duration = Number(row.querySelector('[data-field="duration"]').value);
+    const unit = row.querySelector('[data-field="durationUnit"]').value;
     const price = Number(row.querySelector('[data-field="price"]').value);
-    if (!label || !months || months < 1 || price < 0) {
-      errorEl.textContent = "Every plan needs a label, at least 1 month, and a valid price.";
+    if (!label || !duration || duration < 1 || price < 0) {
+      errorEl.textContent = "Every plan needs a label, a valid duration, and a valid price.";
       errorEl.classList.remove("hidden");
       return;
     }
-    plans[id] = { label, months, price };
+    // Stored shape stays { label, months, price } or { label, days, price }
+    // — addMemberSubmit/member.js self-registration already branch on
+    // plan.days vs plan.months when computing expiryDate.
+    plans[id] = unit === "days"
+      ? { label, days: duration, price }
+      : { label, months: duration, price };
   }
 
   if (!name || !defaultCountryCode || Object.keys(plans).length === 0) {

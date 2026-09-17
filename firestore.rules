@@ -32,7 +32,20 @@ service cloud.firestore {
               && request.resource.data.name.size() > 0
               && request.resource.data.name.size() < 100
               && request.resource.data.address is string
-              && request.resource.data.plan in ['1m','3m','6m','12m']
+              // Any of the original 4 built-in IDs is always valid (back-
+              // compat / safety net if gymConfig hasn't been written yet),
+              // OR the plan ID currently exists in settings/gymConfig.plans
+              // — this is what lets an admin-added plan (5th, 6th... plan,
+              // including day-based ones) actually be usable to register a
+              // member instead of being silently rejected here.
+              && (
+                   request.resource.data.plan in ['1m','3m','6m','12m']
+                   || (
+                        exists(/databases/$(database)/documents/settings/gymConfig)
+                        && request.resource.data.plan in
+                             get(/databases/$(database)/documents/settings/gymConfig).data.plans.keys()
+                      )
+                 )
               && request.resource.data.joinDate is string
               && request.resource.data.expiryDate is string
               && (!('whatsappBotOptIn' in request.resource.data) || request.resource.data.whatsappBotOptIn is bool)
