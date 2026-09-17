@@ -407,9 +407,11 @@ function renderProfileMenu(user) {
   const img = document.getElementById("profileAvatarImg");
   const fallback = document.getElementById("profileAvatarFallback");
   const nameLabel = document.getElementById("profileNameLabel");
+  const emailLabel = document.getElementById("profileEmailLabel");
 
   const name = user.displayName || (user.email ? user.email.split("@")[0] : "Admin");
   nameLabel.textContent = name;
+  if (emailLabel) emailLabel.textContent = user.email || "";
 
   if (user.photoURL) {
     img.src = user.photoURL;
