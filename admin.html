@@ -166,50 +166,31 @@
         <div class="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
 
           <!-- Notification bell (Play Store style): round icon + unread-count
-               badge. Dropdown lists auto-generated alerts (new member joined,
-               SaaS trial/plan expiring or expired) plus any custom message
-               the owner drops into the control Firebase project's
-               broadcasts/{GYM_ID}/items collection. Read/unread state is
-               tracked locally per device (localStorage) since these are
-               computed, not stored docs — see renderNotifications() in
-               admin.js. -->
+               badge. The actual dropdown panel lives outside <header> (see
+               below) and is positioned in JS via getBoundingClientRect, so
+               it's never affected by the header's own sticky/blur styling. -->
           <div class="relative" id="notifWrap">
             <button id="notifBtn" type="button" aria-label="Notifications"
               class="relative w-9 h-9 rounded-full border border-slate-700 flex items-center justify-center text-slate-300 hover:border-accent/60 hover:text-accent hover:bg-accent/10 transition">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
               <span id="notifBadge" class="hidden absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-400 text-white text-[10px] font-bold leading-4 text-center">0</span>
             </button>
-            <div id="notifDropdown"
-              class="hidden absolute right-0 mt-2 w-80 max-w-[85vw] rounded-lg border border-slate-700 bg-panel shadow-xl overflow-hidden z-20">
-              <div class="flex items-center justify-between px-3 py-2 border-b border-slate-800">
-                <span class="text-xs font-semibold text-slate-300">Notifications</span>
-                <button id="notifMarkAllReadBtn" type="button" class="text-[11px] font-medium text-accent hover:underline">Mark all read</button>
-              </div>
-              <div id="notifList" class="max-h-80 overflow-y-auto divide-y divide-slate-800"></div>
-              <p id="notifEmptyState" class="hidden text-xs text-slate-600 text-center py-6">No notifications yet.</p>
-            </div>
           </div>
 
           <!-- Round "more options" menu (Play Store profile-icon style): a
                single round icon whose dropdown holds Plan & Features and
                Gym Settings as a list. Add future items here as one more
-               <button class="more-menu-item ..."> — no other markup needed. -->
+               <button class="more-menu-item ..."> inside #moreMenuDropdown
+               below — no other markup needed. -->
           <div class="relative" id="moreMenuWrap">
             <button id="moreMenuBtn" type="button" aria-label="More options"
               class="w-9 h-9 rounded-full border border-slate-700 flex items-center justify-center text-slate-300 hover:border-accent/60 hover:text-accent hover:bg-accent/10 transition">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h16V6H4v2zm0 5h16v-2H4v2zm0 5h16v-2H4v2z"/></svg>
             </button>
-            <div id="moreMenuDropdown"
-              class="hidden absolute right-0 mt-2 w-48 rounded-lg border border-slate-700 bg-panel shadow-xl overflow-hidden z-20">
-              <button id="planFeaturesBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">📦</span> Plan &amp; Features</button>
-              <button id="gymSettingsBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">⚙</span> Gym Settings</button>
-              <!-- 👉 Future menu items go here, same button/classes pattern -->
-            </div>
           </div>
 
-          <!-- Profile menu: shows the signed-in Google account's photo/name,
-               with Sign Out tucked inside a dropdown instead of sitting in
-               the header as its own line. -->
+          <!-- Profile menu: shows the signed-in Google account's photo,
+               with name/email + Sign Out tucked inside a dropdown. -->
           <div class="relative" id="profileMenuWrap">
             <button id="profileMenuBtn" type="button" aria-label="Account"
               class="w-9 h-9 shrink-0 rounded-full border border-slate-700 flex items-center justify-center overflow-hidden hover:border-accent/60 hover:bg-accent/10 transition">
@@ -218,19 +199,49 @@
               <span id="profileAvatarFallback"
                 class="w-full h-full rounded-full bg-accent/20 text-accent text-xs font-semibold flex items-center justify-center"></span>
             </button>
-            <div id="profileMenuDropdown"
-              class="hidden absolute right-0 mt-2 w-48 rounded-lg border border-slate-700 bg-panel shadow-xl overflow-hidden z-20">
-              <div class="px-3 py-2.5 border-b border-slate-800">
-                <p id="profileNameLabel" class="text-sm font-medium text-slate-100 truncate"></p>
-                <p id="profileEmailLabel" class="text-xs text-slate-500 truncate"></p>
-              </div>
-              <button id="logoutBtn" type="button"
-                class="w-full text-left px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 transition">Sign Out</button>
-            </div>
           </div>
         </div>
       </div>
     </header>
+
+    <!-- ============= HEADER DROPDOWN PANELS =============
+         Deliberately placed OUTSIDE <header> (which is `sticky` + has
+         backdrop-blur) and positioned with `fixed` + JS-computed
+         top/right (see positionHeaderDropdown() in admin.js). This keeps
+         every panel correctly anchored under its trigger icon AND fully
+         clamped inside the viewport on any screen size — phone, tablet,
+         or a wide desktop window — instead of relying on CSS `absolute
+         right-0`, which broke on narrow phones once the icon moved away
+         from the true right edge of the screen. -->
+    <div id="notifDropdown"
+      class="hidden fixed w-[320px] max-w-[calc(100vw-1.5rem)] max-h-[75vh] flex flex-col rounded-lg border border-slate-700 bg-panel shadow-xl overflow-hidden z-30">
+      <div class="flex items-center justify-between px-3 py-2 border-b border-slate-800 shrink-0 gap-2">
+        <span class="text-xs font-semibold text-slate-300">Notifications</span>
+        <span class="flex items-center gap-2.5 shrink-0">
+          <button id="notifMarkAllReadBtn" type="button" class="text-[11px] font-medium text-accent hover:underline whitespace-nowrap">Mark all read</button>
+          <button id="notifClearAllBtn" type="button" class="text-[11px] font-medium text-slate-500 hover:text-rose-400 hover:underline whitespace-nowrap">Clear all</button>
+        </span>
+      </div>
+      <div id="notifList" class="overflow-y-auto divide-y divide-slate-800"></div>
+      <p id="notifEmptyState" class="hidden text-xs text-slate-600 text-center py-6">No notifications yet.</p>
+    </div>
+
+    <div id="moreMenuDropdown"
+      class="hidden fixed w-48 max-w-[calc(100vw-1.5rem)] max-h-[75vh] overflow-y-auto rounded-lg border border-slate-700 bg-panel shadow-xl z-30">
+      <button id="planFeaturesBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">📦</span> Plan &amp; Features</button>
+      <button id="gymSettingsBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">⚙</span> Gym Settings</button>
+      <!-- 👉 Future menu items go here, same button/classes pattern -->
+    </div>
+
+    <div id="profileMenuDropdown"
+      class="hidden fixed w-48 max-w-[calc(100vw-1.5rem)] max-h-[75vh] overflow-y-auto rounded-lg border border-slate-700 bg-panel shadow-xl z-30">
+      <div class="px-3 py-2.5 border-b border-slate-800">
+        <p id="profileNameLabel" class="text-sm font-medium text-slate-100 truncate"></p>
+        <p id="profileEmailLabel" class="text-xs text-slate-500 truncate"></p>
+      </div>
+      <button id="logoutBtn" type="button"
+        class="w-full text-left px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 transition">Sign Out</button>
+    </div>
 
     <!-- 🔥 Offline indicator — hidden by default, shown via JS on 'offline' event -->
     <div id="offlineBanner" class="hidden bg-amber-500/15 border-b border-amber-500/30 text-amber-400 text-xs sm:text-sm text-center py-2 px-3">

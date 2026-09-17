@@ -190,6 +190,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     e.stopPropagation();
     markAllNotificationsRead();
   });
+  document.getElementById("notifClearAllBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    clearAllNotifications();
+  });
   subscribeBroadcasts();
 
   // Profile menu (photo/name button -> Sign Out dropdown)
@@ -424,12 +428,50 @@ function renderProfileMenu(user) {
   }
 }
 
+// ----------------------------------------------------------------------
+// Shared "fixed-position dropdown" helper for the header icon cluster
+// (notifications / more-options / profile). Using position:fixed + a
+// JS-computed top/right (instead of CSS `absolute right-0`) means each
+// panel is always anchored to its own trigger button but clamped to the
+// actual viewport — so it can never spill off the left edge on a narrow
+// phone, and still lands in the right place on a tablet or a wide
+// desktop window. Recomputed on open and on resize/orientation-change
+// while a panel is open.
+// ----------------------------------------------------------------------
+const HEADER_DROPDOWN_IDS = ["notifDropdown", "moreMenuDropdown", "profileMenuDropdown"];
+
+function positionHeaderDropdown(triggerBtn, dropdownEl) {
+  const rect = triggerBtn.getBoundingClientRect();
+  const margin = 12; // keep a small gap from the viewport edge
+  const width = dropdownEl.offsetWidth || 320;
+  let right = window.innerWidth - rect.right;
+  if (right + width > window.innerWidth - margin) right = margin;
+  if (right < margin) right = margin;
+  dropdownEl.style.top = `${Math.round(rect.bottom + 8)}px`;
+  dropdownEl.style.right = `${Math.round(right)}px`;
+}
+
+function repositionOpenHeaderDropdowns() {
+  const map = { notifDropdown: "notifBtn", moreMenuDropdown: "moreMenuBtn", profileMenuDropdown: "profileMenuBtn" };
+  HEADER_DROPDOWN_IDS.forEach((id) => {
+    const dropdown = document.getElementById(id);
+    const btn = document.getElementById(map[id]);
+    if (dropdown && btn && !dropdown.classList.contains("hidden")) {
+      positionHeaderDropdown(btn, dropdown);
+    }
+  });
+}
+window.addEventListener("resize", repositionOpenHeaderDropdowns);
+window.addEventListener("orientationchange", repositionOpenHeaderDropdowns);
+
 function toggleProfileMenu(forceClose) {
   const dropdown = document.getElementById("profileMenuDropdown");
   if (forceClose) {
     dropdown.classList.add("hidden");
   } else {
+    const willOpen = dropdown.classList.contains("hidden");
     dropdown.classList.toggle("hidden");
+    if (willOpen) positionHeaderDropdown(document.getElementById("profileMenuBtn"), dropdown);
   }
 }
 
@@ -440,7 +482,9 @@ function toggleMoreMenu(forceClose) {
   if (forceClose) {
     dropdown.classList.add("hidden");
   } else {
+    const willOpen = dropdown.classList.contains("hidden");
     dropdown.classList.toggle("hidden");
+    if (willOpen) positionHeaderDropdown(document.getElementById("moreMenuBtn"), dropdown);
   }
 }
 
@@ -453,8 +497,12 @@ function toggleNotifDropdown(forceClose) {
   if (forceClose) {
     dropdown.classList.add("hidden");
   } else {
+    const willOpen = dropdown.classList.contains("hidden");
     dropdown.classList.toggle("hidden");
-    if (!dropdown.classList.contains("hidden")) renderNotifications();
+    if (willOpen) {
+      positionHeaderDropdown(document.getElementById("notifBtn"), dropdown);
+      renderNotifications();
+    }
   }
 }
 
@@ -645,24 +693,32 @@ function subscribeMembers() {
 // ----------------------------------------------------------------------
 // Notifications (bell dropdown)
 //
-// Three sources, none of which need a new Firestore write path:
+// Four sources, none of which need a new Firestore write path:
 //  1. New members — computed straight from allMembers (createdAt/joinDate
 //     within the last NEW_MEMBER_WINDOW_MS), refreshed every time the
 //     members listener fires.
-//  2. This gym's own SaaS trial/plan expiring soon or already expired —
+//  2. Members whose membership due date has arrived or already passed —
+//     computed straight from allMembers' expiryDate (daysUntil() <= 0).
+//  3. This gym's own SaaS trial/plan expiring soon or already expired —
 //     read from TIER_STATE (already loaded from the control project's
 //     subscriptions/{GYM_ID} doc by loadTierConfig() in firebase-config.js).
-//  3. Custom messages the owner drops by hand into the control project's
+//  4. Custom messages the owner drops by hand into the control project's
 //     broadcasts/{GYM_ID}/items collection (read-only from the client —
 //     see the Firestore rule for it). Live via onSnapshot so a message
 //     shows up without a page reload.
 //
-// Read/unread state lives in localStorage (per device) since #1 and #2
-// are computed on the fly, not stored docs — there's nothing to write
-// "read: true" onto server-side.
+// Read/unread and cleared/dismissed state both live in localStorage (per
+// device) since #1-#3 are computed on the fly, not stored docs — there's
+// nothing to write "read: true" or "deleted" onto server-side. Each id
+// bakes in the value that would change on a genuine new event (e.g. a
+// member's expiryDate, or the subscription's expiresAt) so clearing a
+// notification hides that specific event for good, while a *future*
+// event (renewed plan -> new expiryDate) still gets its own fresh id and
+// shows up normally.
 // ----------------------------------------------------------------------
 
 const NOTIF_READ_KEY = "fittrack:notifRead:v1";
+const NOTIF_DISMISSED_KEY = "fittrack:notifDismissed:v1";
 const NEW_MEMBER_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // show "new member" for 3 days
 const PLAN_EXPIRY_WARNING_DAYS = 3; // "expiring soon" starts this many days out
 
@@ -686,6 +742,31 @@ function markNotifRead(id) {
 function markAllNotificationsRead() {
   const all = computeNotifications().map((n) => n.id);
   try { localStorage.setItem(NOTIF_READ_KEY, JSON.stringify(all)); } catch (e) {}
+  renderNotifications();
+}
+
+function getDismissedNotifIds() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(NOTIF_DISMISSED_KEY) || "[]"));
+  } catch (e) {
+    return new Set();
+  }
+}
+
+/** Clears (hides) a single notification. It won't come back unless the
+ * underlying event changes (e.g. the member's plan gets renewed). */
+function dismissNotification(id) {
+  const dismissed = getDismissedNotifIds();
+  dismissed.add(id);
+  try { localStorage.setItem(NOTIF_DISMISSED_KEY, JSON.stringify([...dismissed])); } catch (e) {}
+  renderNotifications();
+}
+
+/** Clears every notification currently showing. */
+function clearAllNotifications() {
+  const dismissed = getDismissedNotifIds();
+  computeNotifications({ includeDismissed: true }).forEach((n) => dismissed.add(n.id));
+  try { localStorage.setItem(NOTIF_DISMISSED_KEY, JSON.stringify([...dismissed])); } catch (e) {}
   renderNotifications();
 }
 
@@ -726,8 +807,10 @@ function subscribeBroadcasts() {
   }
 }
 
-/** Builds the current notification list, newest first. */
-function computeNotifications() {
+/** Builds the current notification list, newest first. Pass
+ * { includeDismissed: true } to get every computed item regardless of
+ * dismissed state (used by "Clear all" to know every id to hide). */
+function computeNotifications({ includeDismissed = false } = {}) {
   const items = [];
   const now = Date.now();
 
@@ -740,7 +823,7 @@ function computeNotifications() {
       : null;
     if (createdAtMs && now - createdAtMs <= NEW_MEMBER_WINDOW_MS) {
       items.push({
-        id: `member-${m.id}`,
+        id: `member-new-${m.id}-${createdAtMs}`,
         icon: "🆕",
         title: "New member joined",
         subtitle: m.name || "A new member",
@@ -749,11 +832,26 @@ function computeNotifications() {
     }
   });
 
-  // 2. This gym's SaaS trial/plan status (from TIER_STATE, control project)
+  // 2. Members whose due date has arrived or already passed
+  allMembers.forEach((m) => {
+    if (!m.expiryDate) return;
+    const due = daysUntil(m.expiryDate);
+    if (due <= 0) {
+      items.push({
+        id: `member-due-${m.id}-${m.expiryDate}`,
+        icon: "⚠️",
+        title: `Membership due: ${m.name || "Member"}`,
+        subtitle: due === 0 ? "Due today." : `Overdue by ${Math.abs(due)} day${Math.abs(due) === 1 ? "" : "s"}.`,
+        timeMs: new Date(m.expiryDate).getTime() || now,
+      });
+    }
+  });
+
+  // 3. This gym's SaaS trial/plan status (from TIER_STATE, control project)
   if (TIER_STATE.expiresAt) {
     if (isAccessLocked()) {
       items.push({
-        id: "sub-expired",
+        id: `sub-expired-${TIER_STATE.expiresAt}`,
         icon: "🔴",
         title: TIER_STATE.status === "trial" ? "Your free trial has expired" : "Your plan has expired",
         subtitle: "Renew to keep using the dashboard.",
@@ -763,7 +861,7 @@ function computeNotifications() {
       const days = daysUntilExpiry();
       if (days !== null && days <= PLAN_EXPIRY_WARNING_DAYS) {
         items.push({
-          id: "sub-expiring",
+          id: `sub-expiring-${TIER_STATE.expiresAt}`,
           icon: "⏳",
           title: TIER_STATE.status === "trial" ? "Your free trial is ending soon" : "Your plan is expiring soon",
           subtitle: days === 0 ? "Expires today." : `Expires in ${days} day${days === 1 ? "" : "s"}.`,
@@ -773,7 +871,7 @@ function computeNotifications() {
     }
   }
 
-  // 3. Custom broadcasts (owner-authored, from control Firebase)
+  // 4. Custom broadcasts (owner-authored, from control Firebase)
   broadcastMessages.forEach((b) => {
     items.push({
       id: b.id,
@@ -785,7 +883,10 @@ function computeNotifications() {
   });
 
   items.sort((a, b) => b.timeMs - a.timeMs);
-  return items;
+
+  if (includeDismissed) return items;
+  const dismissed = getDismissedNotifIds();
+  return items.filter((n) => !dismissed.has(n.id));
 }
 
 function renderNotifications() {
@@ -806,27 +907,34 @@ function renderNotifications() {
 
   items.forEach((n) => {
     const isUnread = !readIds.has(n.id);
-    const li = document.createElement("button");
-    li.type = "button";
-    li.dataset.notifId = n.id;
-    li.className = `w-full text-left flex items-start gap-2.5 px-3 py-2.5 hover:bg-slate-800 transition ${
+    const row = document.createElement("div");
+    row.dataset.notifId = n.id;
+    row.className = `w-full flex items-start gap-2 px-3 py-2.5 hover:bg-slate-800 transition ${
       isUnread ? "bg-accent/5" : ""
     }`;
-    li.innerHTML = `
-      <span class="text-base leading-none mt-0.5">${n.icon}</span>
-      <span class="flex-1 min-w-0">
-        <span class="flex items-center gap-1.5">
-          <span class="text-sm font-medium text-slate-100 truncate">${escapeHtml(n.title)}</span>
-          ${isUnread ? '<span class="w-1.5 h-1.5 rounded-full bg-accent shrink-0"></span>' : ""}
+    row.innerHTML = `
+      <button type="button" data-role="notif-open" class="flex-1 min-w-0 flex items-start gap-2.5 text-left">
+        <span class="text-base leading-none mt-0.5">${n.icon}</span>
+        <span class="flex-1 min-w-0">
+          <span class="flex items-center gap-1.5">
+            <span class="text-sm font-medium text-slate-100 truncate">${escapeHtml(n.title)}</span>
+            ${isUnread ? '<span class="w-1.5 h-1.5 rounded-full bg-accent shrink-0"></span>' : ""}
+          </span>
+          <span class="block text-xs text-slate-500 truncate">${escapeHtml(n.subtitle || "")}</span>
         </span>
-        <span class="block text-xs text-slate-500 truncate">${escapeHtml(n.subtitle || "")}</span>
-      </span>
+      </button>
+      <button type="button" data-role="notif-clear" aria-label="Clear notification"
+        class="shrink-0 text-slate-600 hover:text-rose-400 transition text-base leading-none px-1 py-0.5">&times;</button>
     `;
-    li.addEventListener("click", () => {
+    row.querySelector('[data-role="notif-open"]').addEventListener("click", () => {
       markNotifRead(n.id);
       renderNotifications();
     });
-    list.appendChild(li);
+    row.querySelector('[data-role="notif-clear"]').addEventListener("click", (e) => {
+      e.stopPropagation();
+      dismissNotification(n.id);
+    });
+    list.appendChild(row);
   });
 }
 
