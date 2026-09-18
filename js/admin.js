@@ -16,6 +16,14 @@ let todayCheckedInIds = new Set();
 // Variable to track pending secure action for re-auth
 let pendingReauthAction = null;
 
+// Grace window: once the admin has verified once (passkey/password), any
+// OTHER sensitive action (delete / mark-paid / refund / phone-change)
+// within this window skips re-asking — avoids re-verifying 3-4 times in a
+// row during, say, a bulk cleanup session. Resets on page reload (in
+// memory only, never persisted), so a fresh session always re-verifies.
+const REAUTH_GRACE_MS = 5 * 60 * 1000;
+let lastVerifiedAt = 0;
+
 // Member currently open in the Renew Plan modal
 let pendingRenewMember = null;
 
@@ -126,7 +134,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Email/Password form listeners hata diye gaye hain kyunki form remove kar diya hai
   document.getElementById("googleSignInBtn").addEventListener("click", handleGoogleSignIn);
-  document.getElementById("logoutBtn").addEventListener("click", () => auth.signOut());
+  document.getElementById("logoutBtn").addEventListener("click", () => { lastVerifiedAt = 0; auth.signOut(); });
   document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
 
   // Status Filter Buttons listener
@@ -2278,11 +2286,34 @@ async function handleAddMemberSubmit(e) {
 
 
 // ------------------------------------------------- re-auth confirmation --
+
+/** Runs the actual sensitive action once verification (fresh or grace-window) has passed. */
+async function dispatchReauthedAction({ type, member, btn, extra }) {
+  if (type === "delete") {
+    await executeDeleteMember(member, btn);
+  } else if (type === "mark-paid") {
+    await executeMarkAsPaid(member, btn);
+  } else if (type === "phone-change") {
+    await executePhoneChangeMigration(member, extra.newPhone, btn);
+  } else if (type === "refund") {
+    await executeRefundMigration(member, extra.amount, extra.reason);
+  }
+}
+
 function requestReauth(type, member, btn, extra) {
   const user = auth.currentUser;
   if (!user) return;
 
-  pendingReauthAction = { type, member, btn, extra: extra || null };
+  const action = { type, member, btn, extra: extra || null };
+
+  // Grace window: skip re-verifying if the admin already confirmed their
+  // identity for a different sensitive action within the last few minutes.
+  if (Date.now() - lastVerifiedAt < REAUTH_GRACE_MS) {
+    dispatchReauthedAction(action);
+    return;
+  }
+
+  pendingReauthAction = action;
   const isPasswordUser = user.providerData.some((p) => p.providerId === "password");
 
   const titleEl = document.getElementById("reauthTitle");
@@ -2383,19 +2414,12 @@ async function handleReauthSubmit(e) {
       await user.reauthenticateWithCredential(credential);
     }
 
-    // Security check passed successfully! Execute the action.
-    const { type, member, btn, extra } = pendingReauthAction;
+    // Security check passed successfully! Start the grace window, then
+    // execute the action.
+    lastVerifiedAt = Date.now();
+    const completedAction = pendingReauthAction;
     closeReauthModal();
-
-    if (type === "delete") {
-      await executeDeleteMember(member, btn);
-    } else if (type === "mark-paid") {
-      await executeMarkAsPaid(member, btn);
-    } else if (type === "phone-change") {
-      await executePhoneChangeMigration(member, extra.newPhone, btn);
-    } else if (type === "refund") {
-      await executeRefundMigration(member, extra.amount, extra.reason);
-    }
+    await dispatchReauthedAction(completedAction);
   } catch (err) {
     console.error("Verification failed:", err);
     let message = "Verification failed. Please try again.";
