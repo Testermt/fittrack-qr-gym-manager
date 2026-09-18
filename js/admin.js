@@ -1589,7 +1589,6 @@ async function handleRefundSubmit(e) {
 
   const amount = Number(document.getElementById("refundAmountInput").value);
   const reason = document.getElementById("refundReasonInput").value.trim();
-  const { plan, daysRemaining } = computeSuggestedRefund(member);
 
   if (!Number.isFinite(amount) || amount < 0) {
     errorEl.textContent = "Please enter a valid refund amount.";
@@ -1597,10 +1596,16 @@ async function handleRefundSubmit(e) {
     return;
   }
 
-  const originalLabel = submitBtn.textContent;
-  submitBtn.disabled = true;
-  submitBtn.textContent = "Processing…";
+  // Sensitive action (money going back out, membership ends immediately,
+  // irreversible) — same passkey/password re-verification gate as Mark as
+  // Paid / Delete / Change Phone Number before the refund actually posts.
+  closeRefundModal();
+  requestReauth("refund", member, null, { amount, reason });
+}
 
+/** Runs the actual refund write — only called after requestReauth("refund", …) succeeds. */
+async function executeRefundMigration(member, amount, reason) {
+  const { plan, daysRemaining } = computeSuggestedRefund(member);
   try {
     const today = toDateKey(new Date());
     await refundsCol.add({
@@ -1625,15 +1630,9 @@ async function handleRefundSubmit(e) {
       cancelledAt: today,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
-
-    closeRefundModal();
   } catch (err) {
     console.error(err);
-    errorEl.textContent = "Could not process refund. Please try again.";
-    errorEl.classList.remove("hidden");
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalLabel;
+    alert("Could not process refund. Please try again.");
   }
 }
 
@@ -1699,19 +1698,45 @@ async function handlePhoneChangeSubmit(e) {
 
   const originalLabel = submitBtn.textContent;
   submitBtn.disabled = true;
-  submitBtn.textContent = "Migrating…";
+  submitBtn.textContent = "Checking…";
 
   try {
-    const newDocRef = membersCol.doc(newPhone);
-    const existing = await newDocRef.get();
+    // Sanity-check up front (cheap reads, no writes yet) so the admin
+    // doesn't go through passkey/password verification only to hit an
+    // avoidable "already exists" error afterwards.
+    const existing = await membersCol.doc(newPhone).get();
     if (existing.exists) {
       showPhoneChangeError("A member with this phone number already exists.");
       return;
     }
-
     const oldSnap = await membersCol.doc(oldPhone).get();
     if (!oldSnap.exists) {
       showPhoneChangeError("This member's record could not be found. Please refresh and try again.");
+      return;
+    }
+
+    // Sensitive action (rewrites the member's identity/history under a new
+    // doc ID) — same passkey/password re-verification gate as Mark as
+    // Paid / Delete before the actual migration runs.
+    closePhoneChangeModal();
+    requestReauth("phone-change", member, null, { newPhone });
+  } catch (err) {
+    console.error(err);
+    showPhoneChangeError("Could not verify phone number. Please try again.");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+}
+
+/** Runs the actual doc migration — only called after requestReauth("phone-change", …) succeeds. */
+async function executePhoneChangeMigration(member, newPhone, btn) {
+  const oldPhone = member.id;
+  try {
+    const newDocRef = membersCol.doc(newPhone);
+    const oldSnap = await membersCol.doc(oldPhone).get();
+    if (!oldSnap.exists) {
+      alert("This member's record could not be found. Please refresh and try again.");
       return;
     }
     const oldData = oldSnap.data();
@@ -1774,14 +1799,9 @@ async function handlePhoneChangeSubmit(e) {
 
     // 4) Finally, drop the old member doc now that everything's migrated.
     await membersCol.doc(oldPhone).delete();
-
-    closePhoneChangeModal();
   } catch (err) {
     console.error(err);
-    showPhoneChangeError("Could not change phone number. Please try again.");
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalLabel;
+    alert("Could not change phone number. Please try again.");
   }
 }
 
@@ -2258,11 +2278,11 @@ async function handleAddMemberSubmit(e) {
 
 
 // ------------------------------------------------- re-auth confirmation --
-function requestReauth(type, member, btn) {
+function requestReauth(type, member, btn, extra) {
   const user = auth.currentUser;
   if (!user) return;
 
-  pendingReauthAction = { type, member, btn };
+  pendingReauthAction = { type, member, btn, extra: extra || null };
   const isPasswordUser = user.providerData.some((p) => p.providerId === "password");
 
   const titleEl = document.getElementById("reauthTitle");
@@ -2279,6 +2299,12 @@ function requestReauth(type, member, btn) {
   if (type === "delete") {
     titleEl.textContent = "Delete this member?";
     msgEl.textContent = `This permanently deletes ${member.name}'s record from Firestore. Confirm your identity to continue.`;
+  } else if (type === "phone-change") {
+    titleEl.textContent = "Confirm phone number change?";
+    msgEl.textContent = `This moves ${member.name}'s record (plan, dues, check-in history) from +${GYM_SETTINGS.defaultCountryCode} ${member.phone} to +${GYM_SETTINGS.defaultCountryCode} ${extra.newPhone}. Confirm your identity to continue.`;
+  } else if (type === "refund") {
+    titleEl.textContent = "Confirm refund?";
+    msgEl.textContent = `This refunds ${formatCurrency(extra.amount)} to ${member.name} and ends their membership immediately. Confirm your identity to continue.`;
   } else {
     titleEl.textContent = "Confirm payment update";
     msgEl.textContent = `This marks ${member.name}'s payment as PAID. Confirm your identity to continue.`;
@@ -2358,13 +2384,17 @@ async function handleReauthSubmit(e) {
     }
 
     // Security check passed successfully! Execute the action.
-    const { type, member, btn } = pendingReauthAction;
+    const { type, member, btn, extra } = pendingReauthAction;
     closeReauthModal();
 
     if (type === "delete") {
       await executeDeleteMember(member, btn);
     } else if (type === "mark-paid") {
       await executeMarkAsPaid(member, btn);
+    } else if (type === "phone-change") {
+      await executePhoneChangeMigration(member, extra.newPhone, btn);
+    } else if (type === "refund") {
+      await executeRefundMigration(member, extra.amount, extra.reason);
     }
   } catch (err) {
     console.error("Verification failed:", err);
