@@ -1206,16 +1206,52 @@ document.getElementById("memberTableBody").addEventListener("click", handleMembe
 document.getElementById("memberCardList").addEventListener("click", handleMemberActionClick);
 
 async function executeApproveMember(member, btn) {
+  const plan = PLANS[member.plan] || {};
+  const isDayPass = !!plan.days;
+  const isUnpaid = member.paymentStatus !== "paid";
+
+  // 🔥 Day passes are one-off walk-ins — once approved they can check in
+  // and leave, and there's no ongoing relationship to chase payment
+  // later. So approving an unpaid day-pass member now asks to collect
+  // payment in the same step, instead of silently approving on trust
+  // (which is fine for regular members, but risky for a one-time visitor).
+  let collectPaymentToo = false;
+  if (isDayPass && isUnpaid) {
+    collectPaymentToo = confirm(
+      `This is a ${plan.label || "day pass"} (${formatCurrency(plan.price || 0)}) and payment is still pending.\n\n` +
+      `Click OK to collect ${formatCurrency(plan.price || 0)} now and approve together, or Cancel to go back without approving.`
+    );
+    if (!collectPaymentToo) return; // admin backed out — member stays unapproved
+  }
+
   const originalLabel = btn ? btn.textContent : "";
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Approving…";
   }
   try {
-    await membersCol.doc(member.id).update({
+    const update = {
       approved: true,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+    if (collectPaymentToo) {
+      update.paymentStatus = "paid";
+      update.duesAmount = 0;
+    }
+    await membersCol.doc(member.id).update(update);
+
+    if (collectPaymentToo) {
+      await paymentsCol.add({
+        memberId: member.id,
+        name: member.name,
+        phone: member.phone,
+        plan: member.plan,
+        amount: plan.price || 0,
+        method: "cash",
+        dateKey: toDateKey(new Date()),
+        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
   } catch (err) {
     console.error(err);
     alert("Could not approve member. Please try again.");
@@ -1276,11 +1312,33 @@ function populateRenewPlanOptions(selectedPlanId) {
     .join("");
 }
 
+// 🔥 Day passes (1 Day, 3 Day, etc.) are walk-in, one-off transactions —
+// there's no ongoing relationship to chase dues later, so "Extend on
+// Credit" only makes sense for month-based plans. Force "Collect Now"
+// and hide the credit option whenever a day-based plan is selected.
+function updateRenewPaymentModeAvailability(plan) {
+  const creditRadio = document.querySelector('input[name="renewPaymentMode"][value="credit"]');
+  const creditLabel = creditRadio.closest("label");
+  const noteEl = document.getElementById("renewCreditNote");
+  const isDayPass = !!plan.days;
+
+  creditLabel.classList.toggle("hidden", isDayPass);
+  if (isDayPass) {
+    creditRadio.checked = false;
+    document.querySelector('input[name="renewPaymentMode"][value="now"]').checked = true;
+    noteEl.textContent = "Day passes must be paid upfront — credit isn't available for walk-in passes.";
+  } else {
+    noteEl.textContent = "\"Extend on Credit\" keeps this unpaid — the amount is added to their dues instead.";
+  }
+}
+
 function updateRenewPreview() {
   if (!pendingRenewMember) return;
   const planId = document.getElementById("renewPlanSelect").value;
   const plan = PLANS[planId];
   if (!plan) return;
+
+  updateRenewPaymentModeAvailability(plan);
 
   const baseDate = computeRenewBaseDate(pendingRenewMember);
   const newExpiry = computeRenewedExpiry(baseDate, plan);
@@ -1331,8 +1389,12 @@ async function handleRenewSubmit(e) {
 
   const planId = document.getElementById("renewPlanSelect").value;
   const plan = PLANS[planId];
-  const collectNow = document.querySelector('input[name="renewPaymentMode"]:checked')?.value === "now";
+  let collectNow = document.querySelector('input[name="renewPaymentMode"]:checked')?.value === "now";
   if (!plan) return;
+
+  // 🔥 Safety net: day passes always collect now, even if the UI state
+  // somehow got out of sync with the selected plan.
+  if (plan.days) collectNow = true;
 
   const baseDate = computeRenewBaseDate(member);
   const newExpiry = computeRenewedExpiry(baseDate, plan);
