@@ -1068,6 +1068,21 @@
   }
 </script>
 
+<script>
+  // Back button trap — user ko app ke andar hi rakhta hai, splash/previous
+  // page pe nahi jaane deta. History ke top pe hamesha ek dummy state
+  // push karte rehte hain, taaki popstate (back press) se app band/navigate
+  // na ho, sirf state re-push ho jaye.
+  (function () {
+    history.pushState(null, '', location.href);
+    window.addEventListener('popstate', function () {
+      history.pushState(null, '', location.href);
+      // agar koi modal khula hai tho use close karna chahte ho back se,
+      // tho yahan check kar sakte ho, e.g.:
+      // if (!welcomeModal.classList.contains('hidden')) closeWelcomeModal();
+    });
+  })();
+</script>
 
 </body>
 </html>
