@@ -228,10 +228,13 @@
 
     <div id="moreMenuDropdown"
       class="hidden fixed w-48 max-w-[calc(100vw-1.5rem)] max-h-[75vh] overflow-y-auto rounded-lg border border-slate-700 bg-panel shadow-xl z-30">
-      <button id="planFeaturesBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">📦</span> Plan &amp; Features</button>
-      <button id="gymSettingsBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">⚙</span> Gym Settings</button>
-      <button id="exportCsvBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">⬇</span> Export CSV</button>
+      <button id="planFeaturesBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">📦</span> Plan &amp; Features</button>
+      <button id="gymSettingsBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">⚙</span> Gym Settings</button>
+      <button id="couponsBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">🏷</span> Coupons</button>
+      <button id="exportCsvBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">⬇</span> Export CSV</button>
       <!-- 👉 Future menu items go here, same button/classes pattern -->
+      <!-- data-owner-only elements are hidden for front-desk staff by
+           applyRoleUI() in admin.js (staff/role permissions feature). -->
     </div>
 
     <div id="profileMenuDropdown"
@@ -267,13 +270,13 @@
           <p class="text-xs text-slate-500 mb-1">Pending Approval</p>
           <p id="statPendingApproval" class="text-xl sm:text-2xl font-bold text-amber-400">0</p>
         </div>
-        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
+        <div data-owner-only class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
           <p class="text-xs text-slate-500 mb-1">Pending Payments</p>
           <p id="statPending" class="text-xl sm:text-2xl font-bold text-amber-400">0</p>
           <!-- 🔥 Total accumulated dues across all members (credit renewals) -->
           <p id="statDuesSub" class="text-[11px] text-rose-400 mt-0.5"></p>
         </div>
-        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
+        <div data-owner-only class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
           <p class="text-xs text-slate-500 mb-1">Revenue (This Month)</p>
           <p id="statRevenue" class="text-xl sm:text-2xl font-bold text-accent">—</p>
         </div>
@@ -283,7 +286,7 @@
 
 
 <!-- ============= MONTHLY REVENUE HISTORY SECTION ============= -->
-<section class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-5">
+<section data-owner-only class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-5">
   <div class="flex items-center justify-between mb-4">
     <h2 class="font-semibold text-slate-100">Monthly Revenue History</h2>
     <span class="text-xs text-slate-500">Past Records</span>
@@ -347,7 +350,7 @@
             <div class="flex items-center gap-2 flex-1 justify-end flex-wrap">
               <input id="memberSearch" type="text" placeholder="Search by name or phone…"
                 class="w-full max-w-xs rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
-              <button id="openAddMemberBtn" type="button"
+              <button id="openAddMemberBtn" data-owner-only type="button"
                 class="text-xs font-semibold rounded-md bg-accent text-slate-950 px-3 py-2 hover:opacity-90 transition whitespace-nowrap">+ Add Member</button>
             </div>
           </div>
@@ -677,6 +680,23 @@
         <p id="renewCreditNote" class="text-[11px] text-slate-500 mt-1">"Extend on Credit" keeps this unpaid — the amount is added to their dues instead.</p>
       </div>
 
+      <!-- Referral / festival discount coupon — optional, applies only to
+           this renewal's plan price (never to existing dues). -->
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1" for="renewCouponCode">Coupon code (optional)</label>
+        <div class="flex gap-2">
+          <input id="renewCouponCode" type="text" placeholder="e.g. DIWALI25" autocapitalize="characters"
+            class="flex-1 min-w-0 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+          <button type="button" id="renewCouponApplyBtn"
+            class="shrink-0 rounded-lg border border-accent/50 text-accent text-xs font-semibold px-3 hover:bg-accent/10 transition">Apply</button>
+        </div>
+        <p id="renewCouponError" class="hidden text-xs text-rose-400 mt-1"></p>
+        <div id="renewCouponAppliedRow" class="hidden mt-1.5 flex items-center justify-between text-xs bg-success/10 border border-success/30 rounded-lg px-3 py-1.5">
+          <span class="text-success font-medium"><span id="renewCouponAppliedLabel"></span> <span id="renewCouponAppliedAmount"></span></span>
+          <button type="button" id="renewCouponClearBtn" class="text-slate-400 hover:text-rose-400 transition">Remove</button>
+        </div>
+      </div>
+
       <div class="rounded-lg bg-slate-900/60 border border-slate-800 px-3 py-2 text-xs space-y-1">
         <div class="flex justify-between text-slate-400">
           <span>New expiry</span>
@@ -770,6 +790,49 @@
           class="flex-1 rounded-lg bg-accent text-slate-950 text-sm font-semibold py-2 hover:opacity-90 transition">Save New Number</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Coupons Modal (owner-only) — create/list/toggle/delete referral or
+     festival discount codes used in the Renew Plan modal's coupon field. -->
+<div id="couponsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div id="couponsBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">
+    <div class="flex items-center justify-between mb-1">
+      <h3 class="font-semibold text-slate-50">Coupons</h3>
+      <button type="button" id="couponsCloseBtn" class="text-slate-500 hover:text-slate-300 transition text-xl leading-none">&times;</button>
+    </div>
+    <p class="text-xs text-slate-500 mt-1 mb-4">Create a referral or festival discount code. Apply it at renewal time instead of editing anyone's plan price.</p>
+
+    <form id="couponForm" class="space-y-3 pb-4 mb-4 border-b border-slate-800">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1" for="couponCode">Code</label>
+          <input id="couponCode" type="text" required maxlength="20" placeholder="DIWALI25" autocapitalize="characters"
+            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 uppercase focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1" for="couponValue">Value</label>
+          <input id="couponValue" type="number" min="1" step="1" required placeholder="e.g. 200 or 10"
+            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <label class="flex-1 cursor-pointer">
+          <input type="radio" name="couponType" value="flat" class="sr-only peer" checked />
+          <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-3 py-2 text-slate-400 peer-checked:bg-accent/15 peer-checked:text-accent peer-checked:border-accent/40 transition">₹ Flat off</span>
+        </label>
+        <label class="flex-1 cursor-pointer">
+          <input type="radio" name="couponType" value="percent" class="sr-only peer" />
+          <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-3 py-2 text-slate-400 peer-checked:bg-accent/15 peer-checked:text-accent peer-checked:border-accent/40 transition">% off</span>
+        </label>
+      </div>
+      <p id="couponError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"></p>
+      <button type="submit" class="w-full rounded-lg bg-accent text-slate-950 text-sm font-semibold py-2 hover:opacity-90 transition">+ Add Coupon</button>
+    </form>
+
+    <div id="couponsList" class="space-y-2"></div>
+    <p id="couponsEmptyState" class="hidden text-sm text-slate-600 text-center py-6">No coupons yet.</p>
   </div>
 </div>
 
