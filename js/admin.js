@@ -2875,42 +2875,95 @@ function renderWeeklyCheckinsChart(checkinsList) {
     }
   });
 
-  const labels = Object.values(daysMap).map(d => d.label);
-  const dataValues = Object.values(daysMap).map(d => d.count);
+  const entries = Object.values(daysMap);
+  const labels = entries.map((d) => d.label);
+  const dataValues = entries.map((d) => d.count);
+  const todayIndex = entries.length - 1; // last bucket is always today
 
   if (checkinsChartInstance) {
     checkinsChartInstance.destroy();
   }
 
+  const canvasCtx = ctx.getContext("2d");
+  // Soft vertical gradient (accent → a lighter tint of it) instead of a
+  // flat fill — reads as a lot more polished on a stats-card chart than a
+  // single solid colour.
+  const barGradient = canvasCtx.createLinearGradient(0, 0, 0, ctx.clientHeight || 140);
+  barGradient.addColorStop(0, "#0284C7");
+  barGradient.addColorStop(1, "#7DD3FC");
+  const barGradientHover = canvasCtx.createLinearGradient(0, 0, 0, ctx.clientHeight || 140);
+  barGradientHover.addColorStop(0, "#0369A1");
+  barGradientHover.addColorStop(1, "#38BDF8");
+
   checkinsChartInstance = new Chart(ctx, {
-    type: 'bar', // ya 'line' bhi kar sakta hai
+    type: "bar",
     data: {
-      labels: labels,
+      labels,
       datasets: [{
-        label: 'Check-ins',
+        label: "Check-ins",
         data: dataValues,
-        backgroundColor: '#38BDF8',
-        borderRadius: 4,
-        barThickness: 16,
-      }]
+        backgroundColor: dataValues.map((_, i) => (i === todayIndex ? barGradientHover : barGradient)),
+        hoverBackgroundColor: barGradientHover,
+        borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 },
+        borderSkipped: false,
+        maxBarThickness: 22,
+        categoryPercentage: 0.6,
+        barPercentage: 0.9,
+      }],
     },
+    plugins: [ChartDataLabels],
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: { duration: 500, easing: "easeOutQuart" },
+      layout: { padding: { top: 18 } },
       plugins: {
-        legend: { display: false }
+        legend: { display: false },
+        tooltip: {
+          enabled: true,
+          backgroundColor: "#0F172A",
+          titleColor: "#94A3B8",
+          bodyColor: "#F8FAFC",
+          bodyFont: { weight: "600" },
+          padding: 10,
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            title: (items) => items[0].label,
+            label: (item) => `${item.parsed.y} check-in${item.parsed.y === 1 ? "" : "s"}`,
+          },
+        },
+        // Shows the count directly above each bar — only when > 0, so a
+        // quiet week doesn't get cluttered with a row of "0"s.
+        datalabels: {
+          anchor: "end",
+          align: "top",
+          offset: 4,
+          color: "#64748B",
+          font: { size: 10, weight: "700" },
+          formatter: (value) => (value > 0 ? value : ""),
+        },
       },
       scales: {
         x: {
           grid: { display: false },
-          ticks: { color: '#64748B', font: { size: 10 } }
+          border: { display: false },
+          ticks: {
+            color: (context) => (context.index === todayIndex ? "#0284C7" : "#94A3B8"),
+            font: (context) => ({
+              size: 11,
+              weight: context.index === todayIndex ? "700" : "500",
+            }),
+          },
         },
         y: {
-          grid: { color: 'rgba(30, 41, 59, 0.5)' },
-          ticks: { color: '#64748B', font: { size: 10 }, stepSize: 1 }
-        }
-      }
-    }
+          beginAtZero: true,
+          grid: { color: "rgba(148, 163, 184, 0.15)", drawTicks: false },
+          border: { display: false },
+          ticks: { color: "#94A3B8", font: { size: 10 }, stepSize: 1, precision: 0 },
+        },
+      },
+    },
   });
 }
 
