@@ -448,8 +448,8 @@ function applyRolePermissions() {
   const isOwner = currentAdminRole === "owner";
 
   const titleEl = document.getElementById("dashboardTitleLabel");
-  if (titleEl) titleEl.textContent = isOwner ? "Admin Dashboard" : "Staff Dashboard";
-  document.title = isOwner ? "FitTrack — Admin Dashboard" : "FitTrack — Staff Dashboard";
+  if (titleEl) titleEl.textContent = isOwner ? "Owner Dashboard" : "Staff Dashboard";
+  document.title = isOwner ? "FitTrack — Owner Dashboard" : "FitTrack — Staff Dashboard";
 
   const ownerOnlyIds = [
     "gymSettingsBtn",     // gym's own membership plan pricing / config
