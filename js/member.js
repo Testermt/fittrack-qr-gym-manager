@@ -455,6 +455,19 @@ function renderStatusCard(member, checkinStatus) {
   payBadge.textContent = member.paymentStatus === "paid" ? "PAID" : "PAYMENT PENDING";
   payBadge.className = `badge ${member.paymentStatus === "paid" ? "badge-success" : "badge-warning"}`;
 
+  // 🔥 Agar member ka koi plan credit pe extend hua hai (owner ne payment
+  // baad mein lene ka bola hai), to total accumulated amount yahan
+  // transparently dikhega — member ko exactly pata rahega kitna dena hai,
+  // sirf ek plan ka nahi, jitne bhi cycles pending hain sabka jod.
+  const duesTile = document.getElementById("statusDuesTile");
+  const dues = member.duesAmount || 0;
+  if (dues > 0) {
+    document.getElementById("statusDuesAmount").textContent = formatCurrency(dues);
+    duesTile.classList.remove("hidden");
+  } else {
+    duesTile.classList.add("hidden");
+  }
+
   // Approval-state note. Fingerprint/front-desk copy is gone — check-in now
   // happens automatically (right here) the moment an eligible member's
   // status loads — see performAutoCheckin() below.
