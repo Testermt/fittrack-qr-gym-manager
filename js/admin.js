@@ -4,16 +4,6 @@ const membersCol = db.collection("members");
 const checkinsCol = db.collection("checkins");
 const paymentsCol = db.collection("payments");
 const refundsCol = db.collection("refunds");
-const couponsCol = db.collection("coupons");
-
-// Role of the signed-in admin — set as a side effect of isVerifiedAdmin()
-// once the admins/{email} doc is read (see below). Defaults to 'owner' so
-// nothing changes for admins created before roles existed; only an
-// explicit role:'frontdesk' on the doc restricts the UI.
-let currentAdminRole = "owner";
-function isOwner() {
-  return currentAdminRole !== "frontdesk";
-}
 
 let allMembers = [];
 let unsubMembers = null;
@@ -36,9 +26,6 @@ let lastVerifiedAt = 0;
 
 // Member currently open in the Renew Plan modal
 let pendingRenewMember = null;
-// Coupon applied (if any) in the currently-open Renew Plan modal — an
-// object from lookupActiveCoupon(), reset every time the modal opens/closes.
-let pendingRenewCoupon = null;
 
 // Member currently open in the Cancel & Refund modal
 let pendingRefundMember = null;
@@ -87,12 +74,6 @@ async function isVerifiedAdmin(email, { retries = 4, baseDelayMs = 600 } = {}) {
       }
 
       const doc = await db.collection("admins").doc(docId).get();
-      if (doc.exists) {
-        const data = doc.data() || {};
-        // Same default as the Firestore rules' isOwnerAdmin(): missing
-        // `role` field == 'owner' (back-compat), only 'frontdesk' limits.
-        currentAdminRole = data.role === "frontdesk" ? "frontdesk" : "owner";
-      }
       return doc.exists;
     } catch (err) {
       lastErr = err;
@@ -190,15 +171,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.querySelectorAll('input[name="renewPaymentMode"]').forEach((el) =>
     el.addEventListener("change", updateRenewPreview)
   );
-  document.getElementById("renewCouponApplyBtn").addEventListener("click", applyRenewCoupon);
-  document.getElementById("renewCouponClearBtn").addEventListener("click", clearRenewCoupon);
-
-  // Coupons management modal (owner-only — see data-owner-only on the
-  // "Coupons" menu button in the header)
-  document.getElementById("couponsBtn").addEventListener("click", openCouponsModal);
-  document.getElementById("couponsCloseBtn").addEventListener("click", closeCouponsModal);
-  document.getElementById("couponsBackdrop").addEventListener("click", closeCouponsModal);
-  document.getElementById("couponForm").addEventListener("submit", handleAddCouponSubmit);
 
   // Cancel & Refund modal
   document.getElementById("refundCancelBtn").addEventListener("click", closeRefundModal);
@@ -243,7 +215,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     exportMembersToCsv();
   });
   document.getElementById("gymSettingsBtn").addEventListener("click", () => toggleMoreMenu(true));
-  document.getElementById("couponsBtn").addEventListener("click", () => toggleMoreMenu(true));
 
   // Round "more options" menu (Plan & Features / Gym Settings list)
   document.getElementById("moreMenuBtn").addEventListener("click", (e) => {
@@ -436,7 +407,6 @@ async function handleGoogleSignIn() {
 
 function showLogin() {
   showScreen("loginScreen");
-  currentAdminRole = "owner"; // reset; re-set fresh by isVerifiedAdmin() on next sign-in
   toggleProfileMenu(true);
   if (unsubMembers) unsubMembers();
   if (unsubCheckins) unsubCheckins();
@@ -455,7 +425,6 @@ function showDashboard(user) {
   document.getElementById("adminEmailLabel").textContent =
     user.displayName || (user.email ? user.email.split("@")[0] : "Admin");
   renderProfileMenu(user);
-  applyRoleUI();
 
   subscribeMembers();
   subscribeWeeklyAndTodayCheckins(); // <-- Yeh dono cheezein ek sath handle karega (Chart + Today's List)
@@ -478,17 +447,6 @@ function showDashboard(user) {
   planLockCheckInterval = setInterval(() => {
     loadTierConfig().then(enforcePlanLock);
   }, 60 * 1000);
-}
-
-// Staff/role permissions — hides every owner-only control for a
-// front-desk admin (financial numbers, delete, refunds, renew, mark-paid,
-// coupons, gym/plan settings, export). Any element in admin.html marked
-// `data-owner-only` gets toggled here; front-desk keeps check-in + approve.
-function applyRoleUI() {
-  const frontdesk = !isOwner();
-  document.querySelectorAll("[data-owner-only]").forEach((el) => {
-    el.classList.toggle("hidden", frontdesk);
-  });
 }
 
 // Shows the signed-in Google account's photo (or an initial-letter
@@ -1045,11 +1003,8 @@ function buildMemberActionsHtml(m, dotSizeClass) {
     ` : ""}
     ${isApproved && isFrozen ? `<span class="text-xs font-semibold rounded-md bg-violet-500/15 text-violet-300 px-3 py-1.5">Paused</span>` : ""}
 
-    <!-- 🔥 3-dot menu: Mark as Paid / Send WhatsApp / Renew / Freeze / Refund / Change Phone / Delete
-         Front-desk staff only ever get Approve + Check-In above — every item
-         behind this menu is owner-only, so the whole trigger is hidden for
-         them rather than showing an empty/mostly-empty menu. -->
-    <div class="relative inline-block${isOwner() ? "" : " hidden"}">
+    <!-- 🔥 3-dot menu: Mark as Paid / Send WhatsApp / Renew / Freeze / Refund / Change Phone / Delete -->
+    <div class="relative inline-block">
       <button data-action="more-menu" data-id="${m.id}"
         class="text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md ${dotSizeClass} flex items-center justify-center transition"
         aria-label="More actions">
@@ -1198,9 +1153,6 @@ function closeRowMenu() {
 }
 
 function openRowMenuFor(btn, member) {
-  // Defense in depth: every action behind this menu is owner-only (the
-  // trigger button itself is hidden for front-desk via applyRoleUI()).
-  if (!isOwner()) return;
   closeRowMenu();
 
   const wrapper = btn.nextElementSibling; // the data-menu-actions div holding flags
@@ -1317,13 +1269,6 @@ async function executeApproveMember(member, btn) {
   // (which is fine for regular members, but risky for a one-time visitor).
   let collectPaymentToo = false;
   if (isDayPass && isUnpaid) {
-    // Collecting payment is a financial action — front-desk approves the
-    // check-in/visit itself, but an owner has to be the one who takes the
-    // money for an unpaid day pass.
-    if (!isOwner()) {
-      alert("This day pass hasn't been paid yet. Ask an owner-level admin to collect payment and approve it.");
-      return;
-    }
     collectPaymentToo = confirm(
       `This is a ${plan.label || "day pass"} (${formatCurrency(plan.price || 0)}) and payment is still pending.\n\n` +
       `Click OK to collect ${formatCurrency(plan.price || 0)} now and approve together, or Cancel to go back without approving.`
@@ -1439,45 +1384,6 @@ function updateRenewPaymentModeAvailability(plan) {
   }
 }
 
-/** Coupon discount off THIS renewal's plan price only — never applied to
- *  previously-accumulated dues, since those were priced (and owed) before
- *  today's code existed. */
-function currentRenewDiscount(planPrice) {
-  return pendingRenewCoupon ? computeCouponDiscount(pendingRenewCoupon, planPrice) : 0;
-}
-
-async function applyRenewCoupon() {
-  const input = document.getElementById("renewCouponCode");
-  const errorEl = document.getElementById("renewCouponError");
-  errorEl.classList.add("hidden");
-  const code = input.value.trim();
-  if (!code) return;
-
-  try {
-    const coupon = await lookupActiveCoupon(code);
-    if (!coupon) {
-      pendingRenewCoupon = null;
-      errorEl.textContent = "Invalid or inactive coupon code.";
-      errorEl.classList.remove("hidden");
-    } else {
-      pendingRenewCoupon = coupon;
-      input.value = coupon.code;
-    }
-  } catch (err) {
-    console.error(err);
-    errorEl.textContent = "Could not check that code. Please try again.";
-    errorEl.classList.remove("hidden");
-  }
-  updateRenewPreview();
-}
-
-function clearRenewCoupon() {
-  pendingRenewCoupon = null;
-  document.getElementById("renewCouponCode").value = "";
-  document.getElementById("renewCouponError").classList.add("hidden");
-  updateRenewPreview();
-}
-
 function updateRenewPreview() {
   if (!pendingRenewMember) return;
   const planId = document.getElementById("renewPlanSelect").value;
@@ -1490,28 +1396,16 @@ function updateRenewPreview() {
   const newExpiry = computeRenewedExpiry(baseDate, plan);
   document.getElementById("renewNewExpiryPreview").textContent = formatDate(newExpiry);
 
-  const discount = currentRenewDiscount(plan.price);
-  const discountedPlanPrice = Math.max(0, plan.price - discount);
-  const discountRow = document.getElementById("renewCouponAppliedRow");
-  if (discount > 0) {
-    document.getElementById("renewCouponAppliedLabel").textContent = `${pendingRenewCoupon.code} applied`;
-    document.getElementById("renewCouponAppliedAmount").textContent = `-${formatCurrency(discount)}`;
-    discountRow.classList.remove("hidden");
-  } else {
-    discountRow.classList.add("hidden");
-  }
-
   const collectNow = document.querySelector('input[name="renewPaymentMode"]:checked')?.value === "now";
   const existingDues = pendingRenewMember.duesAmount || 0;
   const summaryEl = document.getElementById("renewAmountSummary");
   summaryEl.textContent = collectNow
-    ? `${formatCurrency(discountedPlanPrice + existingDues)} to collect now${existingDues > 0 ? ` (includes ${formatCurrency(existingDues)} previous dues)` : ""}`
-    : `${formatCurrency(existingDues + discountedPlanPrice)} will be owed (dues) — payment stays pending`;
+    ? `${formatCurrency(plan.price + existingDues)} to collect now${existingDues > 0 ? ` (includes ${formatCurrency(existingDues)} previous dues)` : ""}`
+    : `${formatCurrency(existingDues + plan.price)} will be owed (dues) — payment stays pending`;
 }
 
 function openRenewModal(member) {
   pendingRenewMember = member;
-  pendingRenewCoupon = null;
   document.getElementById("renewMemberName").textContent = member.name;
   document.getElementById("renewCurrentExpiry").textContent = formatDate(member.expiryDate);
 
@@ -1528,9 +1422,6 @@ function openRenewModal(member) {
   const nowRadio = document.querySelector('input[name="renewPaymentMode"][value="now"]');
   if (nowRadio) nowRadio.checked = true;
   document.getElementById("renewError").classList.add("hidden");
-  document.getElementById("renewCouponCode").value = "";
-  document.getElementById("renewCouponError").classList.add("hidden");
-  document.getElementById("renewCouponAppliedRow").classList.add("hidden");
   updateRenewPreview();
   document.getElementById("renewModal").classList.remove("hidden");
 }
@@ -1538,7 +1429,6 @@ function openRenewModal(member) {
 function closeRenewModal() {
   document.getElementById("renewModal").classList.add("hidden");
   pendingRenewMember = null;
-  pendingRenewCoupon = null;
 }
 
 async function handleRenewSubmit(e) {
@@ -1561,9 +1451,6 @@ async function handleRenewSubmit(e) {
   const baseDate = computeRenewBaseDate(member);
   const newExpiry = computeRenewedExpiry(baseDate, plan);
   const existingDues = member.duesAmount || 0;
-  const discount = currentRenewDiscount(plan.price);
-  const discountedPlanPrice = Math.max(0, plan.price - discount);
-  const couponNote = discount > 0 ? `Coupon ${pendingRenewCoupon.code} applied: -${formatCurrency(discount)}` : "";
 
   const originalLabel = submitBtn.textContent;
   submitBtn.disabled = true;
@@ -1578,8 +1465,6 @@ async function handleRenewSubmit(e) {
 
     if (collectNow) {
       // Collecting now settles this cycle AND any dues already owed.
-      // The coupon (if any) only discounts THIS cycle's plan price, never
-      // previously-accumulated dues.
       update.paymentStatus = "paid";
       update.duesAmount = 0;
       await paymentsCol.add({
@@ -1587,17 +1472,17 @@ async function handleRenewSubmit(e) {
         name: member.name,
         phone: member.phone,
         plan: planId,
-        amount: discountedPlanPrice + existingDues,
+        amount: plan.price + existingDues,
         method: "cash",
         dateKey: toDateKey(new Date()),
-        note: [existingDues > 0 ? `Includes ₹${existingDues} previous dues` : "", couponNote].filter(Boolean).join(" · "),
+        note: existingDues > 0 ? `Includes ₹${existingDues} previous dues` : "",
         timestamp: firebase.firestore.FieldValue.serverTimestamp(),
       });
     } else {
       // Extended on credit — plan/check-ins continue, payment stays
       // pending, and the amount owed accumulates instead of resetting.
       update.paymentStatus = "pending";
-      update.duesAmount = existingDues + discountedPlanPrice;
+      update.duesAmount = existingDues + plan.price;
     }
 
     await membersCol.doc(member.id).update(update);
@@ -1609,132 +1494,6 @@ async function handleRenewSubmit(e) {
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = originalLabel;
-  }
-}
-
-// ==================== COUPONS (referral / festival discounts) ====================
-// A coupon is a flat-₹ or %-off code an owner creates once (Coupons modal
-// below) and can apply at registration/renewal time instead of hand-editing
-// a plan's price for one member — the plan's own price stays untouched for
-// everyone else. Owner-only end to end (see firestore.rules /coupons/{code}).
-
-/** Looks up an active coupon by code (case-insensitive; codes are stored
- *  upper-cased). Returns null if it doesn't exist or is deactivated. */
-async function lookupActiveCoupon(rawCode) {
-  const code = (rawCode || "").trim().toUpperCase();
-  if (!code) return null;
-  const doc = await couponsCol.doc(code).get();
-  if (!doc.exists) return null;
-  const data = doc.data();
-  if (!data.active) return null;
-  return data;
-}
-
-/** Flat: value in ₹, capped so the price can never go negative.
- *  Percent: value 1-100, rounded to the nearest rupee. */
-function computeCouponDiscount(coupon, baseAmount) {
-  if (!coupon || !(baseAmount > 0)) return 0;
-  if (coupon.type === "percent") return Math.round((baseAmount * coupon.value) / 100);
-  return Math.min(coupon.value, baseAmount);
-}
-
-// ---- Coupons management modal (list / add / activate-deactivate / delete) --
-let unsubCoupons = null;
-
-function openCouponsModal() {
-  document.getElementById("couponsModal").classList.remove("hidden");
-  document.getElementById("couponForm").reset();
-  document.getElementById("couponError").classList.add("hidden");
-  if (unsubCoupons) unsubCoupons();
-  unsubCoupons = couponsCol.orderBy("code").onSnapshot((snap) => {
-    renderCouponsList(snap.docs.map((d) => d.data()));
-  });
-}
-
-function closeCouponsModal() {
-  document.getElementById("couponsModal").classList.add("hidden");
-  if (unsubCoupons) { unsubCoupons(); unsubCoupons = null; }
-}
-
-function renderCouponsList(coupons) {
-  const list = document.getElementById("couponsList");
-  const empty = document.getElementById("couponsEmptyState");
-  list.innerHTML = "";
-  empty.classList.toggle("hidden", coupons.length > 0);
-
-  coupons.forEach((c) => {
-    const row = document.createElement("div");
-    row.className = "flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm";
-    const valueLabel = c.type === "percent" ? `${c.value}% off` : `${formatCurrency(c.value)} off`;
-    row.innerHTML = `
-      <div class="min-w-0">
-        <p class="font-semibold text-slate-100 truncate">${escapeHtml(c.code)}</p>
-        <p class="text-xs text-slate-500">${valueLabel}</p>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <button type="button" data-coupon-toggle="${escapeHtml(c.code)}" data-active="${c.active}"
-          class="text-xs font-semibold rounded-md px-2.5 py-1.5 transition ${c.active ? "bg-success/15 text-success hover:bg-success/25" : "bg-slate-800 text-slate-400 hover:bg-slate-700"}">
-          ${c.active ? "Active" : "Inactive"}
-        </button>
-        <button type="button" data-coupon-delete="${escapeHtml(c.code)}"
-          class="text-xs font-semibold rounded-md bg-rose-500/15 text-rose-400 px-2.5 py-1.5 hover:bg-rose-500/25 transition">Delete</button>
-      </div>
-    `;
-    list.appendChild(row);
-  });
-}
-
-document.getElementById("couponsList").addEventListener("click", async (e) => {
-  const toggleBtn = e.target.closest("[data-coupon-toggle]");
-  const deleteBtn = e.target.closest("[data-coupon-delete]");
-  if (toggleBtn) {
-    const code = toggleBtn.dataset.couponToggle;
-    const nowActive = toggleBtn.dataset.active === "true";
-    await couponsCol.doc(code).update({ active: !nowActive });
-  } else if (deleteBtn) {
-    const code = deleteBtn.dataset.couponDelete;
-    if (confirm(`Delete coupon "${code}"? This can't be undone.`)) {
-      await couponsCol.doc(code).delete();
-    }
-  }
-});
-
-async function handleAddCouponSubmit(e) {
-  e.preventDefault();
-  const errorEl = document.getElementById("couponError");
-  errorEl.classList.add("hidden");
-
-  const code = document.getElementById("couponCode").value.trim().toUpperCase();
-  const type = document.querySelector('input[name="couponType"]:checked')?.value || "flat";
-  const value = Number(document.getElementById("couponValue").value);
-
-  if (!code || !/^[A-Z0-9]{3,20}$/.test(code)) {
-    errorEl.textContent = "Code must be 3-20 letters/numbers, e.g. DIWALI25.";
-    errorEl.classList.remove("hidden");
-    return;
-  }
-  if (!(value > 0) || (type === "percent" && value > 100)) {
-    errorEl.textContent = type === "percent" ? "Percent must be between 1 and 100." : "Enter a valid ₹ amount.";
-    errorEl.classList.remove("hidden");
-    return;
-  }
-
-  try {
-    const existing = await couponsCol.doc(code).get();
-    if (existing.exists) {
-      errorEl.textContent = `Code "${code}" already exists — delete it first or use a different code.`;
-      errorEl.classList.remove("hidden");
-      return;
-    }
-    await couponsCol.doc(code).set({
-      code, type, value, active: true,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    document.getElementById("couponForm").reset();
-  } catch (err) {
-    console.error(err);
-    errorEl.textContent = "Could not save coupon. Please try again.";
-    errorEl.classList.remove("hidden");
   }
 }
 

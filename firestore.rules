@@ -16,21 +16,6 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/admins/$(request.auth.token.email));
     }
 
-    // Role check for the staff/permission split: any doc in /admins/{email}
-    // WITHOUT a `role` field (every admin created before this feature
-    // existed) is treated as 'owner' — pure back-compat, nobody loses
-    // access on upgrade. Only an explicit role == 'frontdesk' is limited.
-    // Front-desk can view members / check them in / approve them;
-    // anything financial (payments, refunds, coupons, member delete, plan
-    // pricing, gym/tier settings) requires 'owner'. Role is set the same
-    // way admin status itself is — Firebase Console / Admin SDK only,
-    // never a client write (see /admins/{email} rules below).
-    function isOwnerAdmin() {
-      return isVerifiedAdminDirect()
-        && get(/databases/$(database)/documents/admins/$(request.auth.token.email))
-             .data.get('role', 'owner') != 'frontdesk';
-    }
-
 
     // Members collection: Public read for status, secure write/update
     match /members/{phone} {
@@ -74,35 +59,25 @@ service cloud.firestore {
           && request.resource.data.paymentStatus == "pending"
           && request.resource.data.approved == false)
         ||
-        // Admin manual registration: only an owner-tier admin can create a
-        // member that is pre-approved and/or already marked paid — this is
-        // the "+ Add Member" flow, which sets payment status directly, so
-        // it's gated the same as other financial writes.
-        (isOwnerAdmin()
+        // Admin manual registration: only a verified admin can create a
+        // member that is pre-approved and/or already marked paid.
+        (isVerifiedAdminDirect()
           && hasValidMemberShape()
           && request.resource.data.paymentStatus in ['pending', 'paid']
           && request.resource.data.approved == true);
 
       allow get: if true;
-      allow list: if isVerifiedAdminDirect();
-      // Delete is a destructive/owner-tier action — front-desk never gets it.
-      allow delete: if isOwnerAdmin();
+      allow list, delete: if isVerifiedAdminDirect();
 
-      // Update: an owner can change anything (plan, price-driving fields,
-      // dues, phone number, freeze state, etc). A front-desk admin is
-      // limited to flipping `approved` to true (the "Approve" button) —
-      // `hasOnly(['approved','updatedAt'])` + the `== true` check means
-      // that branch can NEVER be used to un-approve someone, touch
-      // paymentStatus/dues/plan, or do anything else, even by hand-crafting
-      // the request. The public self-checkin kiosk (member.js, no auth)
-      // keeps its narrow carve-out to bump its OWN doc's monthly check-in
-      // counter after a successful checkin — harmless display stat, not a
-      // trust boundary — unchanged from before.
-      allow update: if isOwnerAdmin()
-        ||
-        (isVerifiedAdminDirect()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approved', 'updatedAt'])
-          && request.resource.data.approved == true)
+      // Update: admins can change anything. The public self-checkin kiosk
+      // (member.js, no auth) additionally gets a narrow carve-out to bump
+      // its OWN doc's monthly check-in counter after a successful checkin —
+      // this is a harmless display stat, not a trust boundary, so it's
+      // fine to allow without admin auth. `affectedKeys().hasOnly(...)`
+      // guarantees no other field (approved, paymentStatus, plan, etc.) can
+      // be touched through this branch, even if someone crafts the request
+      // by hand.
+      allow update: if isVerifiedAdminDirect()
         ||
         (request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['monthlyCheckinCount', 'checkinMonthKey'])
@@ -139,35 +114,16 @@ service cloud.firestore {
 }
 
     
-    // Payments collection: Strictly owner-only (financial records —
-    // front-desk staff should never see or write these).
+    // Payments collection: Strictly admin-only
     match /payments/{paymentId} {
-      allow create, read, update, delete: if isOwnerAdmin();
+      allow create, read, update, delete: if isVerifiedAdminDirect();
     }
 
     // Refunds collection: same trust boundary as payments — every
     // mid-plan-cancellation refund is logged here for accountability.
-    // Owner-only end to end, same as payments above.
+    // Admin-only end to end, same as payments above.
     match /refunds/{refundId} {
-      allow create, read, update, delete: if isOwnerAdmin();
-    }
-
-    // Coupons collection: referral/festival discount codes (flat ₹ or %
-    // off a plan's price), applied by an owner at registration/renewal
-    // time. Owner-only end to end — creating/editing a code is a pricing
-    // decision, same trust boundary as payments/refunds above.
-    match /coupons/{code} {
-      function isValidCoupon() {
-        return request.resource.data.code == code
-              && request.resource.data.type in ['flat', 'percent']
-              && request.resource.data.value is number
-              && request.resource.data.value > 0
-              && (request.resource.data.type != 'percent' || request.resource.data.value <= 100)
-              && request.resource.data.active is bool;
-      }
-      allow get, list: if isOwnerAdmin();
-      allow create, update: if isOwnerAdmin() && isValidCoupon();
-      allow delete: if isOwnerAdmin();
+      allow create, read, update, delete: if isVerifiedAdminDirect();
     }
 
     // Settings collection: Public read (UPI config, gym config/plans),
@@ -194,12 +150,10 @@ service cloud.firestore {
 
       allow get: if true;
       allow list: if isVerifiedAdminDirect();
-      // Writing here always touches pricing or the gym's own SaaS-tier
-      // billing — owner-only, same as payments/refunds/coupons above.
-      allow create, update: if isOwnerAdmin()
+      allow create, update: if isVerifiedAdminDirect()
                             && (docId != 'gymConfig' || isValidGymConfig())
                             && (docId != 'tier' || isValidTierConfig());
-      allow delete: if isOwnerAdmin();
+      allow delete: if isVerifiedAdminDirect();
     }
 
 
