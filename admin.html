@@ -270,6 +270,8 @@
         <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
           <p class="text-xs text-slate-500 mb-1">Pending Payments</p>
           <p id="statPending" class="text-xl sm:text-2xl font-bold text-amber-400">0</p>
+          <!-- 🔥 Total accumulated dues across all members (credit renewals) -->
+          <p id="statDuesSub" class="text-[11px] text-rose-400 mt-0.5"></p>
         </div>
         <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
           <p class="text-xs text-slate-500 mb-1">Revenue (This Month)</p>
@@ -497,30 +499,33 @@
 
 <!-- Row template for one plan in the settings modal — cloned via JS -->
 <template id="settingsPlanRowTemplate">
-  <div class="settings-plan-row flex items-end gap-2 bg-slate-900/60 border border-slate-800 rounded-lg p-2.5">
-    <div class="flex-1 min-w-0">
+  <div class="settings-plan-row flex flex-col gap-2 bg-slate-900/60 border border-slate-800 rounded-lg p-2.5">
+    <!-- 🔥 Label ab apni alag, full-width row mein hai — pehle Duration/Price ke fixed width ki wajah se bahut cramped ho jata tha -->
+    <div>
       <label class="block text-[10px] text-slate-500 mb-1">Label</label>
       <input type="text" data-field="label" required placeholder="e.g. 1 Month"
         class="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent" />
     </div>
-    <div class="w-24 shrink-0">
-      <label class="block text-[10px] text-slate-500 mb-1">Duration</label>
-      <div class="flex gap-1">
-        <input type="number" data-field="duration" required min="1" step="1"
-          class="w-full min-w-0 rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent" />
-        <select data-field="durationUnit"
-          class="rounded-md bg-slate-900 border border-slate-700 px-1 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent">
-          <option value="months">Mon</option>
-          <option value="days">Days</option>
-        </select>
+    <div class="flex items-end gap-2">
+      <div class="flex-1 min-w-0">
+        <label class="block text-[10px] text-slate-500 mb-1">Duration</label>
+        <div class="flex gap-1">
+          <input type="number" data-field="duration" required min="1" step="1"
+            class="w-full min-w-0 rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent" />
+          <select data-field="durationUnit"
+            class="rounded-md bg-slate-900 border border-slate-700 px-1 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent">
+            <option value="months">Mon</option>
+            <option value="days">Days</option>
+          </select>
+        </div>
       </div>
+      <div class="flex-1 min-w-0">
+        <label class="block text-[10px] text-slate-500 mb-1">Price</label>
+        <input type="number" data-field="price" required min="0" step="1"
+          class="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent" />
+      </div>
+      <button type="button" data-action="remove-plan-row" class="shrink-0 text-rose-400 hover:text-rose-300 transition text-lg leading-none px-1.5 py-1.5" title="Remove plan">&times;</button>
     </div>
-    <div class="w-20 shrink-0">
-      <label class="block text-[10px] text-slate-500 mb-1">Price</label>
-      <input type="number" data-field="price" required min="0" step="1"
-        class="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-accent" />
-    </div>
-    <button type="button" data-action="remove-plan-row" class="shrink-0 text-rose-400 hover:text-rose-300 transition text-lg leading-none px-1.5 py-1.5" title="Remove plan">&times;</button>
   </div>
 </template>
 
@@ -623,6 +628,73 @@
           class="flex-1 rounded-lg border border-slate-700 text-slate-300 text-sm font-medium py-2 hover:bg-slate-800 transition">Cancel</button>
         <button type="submit" id="addMemberSubmitBtn"
           class="flex-1 rounded-lg bg-accent text-slate-950 text-sm font-semibold py-2 hover:opacity-90 transition">Register Member</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Renew Plan Modal -->
+<div id="renewModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div id="renewBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">
+    <div class="flex items-center justify-between mb-1">
+      <h3 class="font-semibold text-slate-50">Renew Plan</h3>
+      <button type="button" id="renewCloseBtn" class="text-slate-500 hover:text-slate-300 transition text-xl leading-none">&times;</button>
+    </div>
+    <p id="renewMemberName" class="text-sm text-slate-400 mb-4"></p>
+
+    <form id="renewForm" class="space-y-3">
+      <div class="rounded-lg bg-slate-900/60 border border-slate-800 px-3 py-2 text-xs text-slate-400 flex justify-between">
+        <span>Current expiry</span>
+        <span id="renewCurrentExpiry" class="text-slate-200 font-medium"></span>
+      </div>
+
+      <!-- 🔥 Sirf tab dikhega jab member par pehle se dues (unpaid credit) baaki ho -->
+      <div id="renewExistingDuesRow" class="hidden rounded-lg bg-rose-500/10 border border-rose-500/30 px-3 py-2 text-xs text-rose-300 flex justify-between">
+        <span>Existing dues</span>
+        <span id="renewExistingDues" class="font-semibold"></span>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1" for="renewPlanSelect">Renew with plan</label>
+        <select id="renewPlanSelect" required
+          class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"></select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1">Payment</label>
+        <div class="flex gap-2">
+          <label class="flex-1 cursor-pointer">
+            <input type="radio" name="renewPaymentMode" value="now" class="sr-only peer" checked />
+            <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-3 py-2 text-slate-400 peer-checked:bg-success/15 peer-checked:text-success peer-checked:border-success/40 transition">Collect Now</span>
+          </label>
+          <label class="flex-1 cursor-pointer">
+            <input type="radio" name="renewPaymentMode" value="credit" class="sr-only peer" />
+            <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-3 py-2 text-slate-400 peer-checked:bg-amber-500/15 peer-checked:text-amber-400 peer-checked:border-amber-500/40 transition">Extend on Credit</span>
+          </label>
+        </div>
+        <!-- 🔥 "Extend on Credit" = member abhi paisa nahi de raha, plan phir bhi extend hoga aur dues mein add ho jayega -->
+        <p class="text-[11px] text-slate-500 mt-1">"Extend on Credit" keeps this unpaid — the amount is added to their dues instead.</p>
+      </div>
+
+      <div class="rounded-lg bg-slate-900/60 border border-slate-800 px-3 py-2 text-xs space-y-1">
+        <div class="flex justify-between text-slate-400">
+          <span>New expiry</span>
+          <span id="renewNewExpiryPreview" class="text-slate-200 font-medium"></span>
+        </div>
+        <div class="flex justify-between text-slate-400">
+          <span>Amount</span>
+          <span id="renewAmountSummary" class="text-slate-200 font-medium text-right"></span>
+        </div>
+      </div>
+
+      <p id="renewError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"></p>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" id="renewCancelBtn"
+          class="flex-1 rounded-lg border border-slate-700 text-slate-300 text-sm font-medium py-2 hover:bg-slate-800 transition">Cancel</button>
+        <button type="submit" id="renewSubmitBtn"
+          class="flex-1 rounded-lg bg-accent text-slate-950 text-sm font-semibold py-2 hover:opacity-90 transition">Confirm Renewal</button>
       </div>
     </form>
   </div>

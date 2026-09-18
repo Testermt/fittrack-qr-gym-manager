@@ -15,6 +15,9 @@ let todayCheckedInIds = new Set();
 // Variable to track pending secure action for re-auth
 let pendingReauthAction = null;
 
+// Member currently open in the Renew Plan modal
+let pendingRenewMember = null;
+
 // Thrown only when we genuinely could NOT complete the admin check (network
 // blip, or the ID-token-propagation race right after a popup sign-in) —
 // never for "this account isn't an admin". Callers must treat this
@@ -143,6 +146,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("addMemberCloseBtn").addEventListener("click", closeAddMemberModal);
   document.getElementById("addMemberBackdrop").addEventListener("click", closeAddMemberModal);
   document.getElementById("addMemberForm").addEventListener("submit", handleAddMemberSubmit);
+
+  // Renew Plan modal
+  document.getElementById("renewCancelBtn").addEventListener("click", closeRenewModal);
+  document.getElementById("renewCloseBtn").addEventListener("click", closeRenewModal);
+  document.getElementById("renewBackdrop").addEventListener("click", closeRenewModal);
+  document.getElementById("renewForm").addEventListener("submit", handleRenewSubmit);
+  document.getElementById("renewPlanSelect").addEventListener("change", updateRenewPreview);
+  document.querySelectorAll('input[name="renewPaymentMode"]').forEach((el) =>
+    el.addEventListener("change", updateRenewPreview)
+  );
 
   // Gym Settings modal (name / currency / country code / plans) — lets the
   // owner change these themselves instead of needing someone to edit
@@ -953,10 +966,13 @@ function buildMemberActionsHtml(m, dotSizeClass) {
     <!-- 🔥 Approve Button (Sirf tab dikhega jab user approved na ho) -->
     ${!isApproved ? `<button data-action="approve" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-amber-500/15 text-amber-400 px-3 py-1.5 hover:bg-amber-500/25 transition">Approve</button>` : ""}
 
-    <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
-      class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
-        alreadyCheckedIn ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-accent/15 text-accent hover:bg-accent/25"
-      }">${alreadyCheckedIn ? "✓ Checked In" : "Check-In"}</button>
+    <!-- 🔥 Check-In button sirf approved members ko dikhega — unapproved ke liye pehle Approve zaroori hai -->
+    ${isApproved ? `
+      <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
+        class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
+          alreadyCheckedIn ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-accent/15 text-accent hover:bg-accent/25"
+        }">${alreadyCheckedIn ? "✓ Checked In" : "Check-In"}</button>
+    ` : ""}
 
     <!-- 🔥 3-dot menu: Mark as Paid / Send WhatsApp / Delete -->
     <div class="relative inline-block">
@@ -968,6 +984,7 @@ function buildMemberActionsHtml(m, dotSizeClass) {
       <div data-menu-actions
         data-mark-paid="${!isPaid}"
         data-whatsapp="${!isActive || !isPaid}"
+        data-renew="${isApproved}"
         class="hidden"></div>
     </div>
   `;
@@ -1008,6 +1025,7 @@ function renderMemberTable() {
     const plan = PLANS[m.plan] || { label: m.plan };
     const isPaid = m.paymentStatus === "paid";
     const isApproved = m.approved === true;
+    const dues = m.duesAmount || 0; // 🔥 accumulated unpaid amount from credit renewals
 
     // ---- desktop/tablet table row (md and up) ----
     const tr = document.createElement("tr");
@@ -1033,6 +1051,7 @@ function renderMemberTable() {
         <!-- 🔥 Payment status sirf tab dikhega jab member approve ho chuka ho -->
         ${isApproved ? `
           <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "Payment Pending"}</span>
+          ${dues > 0 ? `<p class="text-xs text-rose-400 mt-1">Dues: ${formatCurrency(dues)}</p>` : ""}
         ` : `
           <span class="text-xs text-slate-500">—</span>
         `}
@@ -1062,8 +1081,9 @@ function renderMemberTable() {
 
       <!-- 🔥 Payment badge sirf approved members ke liye -->
       ${isApproved ? `
-        <div class="flex flex-wrap gap-1.5 mt-2.5">
+        <div class="flex flex-wrap gap-1.5 mt-2.5 items-center">
           <span class="badge ${isPaid ? "badge-success" : "badge-warning"}">${isPaid ? "PAID" : "Payment Pending"}</span>
+          ${dues > 0 ? `<span class="text-xs text-rose-400 font-medium">Dues: ${formatCurrency(dues)}</span>` : ""}
         </div>
       ` : ""}
 
@@ -1098,11 +1118,13 @@ function openRowMenuFor(btn, member) {
   const wrapper = btn.nextElementSibling; // the data-menu-actions div holding flags
   const canMarkPaid = wrapper.dataset.markPaid === "true";
   const canWhatsapp = wrapper.dataset.whatsapp === "true";
+  const canRenew = wrapper.dataset.renew === "true";
 
   const menu = document.createElement("div");
   menu.className =
     "fixed z-50 w-44 rounded-lg border border-slate-700 bg-slate-900 shadow-xl py-1 text-sm";
   menu.innerHTML = `
+    ${canRenew ? `<button data-menu-action="renew" class="w-full text-left px-3 py-2 text-accent hover:bg-slate-800 transition">Renew Plan</button>` : ""}
     ${canMarkPaid ? `<button data-menu-action="mark-paid" class="w-full text-left px-3 py-2 text-success hover:bg-slate-800 transition">Mark as Paid</button>` : ""}
     ${canWhatsapp ? `<button data-menu-action="whatsapp" class="w-full text-left px-3 py-2 text-emerald-400 hover:bg-slate-800 transition">Send WhatsApp</button>` : ""}
     <button data-menu-action="delete" class="w-full text-left px-3 py-2 text-rose-400 hover:bg-slate-800 transition">Delete</button>
@@ -1133,6 +1155,7 @@ function openRowMenuFor(btn, member) {
     if (!actionBtn) return;
     const action = actionBtn.dataset.menuAction;
     closeRowMenu();
+    if (action === "renew") openRenewModal(member);
     if (action === "mark-paid") requestReauth("mark-paid", member, btn);
     if (action === "whatsapp") sendWhatsAppReminder(member);
     if (action === "delete") requestReauth("delete", member, btn);
@@ -1216,6 +1239,148 @@ function openAddMemberModal() {
 
 function closeAddMemberModal() {
   document.getElementById("addMemberModal").classList.add("hidden");
+}
+
+// ==================== RENEW PLAN (extend expiry, with optional "on credit") ====================
+// Renews any approved member's plan. Base date for the new expiry is the
+// LATER of today and their current expiry — so a member renewing early
+// doesn't lose paid days, but a member who's already expired just gets a
+// fresh full period starting today (fair, since the gap wasn't paid for).
+//
+// "Extend without collecting payment" is the real-world case where an
+// owner lets a member keep training on trust and settle up later: it
+// keeps paymentStatus pending AND adds this cycle's price to duesAmount
+// (running total), instead of the old behavior where there was no way to
+// track that a member now owes for TWO cycles, not one.
+
+function computeRenewBaseDate(member) {
+  const todayK = toDateKey(new Date());
+  const currentExpiry = member.expiryDate;
+  return currentExpiry && currentExpiry > todayK ? currentExpiry : todayK;
+}
+
+function computeRenewedExpiry(baseDateKey, plan) {
+  if (plan.days) {
+    const [y, m, d] = baseDateKey.split("-").map(Number);
+    const date = new Date(y, m - 1, d);
+    date.setDate(date.getDate() + plan.days);
+    return toDateKey(date);
+  }
+  return addMonthsToDateKey(baseDateKey, plan.months || 1);
+}
+
+function populateRenewPlanOptions(selectedPlanId) {
+  const select = document.getElementById("renewPlanSelect");
+  select.innerHTML = Object.entries(PLANS)
+    .map(([id, plan]) => `<option value="${id}" ${id === selectedPlanId ? "selected" : ""}>${plan.label} — ${formatCurrency(plan.price)}</option>`)
+    .join("");
+}
+
+function updateRenewPreview() {
+  if (!pendingRenewMember) return;
+  const planId = document.getElementById("renewPlanSelect").value;
+  const plan = PLANS[planId];
+  if (!plan) return;
+
+  const baseDate = computeRenewBaseDate(pendingRenewMember);
+  const newExpiry = computeRenewedExpiry(baseDate, plan);
+  document.getElementById("renewNewExpiryPreview").textContent = formatDate(newExpiry);
+
+  const collectNow = document.querySelector('input[name="renewPaymentMode"]:checked')?.value === "now";
+  const existingDues = pendingRenewMember.duesAmount || 0;
+  const summaryEl = document.getElementById("renewAmountSummary");
+  summaryEl.textContent = collectNow
+    ? `${formatCurrency(plan.price + existingDues)} to collect now${existingDues > 0 ? ` (includes ${formatCurrency(existingDues)} previous dues)` : ""}`
+    : `${formatCurrency(existingDues + plan.price)} will be owed (dues) — payment stays pending`;
+}
+
+function openRenewModal(member) {
+  pendingRenewMember = member;
+  document.getElementById("renewMemberName").textContent = member.name;
+  document.getElementById("renewCurrentExpiry").textContent = formatDate(member.expiryDate);
+
+  const existingDues = member.duesAmount || 0;
+  const duesRow = document.getElementById("renewExistingDuesRow");
+  if (existingDues > 0) {
+    document.getElementById("renewExistingDues").textContent = formatCurrency(existingDues);
+    duesRow.classList.remove("hidden");
+  } else {
+    duesRow.classList.add("hidden");
+  }
+
+  populateRenewPlanOptions(member.plan);
+  const nowRadio = document.querySelector('input[name="renewPaymentMode"][value="now"]');
+  if (nowRadio) nowRadio.checked = true;
+  document.getElementById("renewError").classList.add("hidden");
+  updateRenewPreview();
+  document.getElementById("renewModal").classList.remove("hidden");
+}
+
+function closeRenewModal() {
+  document.getElementById("renewModal").classList.add("hidden");
+  pendingRenewMember = null;
+}
+
+async function handleRenewSubmit(e) {
+  e.preventDefault();
+  if (!pendingRenewMember) return;
+  const member = pendingRenewMember;
+  const submitBtn = document.getElementById("renewSubmitBtn");
+  const errorEl = document.getElementById("renewError");
+  errorEl.classList.add("hidden");
+
+  const planId = document.getElementById("renewPlanSelect").value;
+  const plan = PLANS[planId];
+  const collectNow = document.querySelector('input[name="renewPaymentMode"]:checked')?.value === "now";
+  if (!plan) return;
+
+  const baseDate = computeRenewBaseDate(member);
+  const newExpiry = computeRenewedExpiry(baseDate, plan);
+  const existingDues = member.duesAmount || 0;
+
+  const originalLabel = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Saving…";
+
+  try {
+    const update = {
+      plan: planId,
+      expiryDate: newExpiry,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (collectNow) {
+      // Collecting now settles this cycle AND any dues already owed.
+      update.paymentStatus = "paid";
+      update.duesAmount = 0;
+      await paymentsCol.add({
+        memberId: member.id,
+        name: member.name,
+        phone: member.phone,
+        plan: planId,
+        amount: plan.price + existingDues,
+        method: "cash",
+        dateKey: toDateKey(new Date()),
+        note: existingDues > 0 ? `Includes ₹${existingDues} previous dues` : "",
+        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } else {
+      // Extended on credit — plan/check-ins continue, payment stays
+      // pending, and the amount owed accumulates instead of resetting.
+      update.paymentStatus = "pending";
+      update.duesAmount = existingDues + plan.price;
+    }
+
+    await membersCol.doc(member.id).update(update);
+    closeRenewModal();
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = "Could not renew plan. Please try again.";
+    errorEl.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
 }
 
 // ==================== PLAN & FEATURES (Basic / Prime / Advance) ====================
@@ -1942,7 +2107,7 @@ function exportMembersToCsv() {
     return;
   }
 
-  const headers = ["Name", "Phone", "Address", "Plan", "Join Date", "Expiry Date", "Days Remaining", "Payment Status", "Approved", "Monthly Check-ins"];
+  const headers = ["Name", "Phone", "Address", "Plan", "Join Date", "Expiry Date", "Days Remaining", "Payment Status", "Dues Owed", "Approved", "Monthly Check-ins"];
 
   // Wrap each field in quotes and escape any embedded quotes, so commas or
   // quote characters inside a member's name/address don't break columns.
@@ -1957,6 +2122,7 @@ function exportMembersToCsv() {
     formatDate(m.expiryDate),
     daysUntil(m.expiryDate),
     m.paymentStatus === "paid" ? "Paid" : "Pending",
+    m.duesAmount || 0,
     m.approved === true ? "Yes" : "No",
     m.monthlyCheckinCount || 0,
   ].map(escapeCsvField).join(","));
@@ -2090,11 +2256,16 @@ function renderStats() {
   // 🔥 Total non-approved (naye/self-registered) members ka alag count
   const pendingApproval = allMembers.filter((m) => m.approved !== true).length;
 
+  // 🔥 Total dues — credit pe renew kiye gaye members ka accumulated owed amount
+  const totalDues = allMembers.reduce((sum, m) => sum + (m.duesAmount || 0), 0);
+
   document.getElementById("statActive").textContent = active;
   document.getElementById("statPending").textContent = pending;
   document.getElementById("statTotal").textContent = allMembers.length;
   const pendingApprovalEl = document.getElementById("statPendingApproval");
   if (pendingApprovalEl) pendingApprovalEl.textContent = pendingApproval;
+  const duesEl = document.getElementById("statDuesSub");
+  if (duesEl) duesEl.textContent = totalDues > 0 ? `${formatCurrency(totalDues)} in dues` : "";
 }
 
 
