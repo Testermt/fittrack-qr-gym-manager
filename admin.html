@@ -17,7 +17,7 @@
 
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FitTrack ‚Äî Admin Dashboard</title>
+<title>FitTrack ó Admin Dashboard</title>
 <meta name="robots" content="noindex, nofollow" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -103,8 +103,8 @@
   <!-- ============= DEVICE VERIFICATION SCREEN (post-Google-login gate) ============= -->
   <div id="deviceVerifyScreen" class="hidden min-h-screen flex items-center justify-center px-5">
     <div class="w-full max-w-sm text-center bg-panel border border-slate-800 rounded-2xl shadow-sm p-8 space-y-4">
-      <div class="w-14 h-14 rounded-full bg-accent/15 flex items-center justify-center text-3xl mx-auto">üîí</div>
-      <h2 id="deviceVerifyTitle" class="text-lg font-semibold text-slate-50">Verifying this device‚Ä¶</h2>
+      <div class="w-14 h-14 rounded-full bg-accent/15 flex items-center justify-center text-3xl mx-auto"></div>
+      <h2 id="deviceVerifyTitle" class="text-lg font-semibold text-slate-50">Verifying this deviceÖ</h2>
       <p id="deviceVerifySub" class="text-sm text-slate-500">
         Confirm with your fingerprint, face, or screen lock to continue.
       </p>
@@ -129,11 +129,11 @@
   <!-- ============= ONE-TIME BIOMETRIC SETUP OFFER ============= -->
   <div id="biometricSetupScreen" class="hidden min-h-screen flex items-center justify-center px-5">
     <div class="w-full max-w-sm text-center bg-panel border border-slate-800 rounded-2xl shadow-sm p-8 space-y-4">
-      <div class="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center text-3xl mx-auto">üîê</div>
+      <div class="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center text-3xl mx-auto"></div>
       <h2 class="text-lg font-semibold text-slate-50">Lock the dashboard to this device</h2>
       <p class="text-sm text-slate-500">
         Add your fingerprint, face, or screen lock as an extra step every time this device opens the
-        dashboard ‚Äî so even someone with your Google password can't get in without it.
+        dashboard ó so even someone with your Google password can't get in without it.
       </p>
       <div id="biometricSetupError" class="hidden text-sm text-rose-400"></div>
       <div class="flex flex-col gap-2 pt-2">
@@ -154,14 +154,14 @@
     <header class="border-b border-slate-800/80 sticky top-0 bg-base/90 backdrop-blur z-10">
       <div class="max-w-6xl mx-auto px-4 sm:px-5 py-3 sm:py-4 flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div class="w-9 h-9 shrink-0 rounded-lg bg-accent/15 flex items-center justify-center text-accent font-bold">‚ö°</div>
+          <div class="w-9 h-9 shrink-0 rounded-lg bg-accent/15 flex items-center justify-center text-accent font-bold"></div>
           <div class="min-w-0">
             <p class="font-semibold text-slate-50 leading-tight text-sm sm:text-base truncate">Admin Dashboard</p>
             <p id="adminEmailLabel" class="text-xs text-slate-500 leading-tight truncate max-w-[45vw] sm:max-w-none"></p>
           </div>
         </div>
         <!-- Icon cluster pinned to the top-right corner (Play Store style):
-             bell, more-options, profile ‚Äî always in one row, never wraps
+             bell, more-options, profile ó always in one row, never wraps
              below the title, even on narrow phones. -->
         <div class="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
 
@@ -181,7 +181,7 @@
                single round icon whose dropdown holds Plan & Features and
                Gym Settings as a list. Add future items here as one more
                <button class="more-menu-item ..."> inside #moreMenuDropdown
-               below ‚Äî no other markup needed. -->
+               below ó no other markup needed. -->
           <div class="relative" id="moreMenuWrap">
             <button id="moreMenuBtn" type="button" aria-label="More options"
               class="w-9 h-9 rounded-full border border-slate-700 flex items-center justify-center text-slate-300 hover:border-accent/60 hover:text-accent hover:bg-accent/10 transition">
@@ -209,8 +209,8 @@
          backdrop-blur) and positioned with `fixed` + JS-computed
          top/right (see positionHeaderDropdown() in admin.js). This keeps
          every panel correctly anchored under its trigger icon AND fully
-         clamped inside the viewport on any screen size ‚Äî phone, tablet,
-         or a wide desktop window ‚Äî instead of relying on CSS `absolute
+         clamped inside the viewport on any screen size ó phone, tablet,
+         or a wide desktop window ó instead of relying on CSS `absolute
          right-0`, which broke on narrow phones once the icon moved away
          from the true right edge of the screen. -->
     <div id="notifDropdown"
@@ -228,11 +228,11 @@
 
     <div id="moreMenuDropdown"
       class="hidden fixed w-48 max-w-[calc(100vw-1.5rem)] max-h-[75vh] overflow-y-auto rounded-lg border border-slate-700 bg-panel shadow-xl z-30">
-      <button id="planFeaturesBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">üì¶</span> Plan &amp; Features</button>
-      <button id="gymSettingsBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">‚öô</span> Gym Settings</button>
-      <button id="couponsBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">üè∑</span> Coupons</button>
-      <button id="exportCsvBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">‚¨á</span> Export CSV</button>
-      <!-- üëâ Future menu items go here, same button/classes pattern -->
+      <button id="planFeaturesBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent"></span> Plan &amp; Features</button>
+      <button id="gymSettingsBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent"></span> Gym Settings</button>
+      <button id="couponsBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent"></span> Coupons</button>
+      <button id="exportCsvBtn" data-owner-only type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent"></span> Export CSV</button>
+      <!--  Future menu items go here, same button/classes pattern -->
       <!-- data-owner-only elements are hidden for front-desk staff by
            applyRoleUI() in admin.js (staff/role permissions feature). -->
     </div>
@@ -247,9 +247,9 @@
         class="w-full text-left px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800 transition">Sign Out</button>
     </div>
 
-    <!-- üî• Offline indicator ‚Äî hidden by default, shown via JS on 'offline' event -->
+    <!--  Offline indicator ó hidden by default, shown via JS on 'offline' event -->
     <div id="offlineBanner" class="hidden bg-amber-500/15 border-b border-amber-500/30 text-amber-400 text-xs sm:text-sm text-center py-2 px-3">
-      üõú You're offline ‚Äî showing last synced data. Changes will sync once you're back online.
+       You're offline ó showing last synced data. Changes will sync once you're back online.
     </div>
 
 
@@ -265,7 +265,7 @@
           <p class="text-xs text-slate-500 mb-1">Active Members</p>
           <p id="statActive" class="text-xl sm:text-2xl font-bold text-success">0</p>
         </div>
-        <!-- üî• Naya stat: total members jo abhi approve nahi hue -->
+        <!--  Naya stat: total members jo abhi approve nahi hue -->
         <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
           <p class="text-xs text-slate-500 mb-1">Pending Approval</p>
           <p id="statPendingApproval" class="text-xl sm:text-2xl font-bold text-amber-400">0</p>
@@ -273,12 +273,12 @@
         <div data-owner-only class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
           <p class="text-xs text-slate-500 mb-1">Pending Payments</p>
           <p id="statPending" class="text-xl sm:text-2xl font-bold text-amber-400">0</p>
-          <!-- üî• Total accumulated dues across all members (credit renewals) -->
+          <!--  Total accumulated dues across all members (credit renewals) -->
           <p id="statDuesSub" class="text-[11px] text-rose-400 mt-0.5"></p>
         </div>
         <div data-owner-only class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
           <p class="text-xs text-slate-500 mb-1">Revenue (This Month)</p>
-          <p id="statRevenue" class="text-xl sm:text-2xl font-bold text-accent">‚Äî</p>
+          <p id="statRevenue" class="text-xl sm:text-2xl font-bold text-accent">ó</p>
         </div>
       </section>
 
@@ -348,7 +348,7 @@
           <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
             <h2 class="font-semibold text-slate-100 whitespace-nowrap">Member Directory</h2>
             <div class="flex items-center gap-2 flex-1 justify-end flex-wrap">
-              <input id="memberSearch" type="text" placeholder="Search by name or phone‚Ä¶"
+              <input id="memberSearch" type="text" placeholder="Search by name or phoneÖ"
                 class="w-full max-w-xs rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
               <button id="openAddMemberBtn" data-owner-only type="button"
                 class="text-xs font-semibold rounded-md bg-accent text-slate-950 px-3 py-2 hover:opacity-90 transition whitespace-nowrap">+ Add Member</button>
@@ -390,7 +390,7 @@
             </table>
           </div>
 
-          <!-- üî• Mobile card list (phone) ‚Äî same data as the table above, shown below md -->
+          <!--  Mobile card list (phone) ó same data as the table above, shown below md -->
           <div id="memberCardList" class="md:hidden space-y-3"></div>
 
           <p id="memberEmptyState" class="hidden text-sm text-slate-600 text-center py-8">No members found.</p>
@@ -399,7 +399,7 @@
     </main>
   </div>
 
-  <!-- Firebase SDKs (compat ‚Äî no build step needed) -->
+  <!-- Firebase SDKs (compat ó no build step needed) -->
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
@@ -434,7 +434,7 @@
         <input id="reauthPasswordInput" type="password" autocomplete="current-password"
           class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
       </div>
-      <p id="reauthGoogleHint" class="hidden text-xs text-slate-500">You signed in with Google ‚Äî confirm with your Google account to continue.</p>
+      <p id="reauthGoogleHint" class="hidden text-xs text-slate-500">You signed in with Google ó confirm with your Google account to continue.</p>
       <p id="reauthError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"></p>
       <div class="flex gap-3 pt-1">
         <button type="button" id="reauthCancelBtn"
@@ -448,7 +448,7 @@
 
 <!-- ============= ADD MEMBER MODAL (Manual Registration) ============= -->
 <!-- Gym Settings modal: lets the owner change gym name / country code /
-     plans (name, duration, price) themselves ‚Äî previously only editable
+     plans (name, duration, price) themselves ó previously only editable
      directly in Firebase, which the owner could never do on their own. -->
 <div id="gymSettingsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div id="gymSettingsBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
@@ -469,7 +469,7 @@
         <div>
           <label class="block text-xs font-medium text-slate-400 mb-1" for="settingsCurrencySymbol">Currency Symbol</label>
           <input id="settingsCurrencySymbol" type="text" required maxlength="3"
-            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="‚Çπ" />
+            class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="" />
         </div>
         <div>
           <label class="block text-xs font-medium text-slate-400 mb-1" for="settingsCountryCode">Country Code</label>
@@ -484,7 +484,7 @@
           <button type="button" id="settingsAddPlanBtn" class="text-xs font-semibold text-accent hover:opacity-80 transition">+ Add Plan</button>
         </div>
         <div id="settingsPlanRows" class="space-y-2"></div>
-        <p class="text-[11px] text-slate-500 mt-1.5">Plan ID stays fixed once created (used internally) ‚Äî edit the label, duration, or price freely.</p>
+        <p class="text-[11px] text-slate-500 mt-1.5">Plan ID stays fixed once created (used internally) ó edit the label, duration, or price freely.</p>
       </div>
 
       <p id="gymSettingsError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"></p>
@@ -500,10 +500,10 @@
   </div>
 </div>
 
-<!-- Row template for one plan in the settings modal ‚Äî cloned via JS -->
+<!-- Row template for one plan in the settings modal ó cloned via JS -->
 <template id="settingsPlanRowTemplate">
   <div class="settings-plan-row flex flex-col gap-2 bg-slate-900/60 border border-slate-800 rounded-lg p-2.5">
-    <!-- üî• Label ab apni alag, full-width row mein hai ‚Äî pehle Duration/Price ke fixed width ki wajah se bahut cramped ho jata tha -->
+    <!--  Label ab apni alag, full-width row mein hai ó pehle Duration/Price ke fixed width ki wajah se bahut cramped ho jata tha -->
     <div>
       <label class="block text-[10px] text-slate-500 mb-1">Label</label>
       <input type="text" data-field="label" required placeholder="e.g. 1 Month"
@@ -535,11 +535,11 @@
 <!-- Plan & Features modal: shows the gym owner their current subscription
      (trial / active) and lets them pick a higher tier. Picking a tier for
      the very first time starts a free trial; after that, switching tiers
-     goes through payAndUpgradeTier() in admin.js ‚Äî a single stub function
+     goes through payAndUpgradeTier() in admin.js ó a single stub function
      you swap for real Razorpay checkout later, nothing else here changes.
      The feature list is rendered entirely from FEATURE_CATALOG in
      firebase-config.js, so adding a new gated feature later needs zero
-     HTML changes ‚Äî just register it in the catalog. -->
+     HTML changes ó just register it in the catalog. -->
 <div id="planFeaturesModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div id="planFeaturesBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
   <div class="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">
@@ -652,7 +652,7 @@
         <span id="renewCurrentExpiry" class="text-slate-200 font-medium"></span>
       </div>
 
-      <!-- üî• Sirf tab dikhega jab member par pehle se dues (unpaid credit) baaki ho -->
+      <!--  Sirf tab dikhega jab member par pehle se dues (unpaid credit) baaki ho -->
       <div id="renewExistingDuesRow" class="hidden rounded-lg bg-rose-500/10 border border-rose-500/30 px-3 py-2 text-xs text-rose-300 flex justify-between">
         <span>Existing dues</span>
         <span id="renewExistingDues" class="font-semibold"></span>
@@ -676,11 +676,11 @@
             <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-3 py-2 text-slate-400 peer-checked:bg-amber-500/15 peer-checked:text-amber-400 peer-checked:border-amber-500/40 transition">Extend on Credit</span>
           </label>
         </div>
-        <!-- üî• Day-pass select hone par ye note automatically badal jata hai -->
-        <p id="renewCreditNote" class="text-[11px] text-slate-500 mt-1">"Extend on Credit" keeps this unpaid ‚Äî the amount is added to their dues instead.</p>
+        <!--  Day-pass select hone par ye note automatically badal jata hai -->
+        <p id="renewCreditNote" class="text-[11px] text-slate-500 mt-1">"Extend on Credit" keeps this unpaid ó the amount is added to their dues instead.</p>
       </div>
 
-      <!-- Referral / festival discount coupon ‚Äî optional, applies only to
+      <!-- Referral / festival discount coupon ó optional, applies only to
            this renewal's plan price (never to existing dues). -->
       <div>
         <label class="block text-xs font-medium text-slate-400 mb-1" for="renewCouponCode">Coupon code (optional)</label>
@@ -738,7 +738,7 @@
       </div>
 
       <div>
-        <label class="block text-xs font-medium text-slate-400 mb-1" for="refundAmountInput">Refund amount (prorated suggestion ‚Äî editable)</label>
+        <label class="block text-xs font-medium text-slate-400 mb-1" for="refundAmountInput">Refund amount (prorated suggestion ó editable)</label>
         <input id="refundAmountInput" type="number" min="0" step="1" required
           class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" />
       </div>
@@ -770,7 +770,7 @@
       <h3 class="font-semibold text-slate-50">Change Phone Number</h3>
       <button type="button" id="phoneChangeCloseBtn" class="text-slate-500 hover:text-slate-300 transition text-xl leading-none">&times;</button>
     </div>
-    <p class="text-xs text-slate-500 mt-2 mb-4">Moves this member's record ‚Äî including their check-in history ‚Äî to a new phone number.</p>
+    <p class="text-xs text-slate-500 mt-2 mb-4">Moves this member's record ó including their check-in history ó to a new phone number.</p>
 
     <form id="phoneChangeForm" class="space-y-3">
       <div class="rounded-lg bg-slate-900/60 border border-slate-800 px-3 py-2 text-xs text-slate-400 flex justify-between">
@@ -793,7 +793,7 @@
   </div>
 </div>
 
-<!-- Coupons Modal (owner-only) ‚Äî create/list/toggle/delete referral or
+<!-- Coupons Modal (owner-only) ó create/list/toggle/delete referral or
      festival discount codes used in the Renew Plan modal's coupon field. -->
 <div id="couponsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div id="couponsBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
@@ -820,7 +820,7 @@
       <div class="flex gap-2">
         <label class="flex-1 cursor-pointer">
           <input type="radio" name="couponType" value="flat" class="sr-only peer" checked />
-          <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-3 py-2 text-slate-400 peer-checked:bg-accent/15 peer-checked:text-accent peer-checked:border-accent/40 transition">‚Çπ Flat off</span>
+          <span class="block text-center text-sm font-medium rounded-lg border border-slate-700 px-3 py-2 text-slate-400 peer-checked:bg-accent/15 peer-checked:text-accent peer-checked:border-accent/40 transition"> Flat off</span>
         </label>
         <label class="flex-1 cursor-pointer">
           <input type="radio" name="couponType" value="percent" class="sr-only peer" />
