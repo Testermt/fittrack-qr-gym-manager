@@ -447,6 +447,10 @@ let planLockCheckInterval = null;
 function applyRolePermissions() {
   const isOwner = currentAdminRole === "owner";
 
+  const titleEl = document.getElementById("dashboardTitleLabel");
+  if (titleEl) titleEl.textContent = isOwner ? "Admin Dashboard" : "Staff Dashboard";
+  document.title = isOwner ? "FitTrack — Admin Dashboard" : "FitTrack — Staff Dashboard";
+
   const ownerOnlyIds = [
     "gymSettingsBtn",     // gym's own membership plan pricing / config
     "openAddMemberBtn",   // manual registration (create is owner-only in rules)
