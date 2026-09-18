@@ -10,6 +10,13 @@ let unsubMembers = null;
 let unsubCheckins = null;
 let unsubPayments = null;
 
+// "owner" (full access) or "staff" (front-desk: check-in/approve only).
+// Set from the admins/{email} doc's `role` field once sign-in verifies
+// admin access (see isVerifiedAdmin) — missing/absent role defaults to
+// "owner", matching firestore.rules' isOwnerAdmin() default so an existing
+// admin without this field set isn't accidentally locked out.
+let currentAdminRole = "owner";
+
 let currentMemberFilter = "all";
 let todayCheckedInIds = new Set();
 
@@ -74,6 +81,9 @@ async function isVerifiedAdmin(email, { retries = 4, baseDelayMs = 600 } = {}) {
       }
 
       const doc = await db.collection("admins").doc(docId).get();
+      if (doc.exists) {
+        currentAdminRole = doc.data().role === "staff" ? "staff" : "owner";
+      }
       return doc.exists;
     } catch (err) {
       lastErr = err;
@@ -134,7 +144,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Email/Password form listeners hata diye gaye hain kyunki form remove kar diya hai
   document.getElementById("googleSignInBtn").addEventListener("click", handleGoogleSignIn);
-  document.getElementById("logoutBtn").addEventListener("click", () => { lastVerifiedAt = 0; auth.signOut(); });
+  document.getElementById("logoutBtn").addEventListener("click", () => { lastVerifiedAt = 0; currentAdminRole = "owner"; auth.signOut(); });
   document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
 
   // Status Filter Buttons listener
@@ -420,16 +430,56 @@ function showLogin() {
 
 let planLockCheckInterval = null;
 
+/**
+ * Staff (front-desk) role gets check-in/approve only — everything
+ * financial or destructive is hidden here, and separately hard-blocked at
+ * the Firestore rules level (isOwnerAdmin()) so hiding a button is a UX
+ * nicety, not the actual security boundary.
+ *
+ * NOTE on limits: Firestore has no field-level read security — a staff
+ * login can still technically read a member's `duesAmount`/`paymentStatus`
+ * fields via the members list (they're on the same doc as name/approval
+ * status, which staff legitimately needs for check-in). This hides the
+ * dedicated revenue/dues *summary* views; it can't redact those two
+ * fields from the member directory without moving them into a separate,
+ * owner-only subcollection — a bigger data-model change, ask if you want it.
+ */
+function applyRolePermissions() {
+  const isOwner = currentAdminRole === "owner";
+
+  const ownerOnlyIds = [
+    "gymSettingsBtn",     // gym's own membership plan pricing / config
+    "openAddMemberBtn",   // manual registration (create is owner-only in rules)
+    "revenueStatCard",    // Revenue (This Month) stat
+  ];
+  ownerOnlyIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("hidden", !isOwner);
+  });
+
+  const revenueHistorySection = document.getElementById("monthlyRevenueHistorySection");
+  if (revenueHistorySection) revenueHistorySection.classList.toggle("hidden", !isOwner);
+
+  const duesSub = document.getElementById("statDuesSub");
+  if (duesSub) duesSub.classList.toggle("hidden", !isOwner);
+}
+
 function showDashboard(user) {
   showScreen("dashboardScreen");
   document.getElementById("adminEmailLabel").textContent =
     user.displayName || (user.email ? user.email.split("@")[0] : "Admin");
   renderProfileMenu(user);
+  applyRolePermissions();
 
   subscribeMembers();
   subscribeWeeklyAndTodayCheckins(); // <-- Yeh dono cheezein ek sath handle karega (Chart + Today's List)
-  subscribeMonthlyRevenue();
-  subscribeMonthlyHistory();
+  // Payments collection is owner-only in firestore.rules — these would
+  // throw permission-denied for a staff login, so skip subscribing at all
+  // rather than hide the failing listener's output.
+  if (currentAdminRole === "owner") {
+    subscribeMonthlyRevenue();
+    subscribeMonthlyHistory();
+  }
 
   // Trial/plan gate — checked against the control project's live doc
   // (already fetched by tierConfigReady before this runs), so a cleared
@@ -1155,14 +1205,20 @@ function closeRowMenu() {
 function openRowMenuFor(btn, member) {
   closeRowMenu();
 
+  const isOwner = currentAdminRole === "owner";
   const wrapper = btn.nextElementSibling; // the data-menu-actions div holding flags
-  const canMarkPaid = wrapper.dataset.markPaid === "true";
+  // Staff (front-desk) only ever gets the Check-In / Approve buttons
+  // outside this menu, plus WhatsApp reminders here — everything else in
+  // this menu is financial or destructive and is owner-only, mirroring the
+  // isOwnerAdmin() gate on the matching Firestore writes.
+  const canMarkPaid = isOwner && wrapper.dataset.markPaid === "true";
   const canWhatsapp = wrapper.dataset.whatsapp === "true";
-  const canRenew = wrapper.dataset.renew === "true";
-  const canFreeze = wrapper.dataset.freeze === "true";
-  const canResume = wrapper.dataset.resume === "true";
-  const canRefund = wrapper.dataset.refund === "true";
-  const canChangePhone = wrapper.dataset.changePhone === "true";
+  const canRenew = isOwner && wrapper.dataset.renew === "true";
+  const canFreeze = isOwner && wrapper.dataset.freeze === "true";
+  const canResume = isOwner && wrapper.dataset.resume === "true";
+  const canRefund = isOwner && wrapper.dataset.refund === "true";
+  const canChangePhone = isOwner && wrapper.dataset.changePhone === "true";
+  const canDelete = isOwner;
 
   const menu = document.createElement("div");
   menu.className =
@@ -1175,7 +1231,7 @@ function openRowMenuFor(btn, member) {
     ${canRefund ? `<button data-menu-action="refund" class="w-full text-left px-3 py-2 text-amber-400 hover:bg-slate-800 transition">Cancel & Refund</button>` : ""}
     ${canWhatsapp ? `<button data-menu-action="whatsapp" class="w-full text-left px-3 py-2 text-emerald-400 hover:bg-slate-800 transition">Send WhatsApp</button>` : ""}
     ${canChangePhone ? `<button data-menu-action="change-phone" class="w-full text-left px-3 py-2 text-sky-400 hover:bg-slate-800 transition">Change Phone Number</button>` : ""}
-    <button data-menu-action="delete" class="w-full text-left px-3 py-2 text-rose-400 hover:bg-slate-800 transition">Delete</button>
+    ${canDelete ? `<button data-menu-action="delete" class="w-full text-left px-3 py-2 text-rose-400 hover:bg-slate-800 transition">Delete</button>` : ""}
   `;
   document.body.appendChild(menu);
 
@@ -1267,8 +1323,11 @@ async function executeApproveMember(member, btn) {
   // later. So approving an unpaid day-pass member now asks to collect
   // payment in the same step, instead of silently approving on trust
   // (which is fine for regular members, but risky for a one-time visitor).
+  // Staff (front-desk) can't collect/record payment (owner-only, same as
+  // Mark as Paid) — for them this always stays a plain approve, payment
+  // stays pending for an owner to collect later.
   let collectPaymentToo = false;
-  if (isDayPass && isUnpaid) {
+  if (isDayPass && isUnpaid && currentAdminRole === "owner") {
     collectPaymentToo = confirm(
       `This is a ${plan.label || "day pass"} (${formatCurrency(plan.price || 0)}) and payment is still pending.\n\n` +
       `Click OK to collect ${formatCurrency(plan.price || 0)} now and approve together, or Cancel to go back without approving.`

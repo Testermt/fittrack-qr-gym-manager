@@ -16,6 +16,23 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/admins/$(request.auth.token.email));
     }
 
+    // Role-based access on top of the admin check above. `role` lives on
+    // the same admins/{email} doc (set manually via Firebase Console /
+    // Admin SDK, same as the whitelist itself — there's no in-app admin
+    // management UI). Missing/absent `role` defaults to 'owner' so an
+    // existing admin who predates this field isn't accidentally locked out.
+    function adminRole() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.get('role', 'owner');
+    }
+    // Full access: owner (the gym's operator/manager). Front-desk staff
+    // (role == 'staff') gets everything isVerifiedAdminDirect() alone would
+    // allow EXCEPT the operations explicitly gated behind this function below
+    // (member create/delete, mark-paid & other member field writes beyond
+    // approve, refunds, payments, and pricing/settings changes).
+    function isOwnerAdmin() {
+      return isVerifiedAdminDirect() && adminRole() == 'owner';
+    }
+
 
     // Members collection: Public read for status, secure write/update
     match /members/{phone} {
@@ -59,25 +76,32 @@ service cloud.firestore {
           && request.resource.data.paymentStatus == "pending"
           && request.resource.data.approved == false)
         ||
-        // Admin manual registration: only a verified admin can create a
-        // member that is pre-approved and/or already marked paid.
-        (isVerifiedAdminDirect()
+        // Admin manual registration: owner-only — it can create a member
+        // pre-approved and/or already marked paid, both of which skip the
+        // front-desk's normal Approve step, so staff can't use this branch.
+        (isOwnerAdmin()
           && hasValidMemberShape()
           && request.resource.data.paymentStatus in ['pending', 'paid']
           && request.resource.data.approved == true);
 
       allow get: if true;
-      allow list, delete: if isVerifiedAdminDirect();
+      allow list: if isVerifiedAdminDirect();
+      // Deleting a member record is owner-only.
+      allow delete: if isOwnerAdmin();
 
-      // Update: admins can change anything. The public self-checkin kiosk
-      // (member.js, no auth) additionally gets a narrow carve-out to bump
-      // its OWN doc's monthly check-in counter after a successful checkin —
-      // this is a harmless display stat, not a trust boundary, so it's
-      // fine to allow without admin auth. `affectedKeys().hasOnly(...)`
-      // guarantees no other field (approved, paymentStatus, plan, etc.) can
-      // be touched through this branch, even if someone crafts the request
-      // by hand.
-      allow update: if isVerifiedAdminDirect()
+      // Update: owners can change anything. Staff get a narrow carve-out to
+      // flip ONLY `approved` from false → true (the Approve button) — every
+      // other field (paymentStatus, plan, expiryDate, dues, freeze state,
+      // phone…) requires isOwnerAdmin(). The public self-checkin kiosk
+      // (member.js, no auth) separately gets its own narrow carve-out to
+      // bump its OWN doc's monthly check-in counter after a successful
+      // checkin — a harmless display stat, not a trust boundary.
+      allow update: if isOwnerAdmin()
+        ||
+        (isVerifiedAdminDirect()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approved', 'updatedAt'])
+          && resource.data.approved == false
+          && request.resource.data.approved == true)
         ||
         (request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['monthlyCheckinCount', 'checkinMonthKey'])
@@ -114,16 +138,17 @@ service cloud.firestore {
 }
 
     
-    // Payments collection: Strictly admin-only
+    // Payments collection: financial records — owner-only end to end so
+    // front-desk staff can't see payment history.
     match /payments/{paymentId} {
-      allow create, read, update, delete: if isVerifiedAdminDirect();
+      allow create, read, update, delete: if isOwnerAdmin();
     }
 
     // Refunds collection: same trust boundary as payments — every
     // mid-plan-cancellation refund is logged here for accountability.
-    // Admin-only end to end, same as payments above.
+    // Owner-only end to end, same as payments above.
     match /refunds/{refundId} {
-      allow create, read, update, delete: if isVerifiedAdminDirect();
+      allow create, read, update, delete: if isOwnerAdmin();
     }
 
     // Settings collection: Public read (UPI config, gym config/plans),
@@ -150,10 +175,12 @@ service cloud.firestore {
 
       allow get: if true;
       allow list: if isVerifiedAdminDirect();
-      allow create, update: if isVerifiedAdminDirect()
+      // Changing gym config / pricing / tier is owner-only — staff can
+      // still read it (needed to render the dashboard), just not edit it.
+      allow create, update: if isOwnerAdmin()
                             && (docId != 'gymConfig' || isValidGymConfig())
                             && (docId != 'tier' || isValidTierConfig());
-      allow delete: if isVerifiedAdminDirect();
+      allow delete: if isOwnerAdmin();
     }
 
 
