@@ -618,6 +618,22 @@
     </ul>
   </div>
 
+  <!-- 🔥 Current plan is still active but hasn't been paid for yet (e.g. admin
+       registered/checked-in the member on credit). This is NOT a renewal —
+       nothing has expired — so it just asks for the amount already owed,
+       with no plan picker. -->
+  <div id="payDuesSection" class="hidden border-t border-slate-200 pt-5 space-y-3.5">
+    <div class="rounded-xl bg-amber-50 border border-amber-200 p-4">
+      <p class="text-sm font-semibold text-amber-900">Payment pending for your current plan</p>
+      <p class="text-xs text-amber-700 mt-1">Please pay to keep your membership in good standing.</p>
+    </div>
+    <button id="payDuesButton" type="button" class="btn-success w-full">
+      Pay <span id="payDuesAmount"></span> via UPI
+    </button>
+  </div>
+
+  <!-- Shown only once the current plan has actually expired — a real renewal,
+       so a new plan is picked here. -->
   <div id="renewSection" class="hidden border-t border-slate-200 pt-5 space-y-3.5">
     <p class="text-sm font-medium text-slate-700">Renew your membership</p>
     <div id="renewPlanPicker" class="grid grid-cols-2 gap-3"></div>
@@ -656,7 +672,16 @@
         <span class="text-xl font-bold text-slate-900" id="modalPlanPrice"></span>
       </div>
 
-      <!-- Primary action: real UPI deep link, opens GPay / PhonePe / Paytm / BHIM etc. -->
+      <!-- Scannable QR code — generated entirely in the browser, so the UPI
+           ID/amount never goes to a third-party server. Primary way to pay
+           when this page is open on a shared/kiosk device: scan with your
+           own phone's UPI app instead of tapping a link on someone else's screen. -->
+      <div id="upiQrWrap" class="hidden text-center space-y-2">
+        <div id="upiQrCode" class="inline-flex p-3 bg-white rounded-xl border border-slate-200"></div>
+        <p class="text-xs text-slate-500">Scan with any UPI app to pay</p>
+      </div>
+
+      <!-- Same-device fallback: real UPI deep link, opens GPay / PhonePe / Paytm / BHIM etc. -->
       <a id="upiPayLink" href="#" class="hidden btn-success">
         Pay Now via UPI App 📲
       </a>
@@ -810,6 +835,10 @@
       </svg>
     </button>
   </div>
+
+  <!-- Renders the scannable UPI QR code inside the payment modal, client-side
+       (no third-party server ever sees the UPI ID / amount). -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
   <!-- Firebase SDKs (compat — no build step needed) -->
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>

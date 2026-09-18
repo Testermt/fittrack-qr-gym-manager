@@ -497,10 +497,30 @@ function renderStatusCard(member, checkinStatus) {
     performAutoCheckin(member);
   }
 
+  // 🔥 Active-but-unpaid is NOT the same thing as expired. If the plan is
+  // still running (just hasn't been paid for — e.g. admin checked the member
+  // in on credit), showing a "renew" plan picker is confusing: nothing needs
+  // renewing yet, they just need to pay what's already owed. Only a truly
+  // expired (and unpaused) plan gets the real renew-with-a-new-plan flow.
+  const isPending = member.paymentStatus !== "paid";
+  const payDuesSection = document.getElementById("payDuesSection");
   const renewSection = document.getElementById("renewSection");
+
+  const showPayDues = !isFrozen && isActive && isPending;
+  payDuesSection.classList.toggle("hidden", !showPayDues);
+  if (showPayDues) {
+    const currentPlan = PLANS[member.plan] || { price: 0 };
+    // duesAmount (when set) already accounts for any past unpaid cycles;
+    // otherwise this is simply the current plan's own price.
+    const amountDue = member.duesAmount > 0 ? member.duesAmount : currentPlan.price;
+    document.getElementById("payDuesAmount").textContent = formatCurrency(amountDue);
+    payDuesSection.dataset.amount = amountDue;
+  }
+
   // No renewals while paused — resuming is an admin action, not a payment one.
-  renewSection.classList.toggle("hidden", isFrozen || (isActive && member.paymentStatus === "paid"));
-  if (!renewSection.classList.contains("hidden")) {
+  const showRenew = !isFrozen && !isActive;
+  renewSection.classList.toggle("hidden", !showRenew);
+  if (showRenew) {
     buildPlanPicker("renewPlanPicker", "renewPlan");
   }
 }
@@ -510,6 +530,12 @@ document.getElementById("renewButton")?.addEventListener("click", () => {
   const planId = document.querySelector("input[name=renewPlan]:checked")?.value;
   if (!planId) return;
   openPaymentModal(planId);
+});
+
+document.getElementById("payDuesButton")?.addEventListener("click", () => {
+  if (!currentMember) return;
+  const amount = Number(document.getElementById("payDuesSection").dataset.amount || 0);
+  openPaymentModal(currentMember.plan, { amountOverride: amount, label: "Amount Due" });
 });
 
 // --------------------------------------------------------- auto check-in --
@@ -635,14 +661,17 @@ let pendingPaymentPlanId = null;
  * paid on its own — see the on-screen note; only the gym admin can do that
  * from the dashboard after verifying the payment (enforced in firestore.rules).
  */
-async function openPaymentModal(planId) {
+async function openPaymentModal(planId, { amountOverride, label } = {}) {
   if (!currentMember) return;
   pendingPaymentPlanId = planId;
   const plan = PLANS[planId];
 
   // Agar plan mein label ya price missing ho toh fallback handle karna
-  const planLabel = plan ? plan.label : "Membership Plan";
-  const planPrice = plan ? plan.price : 0;
+  const planLabel = label || (plan ? plan.label : "Membership Plan");
+  // amountOverride lets a "pay what's already due" flow (current plan, not a
+  // fresh pick) charge the actual outstanding amount instead of the plan's
+  // list price — e.g. when duesAmount has past unpaid cycles baked in.
+  const planPrice = amountOverride != null ? amountOverride : (plan ? plan.price : 0);
 
   document.getElementById("modalPlanLabel").textContent = planLabel;
   document.getElementById("modalPlanPrice").textContent = formatCurrency(planPrice);
@@ -650,10 +679,14 @@ async function openPaymentModal(planId) {
   const payLink = document.getElementById("upiPayLink");
   const fallback = document.getElementById("upiIdFallback");
   const unavailableNote = document.getElementById("upiUnavailableNote");
+  const qrWrap = document.getElementById("upiQrWrap");
+  const qrBox = document.getElementById("upiQrCode");
 
   payLink.classList.add("hidden");
   fallback.classList.add("hidden");
   unavailableNote.classList.add("hidden");
+  qrWrap.classList.add("hidden");
+  qrBox.innerHTML = "";
   payLink.removeAttribute("href");
 
   document.getElementById("paymentModal").classList.remove("hidden");
@@ -674,6 +707,19 @@ async function openPaymentModal(planId) {
     note,
     transactionRef,
   });
+
+  // Scannable QR first — the primary way to pay, especially on a shared
+  // kiosk device where tapping the deep link would try to open GPay/PhonePe
+  // on that shared device rather than the member's own phone.
+  if (window.QRCode) {
+    new QRCode(qrBox, {
+      text: upiLink,
+      width: 176,
+      height: 176,
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+    qrWrap.classList.remove("hidden");
+  }
 
   payLink.href = upiLink;
   payLink.classList.remove("hidden");
