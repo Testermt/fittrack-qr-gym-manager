@@ -3,6 +3,7 @@
 const membersCol = db.collection("members");
 const checkinsCol = db.collection("checkins");
 const paymentsCol = db.collection("payments");
+const refundsCol = db.collection("refunds");
 
 let allMembers = [];
 let unsubMembers = null;
@@ -17,6 +18,12 @@ let pendingReauthAction = null;
 
 // Member currently open in the Renew Plan modal
 let pendingRenewMember = null;
+
+// Member currently open in the Cancel & Refund modal
+let pendingRefundMember = null;
+
+// Member currently open in the Change Phone Number modal
+let pendingPhoneChangeMember = null;
 
 // Thrown only when we genuinely could NOT complete the admin check (network
 // blip, or the ID-token-propagation race right after a popup sign-in) —
@@ -156,6 +163,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.querySelectorAll('input[name="renewPaymentMode"]').forEach((el) =>
     el.addEventListener("change", updateRenewPreview)
   );
+
+  // Cancel & Refund modal
+  document.getElementById("refundCancelBtn").addEventListener("click", closeRefundModal);
+  document.getElementById("refundCloseBtn").addEventListener("click", closeRefundModal);
+  document.getElementById("refundBackdrop").addEventListener("click", closeRefundModal);
+  document.getElementById("refundForm").addEventListener("submit", handleRefundSubmit);
+
+  // Change Phone Number modal
+  document.getElementById("phoneChangeCancelBtn").addEventListener("click", closePhoneChangeModal);
+  document.getElementById("phoneChangeCloseBtn").addEventListener("click", closePhoneChangeModal);
+  document.getElementById("phoneChangeBackdrop").addEventListener("click", closePhoneChangeModal);
+  document.getElementById("phoneChangeForm").addEventListener("submit", handlePhoneChangeSubmit);
 
   // Gym Settings modal (name / currency / country code / plans) — lets the
   // owner change these themselves instead of needing someone to edit
@@ -960,21 +979,23 @@ function buildMemberActionsHtml(m, dotSizeClass) {
   const isActive = days >= 0;
   const isPaid = m.paymentStatus === "paid";
   const isApproved = m.approved === true;
+  const isFrozen = m.isFrozen === true;
   const alreadyCheckedIn = todayCheckedInIds.has(m.id);
 
   return `
     <!-- 🔥 Approve Button (Sirf tab dikhega jab user approved na ho) -->
     ${!isApproved ? `<button data-action="approve" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-amber-500/15 text-amber-400 px-3 py-1.5 hover:bg-amber-500/25 transition">Approve</button>` : ""}
 
-    <!-- 🔥 Check-In button sirf approved members ko dikhega — unapproved ke liye pehle Approve zaroori hai -->
-    ${isApproved ? `
+    <!-- 🔥 Check-In button sirf approved, non-frozen members ko dikhega -->
+    ${isApproved && !isFrozen ? `
       <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
         class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
           alreadyCheckedIn ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-accent/15 text-accent hover:bg-accent/25"
         }">${alreadyCheckedIn ? "✓ Checked In" : "Check-In"}</button>
     ` : ""}
+    ${isApproved && isFrozen ? `<span class="text-xs font-semibold rounded-md bg-violet-500/15 text-violet-300 px-3 py-1.5">Paused</span>` : ""}
 
-    <!-- 🔥 3-dot menu: Mark as Paid / Send WhatsApp / Delete -->
+    <!-- 🔥 3-dot menu: Mark as Paid / Send WhatsApp / Renew / Freeze / Refund / Change Phone / Delete -->
     <div class="relative inline-block">
       <button data-action="more-menu" data-id="${m.id}"
         class="text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md ${dotSizeClass} flex items-center justify-center transition"
@@ -985,6 +1006,10 @@ function buildMemberActionsHtml(m, dotSizeClass) {
         data-mark-paid="${!isPaid}"
         data-whatsapp="${!isActive || !isPaid}"
         data-renew="${isApproved}"
+        data-freeze="${isApproved && !isFrozen}"
+        data-resume="${isApproved && isFrozen}"
+        data-refund="${isApproved && isPaid && isActive && !isFrozen}"
+        data-change-phone="true"
         class="hidden"></div>
     </div>
   `;
@@ -1025,7 +1050,9 @@ function renderMemberTable() {
     const plan = PLANS[m.plan] || { label: m.plan };
     const isPaid = m.paymentStatus === "paid";
     const isApproved = m.approved === true;
+    const isFrozen = m.isFrozen === true;
     const dues = m.duesAmount || 0; // 🔥 accumulated unpaid amount from credit renewals
+    const frozenDaysSoFar = isFrozen && m.freezeStartDate ? Math.max(0, daysBetweenKeys(m.freezeStartDate, toDateKey(new Date()))) : 0;
 
     // ---- desktop/tablet table row (md and up) ----
     const tr = document.createElement("tr");
@@ -1040,10 +1067,13 @@ function renderMemberTable() {
       <td class="py-3 pr-4 text-slate-300">${formatDate(m.expiryDate)}</td>
       <td class="py-3 pr-4">
         <!-- 🔥 Unapproved members: sirf "Pending Approval" dikhega, ACTIVE/EXPIRED nahi (kyunki abhi member confirm hi nahi hai) -->
-        ${isApproved ? `
+        ${isApproved ? (isFrozen ? `
+          <span class="badge bg-violet-500/15 text-violet-300">PAUSED</span>
+          <p class="text-xs text-slate-500 mt-1">${frozenDaysSoFar}d paused so far</p>
+        ` : `
           <span class="badge ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>
           <p class="text-xs text-slate-500 mt-1">${isActive ? days + "d left" : Math.abs(days) + "d ago"}</p>
-        ` : `
+        `) : `
           <span class="badge badge-warning">Pending Approval</span>
         `}
       </td>
@@ -1074,7 +1104,9 @@ function renderMemberTable() {
           <p class="text-xs text-slate-500">+${GYM_SETTINGS.defaultCountryCode} ${m.phone}</p>
         </div>
         ${isApproved
-          ? `<span class="badge shrink-0 ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>`
+          ? (isFrozen
+              ? `<span class="badge shrink-0 bg-violet-500/15 text-violet-300">PAUSED</span>`
+              : `<span class="badge shrink-0 ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>`)
           : `<span class="badge shrink-0 badge-warning">Pending Approval</span>`
         }
       </div>
@@ -1089,7 +1121,7 @@ function renderMemberTable() {
 
       <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-400 mt-2.5 pt-2.5 border-t border-slate-800/70">
         <p class="truncate"><span class="text-slate-600">Plan:</span> ${plan.label}</p>
-        <p class="truncate"><span class="text-slate-600">Expiry:</span> ${formatDate(m.expiryDate)} · ${isActive ? days + "d left" : Math.abs(days) + "d ago"}</p>
+        <p class="truncate"><span class="text-slate-600">Expiry:</span> ${formatDate(m.expiryDate)} · ${isFrozen ? `paused ${frozenDaysSoFar}d` : (isActive ? days + "d left" : Math.abs(days) + "d ago")}</p>
         ${m.address ? `<p class="col-span-2 truncate" title="${escapeHtml(m.address)}"><span class="text-slate-600">Address:</span> ${escapeHtml(m.address)}</p>` : ""}
       </div>
 
@@ -1119,14 +1151,22 @@ function openRowMenuFor(btn, member) {
   const canMarkPaid = wrapper.dataset.markPaid === "true";
   const canWhatsapp = wrapper.dataset.whatsapp === "true";
   const canRenew = wrapper.dataset.renew === "true";
+  const canFreeze = wrapper.dataset.freeze === "true";
+  const canResume = wrapper.dataset.resume === "true";
+  const canRefund = wrapper.dataset.refund === "true";
+  const canChangePhone = wrapper.dataset.changePhone === "true";
 
   const menu = document.createElement("div");
   menu.className =
-    "fixed z-50 w-44 rounded-lg border border-slate-700 bg-slate-900 shadow-xl py-1 text-sm";
+    "fixed z-50 w-48 rounded-lg border border-slate-700 bg-slate-900 shadow-xl py-1 text-sm";
   menu.innerHTML = `
     ${canRenew ? `<button data-menu-action="renew" class="w-full text-left px-3 py-2 text-accent hover:bg-slate-800 transition">Renew Plan</button>` : ""}
     ${canMarkPaid ? `<button data-menu-action="mark-paid" class="w-full text-left px-3 py-2 text-success hover:bg-slate-800 transition">Mark as Paid</button>` : ""}
+    ${canFreeze ? `<button data-menu-action="freeze" class="w-full text-left px-3 py-2 text-violet-300 hover:bg-slate-800 transition">Freeze / Pause</button>` : ""}
+    ${canResume ? `<button data-menu-action="resume" class="w-full text-left px-3 py-2 text-violet-300 hover:bg-slate-800 transition">Resume Membership</button>` : ""}
+    ${canRefund ? `<button data-menu-action="refund" class="w-full text-left px-3 py-2 text-amber-400 hover:bg-slate-800 transition">Cancel & Refund</button>` : ""}
     ${canWhatsapp ? `<button data-menu-action="whatsapp" class="w-full text-left px-3 py-2 text-emerald-400 hover:bg-slate-800 transition">Send WhatsApp</button>` : ""}
+    ${canChangePhone ? `<button data-menu-action="change-phone" class="w-full text-left px-3 py-2 text-sky-400 hover:bg-slate-800 transition">Change Phone Number</button>` : ""}
     <button data-menu-action="delete" class="w-full text-left px-3 py-2 text-rose-400 hover:bg-slate-800 transition">Delete</button>
   `;
   document.body.appendChild(menu);
@@ -1157,7 +1197,11 @@ function openRowMenuFor(btn, member) {
     closeRowMenu();
     if (action === "renew") openRenewModal(member);
     if (action === "mark-paid") requestReauth("mark-paid", member, btn);
+    if (action === "freeze") executeFreezeMember(member, btn);
+    if (action === "resume") executeResumeMember(member, btn);
+    if (action === "refund") openRefundModal(member);
     if (action === "whatsapp") sendWhatsAppReminder(member);
+    if (action === "change-phone") openPhoneChangeModal(member);
     if (action === "delete") requestReauth("delete", member, btn);
   });
 
@@ -1439,6 +1483,302 @@ async function handleRenewSubmit(e) {
     console.error(err);
     errorEl.textContent = "Could not renew plan. Please try again.";
     errorEl.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+}
+
+// ==================== FREEZE / PAUSE MEMBERSHIP ====================
+// Real-world need: a member travelling for N days shouldn't have their
+// expiry silently tick down while they're away. Freezing stops the clock
+// (badge shows PAUSED, check-in is blocked) and Resume pushes expiryDate
+// forward by exactly the number of days they were paused, so they get
+// back every day they paid for.
+
+async function executeFreezeMember(member, btn) {
+  if (member.isFrozen) return;
+  if (!confirm(`Freeze ${member.name}'s membership? Their expiry date won't move while paused, and they won't be able to check in until you resume it.`)) return;
+
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; }
+  try {
+    await membersCol.doc(member.id).update({
+      isFrozen: true,
+      freezeStartDate: toDateKey(new Date()),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    console.error(err);
+    alert("Could not freeze membership. Please try again.");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
+}
+
+async function executeResumeMember(member, btn) {
+  if (!member.isFrozen) return;
+
+  const today = toDateKey(new Date());
+  const frozenDays = Math.max(0, daysBetweenKeys(member.freezeStartDate || today, today));
+  const newExpiry = addDaysToDateKey(member.expiryDate, frozenDays);
+
+  if (!confirm(`Resume ${member.name}'s membership? They were paused for ${frozenDays} day${frozenDays === 1 ? "" : "s"} — their new expiry will be ${formatDate(newExpiry)}.`)) return;
+
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; }
+  try {
+    await membersCol.doc(member.id).update({
+      isFrozen: false,
+      freezeStartDate: firebase.firestore.FieldValue.delete(),
+      expiryDate: newExpiry,
+      totalFrozenDays: (member.totalFrozenDays || 0) + frozenDays,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    console.error(err);
+    alert("Could not resume membership. Please try again.");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
+}
+
+// ==================== CANCEL & REFUND (mid-plan cancellation) ====================
+// Prorates the refund off the member's current plan price by days
+// remaining in the cycle vs. the plan's total length, logs it to the
+// `refunds` collection for accountability, and ends the membership today
+// (expiryDate = today) so the member table reflects it as EXPIRED right
+// away. The admin can always override the suggested amount before
+// confirming — the math is a starting point, not a rule.
+
+function computeSuggestedRefund(member) {
+  const plan = PLANS[member.plan] || {};
+  const price = plan.price || 0;
+  const totalDays = plan.days || Math.round((plan.months || 1) * 30);
+  const daysRemaining = Math.max(0, Math.min(totalDays, daysUntil(member.expiryDate)));
+  const amount = totalDays > 0 ? Math.round((price * daysRemaining) / totalDays) : 0;
+  return { plan, price, totalDays, daysRemaining, amount };
+}
+
+function openRefundModal(member) {
+  pendingRefundMember = member;
+  const { plan, price, daysRemaining, amount } = computeSuggestedRefund(member);
+
+  document.getElementById("refundMemberName").textContent = member.name;
+  document.getElementById("refundPlanLabel").textContent = plan.label || member.plan;
+  document.getElementById("refundPlanPrice").textContent = formatCurrency(price);
+  document.getElementById("refundDaysRemaining").textContent = `${daysRemaining} day${daysRemaining === 1 ? "" : "s"}`;
+  document.getElementById("refundAmountInput").value = amount;
+  document.getElementById("refundReasonInput").value = "";
+  document.getElementById("refundError").classList.add("hidden");
+  document.getElementById("refundModal").classList.remove("hidden");
+}
+
+function closeRefundModal() {
+  document.getElementById("refundModal").classList.add("hidden");
+  pendingRefundMember = null;
+}
+
+async function handleRefundSubmit(e) {
+  e.preventDefault();
+  if (!pendingRefundMember) return;
+  const member = pendingRefundMember;
+  const submitBtn = document.getElementById("refundSubmitBtn");
+  const errorEl = document.getElementById("refundError");
+  errorEl.classList.add("hidden");
+
+  const amount = Number(document.getElementById("refundAmountInput").value);
+  const reason = document.getElementById("refundReasonInput").value.trim();
+  const { plan, daysRemaining } = computeSuggestedRefund(member);
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    errorEl.textContent = "Please enter a valid refund amount.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  const originalLabel = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Processing…";
+
+  try {
+    const today = toDateKey(new Date());
+    await refundsCol.add({
+      memberId: member.id,
+      name: member.name,
+      phone: member.phone,
+      plan: member.plan,
+      planPrice: plan.price || 0,
+      daysRemaining,
+      amount,
+      reason,
+      dateKey: today,
+      processedBy: auth.currentUser ? auth.currentUser.email : null,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Ends the membership immediately — expiry is cut to today, so the
+    // member table shows EXPIRED right away instead of counting down the
+    // days that were just refunded.
+    await membersCol.doc(member.id).update({
+      expiryDate: today,
+      cancelledAt: today,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+
+    closeRefundModal();
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = "Could not process refund. Please try again.";
+    errorEl.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+}
+
+// ==================== CHANGE PHONE NUMBER ====================
+// The member's phone number IS the Firestore doc ID (members/{phone}), so
+// "changing" it means migrating to a brand-new doc at the new phone, then
+// deleting the old one — plain field updates can't rename a doc ID.
+// Check-in history is migrated too: firestore.rules forces every new
+// checkin's `timestamp` to equal `request.time` (server time), so the
+// exact original check-in time can't be preserved on the re-created docs
+// — but the `dateKey` (the field that actually matters for the "last 7
+// days" history and the deterministic doc ID the kiosk looks up) is kept
+// exactly as it was, so history stays continuous under the new number.
+
+function openPhoneChangeModal(member) {
+  pendingPhoneChangeMember = member;
+  document.getElementById("phoneChangeCurrentPhone").textContent = `+${GYM_SETTINGS.defaultCountryCode} ${member.phone}`;
+  document.getElementById("phoneChangeNewInput").value = "";
+  document.getElementById("phoneChangeError").classList.add("hidden");
+  document.getElementById("phoneChangeModal").classList.remove("hidden");
+  setTimeout(() => document.getElementById("phoneChangeNewInput").focus(), 50);
+}
+
+function closePhoneChangeModal() {
+  document.getElementById("phoneChangeModal").classList.add("hidden");
+  pendingPhoneChangeMember = null;
+}
+
+function showPhoneChangeError(message) {
+  const errorEl = document.getElementById("phoneChangeError");
+  errorEl.textContent = message;
+  errorEl.classList.remove("hidden");
+}
+
+// Fields allowed in a member doc's `create` shape (firestore.rules
+// hasValidMemberShape) — the new doc's first `.set()` must contain only
+// these, everything else (dues, freeze state, counters…) is copied over
+// afterwards in a follow-up `.update()`, which admins aren't restricted on.
+const MEMBER_BASE_SHAPE_KEYS = [
+  "name", "phone", "address", "joinDate", "plan", "expiryDate",
+  "paymentStatus", "approved", "createdAt", "updatedAt",
+  "whatsappBotOptIn", "whatsappMarketingOptIn",
+];
+
+async function handlePhoneChangeSubmit(e) {
+  e.preventDefault();
+  if (!pendingPhoneChangeMember) return;
+  const member = pendingPhoneChangeMember;
+  const submitBtn = document.getElementById("phoneChangeSubmitBtn");
+  document.getElementById("phoneChangeError").classList.add("hidden");
+
+  const oldPhone = member.id;
+  const newPhone = normalizePhone(document.getElementById("phoneChangeNewInput").value);
+
+  if (!/^[0-9]{7,15}$/.test(newPhone)) {
+    showPhoneChangeError("Enter a valid phone number (7–15 digits).");
+    return;
+  }
+  if (newPhone === oldPhone) {
+    showPhoneChangeError("That's already their current number.");
+    return;
+  }
+
+  const originalLabel = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Migrating…";
+
+  try {
+    const newDocRef = membersCol.doc(newPhone);
+    const existing = await newDocRef.get();
+    if (existing.exists) {
+      showPhoneChangeError("A member with this phone number already exists.");
+      return;
+    }
+
+    const oldSnap = await membersCol.doc(oldPhone).get();
+    if (!oldSnap.exists) {
+      showPhoneChangeError("This member's record could not be found. Please refresh and try again.");
+      return;
+    }
+    const oldData = oldSnap.data();
+
+    // 1) Create the new doc with just the base shape the create rule
+    //    requires, `phone` swapped to the new number.
+    const baseData = {};
+    for (const key of MEMBER_BASE_SHAPE_KEYS) {
+      if (key === "phone") { baseData.phone = newPhone; continue; }
+      if (key in oldData) baseData[key] = oldData[key];
+    }
+    baseData.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+    await newDocRef.set(baseData);
+
+    // 2) Migrate check-in history BEFORE copying extra fields like
+    //    isFrozen onto the new doc — the checkins create rule refuses a
+    //    new check-in doc for a frozen member, and at this point the new
+    //    doc only has the base shape (no isFrozen yet), so migrating a
+    //    paused member's history still goes through. Re-created under the
+    //    new deterministic ID (`${newPhone}_${dateKey}`) so the kiosk's
+    //    history lookup keeps working, then old docs are deleted. Batched
+    //    in chunks to stay well under Firestore's 500-writes-per-batch limit.
+    const oldCheckins = await checkinsCol.where("memberId", "==", oldPhone).get();
+    const CHUNK_SIZE = 200; // 200 creates + 200 deletes = 400 ops/batch
+    const docs = oldCheckins.docs;
+    for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
+      const batch = db.batch();
+      const chunk = docs.slice(i, i + CHUNK_SIZE);
+      chunk.forEach((doc) => {
+        const data = doc.data();
+        const newCheckinRef = checkinsCol.doc(`${newPhone}_${data.dateKey}`);
+        batch.set(newCheckinRef, {
+          memberId: newPhone,
+          name: data.name || member.name,
+          phone: newPhone,
+          dateKey: data.dateKey,
+          method: data.method === "geofenced-gps" ? "geofenced-gps" : "manual",
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          loggedBy: data.loggedBy || null,
+          migratedFromPhone: oldPhone,
+        });
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+    }
+
+    // 3) Now copy over everything else (dues, freeze state, check-in
+    //    counters…) — an admin update has no field restriction, unlike
+    //    create, so this can carry any extra fields the old doc had.
+    const extraData = {};
+    for (const key of Object.keys(oldData)) {
+      if (MEMBER_BASE_SHAPE_KEYS.includes(key)) continue;
+      extraData[key] = oldData[key];
+    }
+    extraData.migratedFromPhone = oldPhone;
+    extraData.phoneChangedAt = firebase.firestore.FieldValue.serverTimestamp();
+    if (Object.keys(extraData).length > 0) {
+      await newDocRef.update(extraData);
+    }
+
+    // 4) Finally, drop the old member doc now that everything's migrated.
+    await membersCol.doc(oldPhone).delete();
+
+    closePhoneChangeModal();
+  } catch (err) {
+    console.error(err);
+    showPhoneChangeError("Could not change phone number. Please try again.");
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = originalLabel;

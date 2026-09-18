@@ -103,7 +103,10 @@ service cloud.firestore {
                 && request.resource.data.method in ["geofenced-gps", "manual"]
                 && request.resource.data.timestamp == request.time
                 && checkinId == request.resource.data.memberId + '_' + request.resource.data.dateKey
-                && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.approved == true;
+                && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.approved == true
+                // Frozen/paused members can't check in until an admin resumes
+                // their membership (see admin.js executeFreezeMember/Resume).
+                && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('isFrozen', false) != true;
                 
   allow get: if true;
   allow list: if isVerifiedAdminDirect();
@@ -113,6 +116,13 @@ service cloud.firestore {
     
     // Payments collection: Strictly admin-only
     match /payments/{paymentId} {
+      allow create, read, update, delete: if isVerifiedAdminDirect();
+    }
+
+    // Refunds collection: same trust boundary as payments — every
+    // mid-plan-cancellation refund is logged here for accountability.
+    // Admin-only end to end, same as payments above.
+    match /refunds/{refundId} {
       allow create, read, update, delete: if isVerifiedAdminDirect();
     }
 

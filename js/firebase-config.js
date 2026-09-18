@@ -490,6 +490,23 @@ function addMonthsToDateKey(dateKey, months) {
   return toDateKey(date);
 }
 
+/** Adds (or subtracts, if negative) a whole number of days to a dateKey. */
+function addDaysToDateKey(dateKey, days) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + days);
+  return toDateKey(date);
+}
+
+/** Whole days between two dateKeys (b - a). Positive if b is after a. */
+function daysBetweenKeys(aKey, bKey) {
+  const [ay, am, ad] = aKey.split("-").map(Number);
+  const [by, bm, bd] = bKey.split("-").map(Number);
+  const a = new Date(ay, am - 1, ad);
+  const b = new Date(by, bm - 1, bd);
+  return Math.round((b - a) / 86400000);
+}
+
 function daysUntil(dateKey) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);

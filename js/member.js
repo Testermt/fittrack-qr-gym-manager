@@ -416,6 +416,7 @@ function maskName(name) {
 function renderStatusCard(member, checkinStatus) {
   const days = daysUntil(member.expiryDate);
   const isActive = days >= 0;
+  const isFrozen = member.isFrozen === true;
   const plan = PLANS[member.plan] || { label: member.plan };
 
   const card = document.getElementById("statusCard");
@@ -443,13 +444,22 @@ function renderStatusCard(member, checkinStatus) {
   renderMonthlyCheckinBadge(member);
 
   const badge = document.getElementById("statusBadge");
-  badge.textContent = isActive ? "ACTIVE" : "EXPIRED";
-  badge.className = `badge ${isActive ? "badge-success" : "badge-danger"}`;
+  if (isFrozen) {
+    badge.textContent = "PAUSED";
+    badge.className = "badge badge-paused";
+  } else {
+    badge.textContent = isActive ? "ACTIVE" : "EXPIRED";
+    badge.className = `badge ${isActive ? "badge-success" : "badge-danger"}`;
+  }
 
   const daysLabel = document.getElementById("statusDays");
-  daysLabel.textContent = isActive
-    ? `${days} day${days === 1 ? "" : "s"} left`
-    : `Expired ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ago`;
+  if (isFrozen) {
+    daysLabel.textContent = "Membership paused — days won't count down until resumed";
+  } else {
+    daysLabel.textContent = isActive
+      ? `${days} day${days === 1 ? "" : "s"} left`
+      : `Expired ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ago`;
+  }
 
   const payBadge = document.getElementById("statusPayBadge");
   payBadge.textContent = member.paymentStatus === "paid" ? "PAID" : "PAYMENT PENDING";
@@ -475,6 +485,10 @@ function renderStatusCard(member, checkinStatus) {
   if (checkinStatus === "pending-approval") {
     checkinNote.textContent = "Your registration is pending admin approval.";
     checkinNote.className = "text-sm text-amber-500 font-semibold";
+  } else if (isFrozen) {
+    checkinNote.textContent = "Your membership is currently paused. Contact the gym to resume it.";
+    checkinNote.className = "text-sm text-violet-600 font-semibold";
+    checkinNote.classList.remove("hidden");
   } else if (!isActive) {
     checkinNote.textContent = "";
     checkinNote.classList.add("hidden");
@@ -484,7 +498,8 @@ function renderStatusCard(member, checkinStatus) {
   }
 
   const renewSection = document.getElementById("renewSection");
-  renewSection.classList.toggle("hidden", isActive && member.paymentStatus === "paid");
+  // No renewals while paused — resuming is an admin action, not a payment one.
+  renewSection.classList.toggle("hidden", isFrozen || (isActive && member.paymentStatus === "paid"));
   if (!renewSection.classList.contains("hidden")) {
     buildPlanPicker("renewPlanPicker", "renewPlan");
   }
