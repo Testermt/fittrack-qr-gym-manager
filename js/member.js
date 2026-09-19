@@ -449,7 +449,14 @@ function renderStatusCard(member, checkinStatus) {
   renderMonthlyCheckinBadge(member);
 
   const badge = document.getElementById("statusBadge");
-  if (isFrozen) {
+  const isApproved = member.approved === true;
+  if (!isApproved) {
+    // Registration not yet reviewed by the gym owner -- showing ACTIVE
+    // here would be misleading (nothing is confirmed yet), so this takes
+    // priority over the active/expired/paused states below.
+    badge.textContent = "PENDING APPROVAL";
+    badge.className = "badge badge-warning";
+  } else if (isFrozen) {
     badge.textContent = "PAUSED";
     badge.className = "badge badge-paused";
   } else {
@@ -458,7 +465,9 @@ function renderStatusCard(member, checkinStatus) {
   }
 
   const daysLabel = document.getElementById("statusDays");
-  if (isFrozen) {
+  if (!isApproved) {
+    daysLabel.textContent = "Awaiting approval — plan will start once approved";
+  } else if (isFrozen) {
     daysLabel.textContent = "Membership paused — days won't count down until resumed";
   } else {
     daysLabel.textContent = isActive
