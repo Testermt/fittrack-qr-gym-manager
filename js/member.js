@@ -394,29 +394,6 @@ function maskPhone(phone) {
   return "•".repeat(digits.length - 4) + digits.slice(-4);
 }
 
-/** Shows the member's first name in FULL, and masks everything after it
- *  (surname/middle names) down to just the first letter of each remaining
- *  word -- e.g. "Ramesh Kumar Sharma" -> "Ramesh K. S.". A first name alone
- *  is common enough across members that showing it in full doesn't
- *  meaningfully identify someone to a stranger glancing at the screen, but
- *  it DOES let the member instantly recognize their own record -- which
- *  the old "only last 3 letters visible" scheme didn't reliably do, since
- *  many members share the same surname ending (a real problem raised by
- *  the gym owner). If there's no surname at all, falls back to the old
- *  last-3-letters style so a one-word name isn't shown fully in plain text. */
-function maskName(name) {
-  const words = String(name || "").trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "";
-  if (words.length === 1) {
-    const str = words[0];
-    if (str.length <= 3) return str;
-    return "•".repeat(str.length - 3) + str.slice(-3);
-  }
-  const [first, ...rest] = words;
-  const initials = rest.map((w) => `${w[0].toUpperCase()}.`).join(" ");
-  return `${first} ${initials}`;
-}
-
 function renderStatusCard(member, checkinStatus) {
   const days = daysUntil(member.expiryDate);
   const isActive = days >= 0;
@@ -427,12 +404,13 @@ function renderStatusCard(member, checkinStatus) {
   card.classList.remove("hidden");
   document.getElementById("statusCardBackdrop")?.classList.remove("hidden");
 
-  // Privacy: full name isn't shown -- masked the same way as the phone
-  // number (last 3 letters visible) so anyone standing behind the member
-  // checking in can't just read their full name off a shared screen, but
-  // the member themself still gets a quick "yes, this is me" confirmation.
+  // Full name shown as-is -- exposure here is short (member reads it and
+  // taps Done, or it auto-clears in 7s -- see STATUS_AUTO_RESET_MS) and
+  // this is a small gym desk where members already recognize each other.
+  // The phone number stays masked below (last 4 digits) since that's the
+  // one piece of info that could actually be reused to contact someone.
   const nameEl = document.getElementById("statusName");
-  nameEl.textContent = maskName(member.name);
+  nameEl.textContent = member.name || "";
   nameEl.classList.remove("hidden");
   document.getElementById("statusPhone").textContent = `+${GYM_SETTINGS.defaultCountryCode} ${maskPhone(member.phone)}`;
   document.getElementById("statusPlan").textContent = plan.label;
