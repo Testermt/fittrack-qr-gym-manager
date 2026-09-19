@@ -106,13 +106,12 @@
     inset: 0 !important;
     width: 100vw !important;
     height: 100vh !important;
-    background-color: rgba(15, 23, 42, 0.75) !important;
-    backdrop-filter: blur(6px) !important;
+    background-color: #FFFFFF !important;
     z-index: 9999 !important;
     display: flex !important;
-    align-items: flex-start !important; /* Upar align karne ke liye */
+    align-items: center !important;
     justify-content: center !important;
-    padding-top: 20px !important;
+    padding: 0 !important;
     overflow-y: auto !important;
   }
 
@@ -120,12 +119,19 @@
     display: none !important; /* Jab hidden class ho toh bilkul gayब rahe */
   }
 
+  /* Poori screen hi card hai — koi floating box, border-radius ya
+     background peek-through nahi, taaki text bade, saaf aur poori
+     screen bhar ke padha ja sake. */
   #welcomeModal > div {
-    max-width: 380px !important;
-    width: 92% !important;
+    max-width: 480px !important;
+    width: 100% !important;
+    height: 100% !important;
     background: #FFFFFF !important;
-    border-radius: 1.25rem !important;
-    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.3) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
     animation: modalSlideDown 250ms cubic-bezier(.34,1.56,.64,1);
   }
 
@@ -202,6 +208,7 @@
   .badge-success { background: #D1FAE5; color: #047857; border-color: #6EE7B7; }
   .badge-warning { background: #FEF3C7; color: #B45309; border-color: #FCD34D; }
   .badge-danger { background: #FFE4E6; color: #BE123C; border-color: #FDA4AF; }
+  .badge-paused { background: #EDE9FE; color: #6D28D9; border-color: #C4B5FD; }
 
   .field-input {
     width: 100%;
@@ -454,24 +461,9 @@
       animation: none !important;
     }
   }  /* ============= WELCOME & GYM RULES MODAL (Top Pop-up) ============= */
-  #welcomeModal {
-    display: flex;
-    align-items: flex-start !important; /* Center se hata kar upar align karne ke liye */
-    justify-content: center;
-    padding-top: 12px;
-  }
-
-  #welcomeModal > div {
-    max-width: 92%;
-    width: 100%;
-    margin-top: 8px;
-    animation: modalSlideDown 250ms cubic-bezier(.34,1.56,.64,1);
-  }
-
-  @keyframes modalSlideDown {
-    0% { opacity: 0; transform: translateY(-20px); }
-    100% { opacity: 1; transform: translateY(0); }
-  }
+  /* Full-screen sizing/background for #welcomeModal is defined once, above
+     — intentionally not repeated here to avoid the two blocks fighting
+     each other over width/height/alignment. */
 
 </style>
 </head>
@@ -618,22 +610,17 @@
     </ul>
   </div>
 
-  <!-- 🔥 Current plan is still active but hasn't been paid for yet (e.g. admin
-       registered/checked-in the member on credit). This is NOT a renewal —
-       nothing has expired — so it just asks for the amount already owed,
-       with no plan picker. -->
   <div id="payDuesSection" class="hidden border-t border-slate-200 pt-5 space-y-3.5">
-    <div class="rounded-xl bg-amber-50 border border-amber-200 p-4">
-      <p class="text-sm font-semibold text-amber-900">Payment pending for your current plan</p>
-      <p class="text-xs text-amber-700 mt-1">Please pay to keep your membership in good standing.</p>
+    <p class="text-sm font-medium text-slate-700">Complete your payment</p>
+    <div class="rounded-xl bg-amber-50 border border-amber-200 p-4 flex items-center justify-between">
+      <span class="text-sm text-slate-600">Amount due</span>
+      <span id="payDuesAmount" class="text-lg font-bold text-slate-900"></span>
     </div>
     <button id="payDuesButton" type="button" class="btn-success w-full">
-      Pay <span id="payDuesAmount"></span> via UPI
+      Pay Now via UPI
     </button>
   </div>
 
-  <!-- Shown only once the current plan has actually expired — a real renewal,
-       so a new plan is picked here. -->
   <div id="renewSection" class="hidden border-t border-slate-200 pt-5 space-y-3.5">
     <p class="text-sm font-medium text-slate-700">Renew your membership</p>
     <div id="renewPlanPicker" class="grid grid-cols-2 gap-3"></div>
@@ -672,16 +659,19 @@
         <span class="text-xl font-bold text-slate-900" id="modalPlanPrice"></span>
       </div>
 
-      <!-- Scannable QR code — generated entirely in the browser, so the UPI
-           ID/amount never goes to a third-party server. Primary way to pay
-           when this page is open on a shared/kiosk device: scan with your
-           own phone's UPI app instead of tapping a link on someone else's screen. -->
-      <div id="upiQrWrap" class="hidden text-center space-y-2">
-        <div id="upiQrCode" class="inline-flex p-3 bg-white rounded-xl border border-slate-200"></div>
-        <p class="text-xs text-slate-500">Scan with any UPI app to pay</p>
+      <!-- Scannable QR — the primary way to pay when this page is open on a
+           shared front-desk device: the member scans with their OWN phone's
+           UPI app instead of tapping a deep link (which would try to open
+           the kiosk device's own apps, not the member's). QRCode.js injects
+           its own <canvas>/<table> into #upiQrCode itself — this div must
+           stay empty in markup. -->
+      <div id="upiQrWrap" class="hidden flex flex-col items-center gap-2 py-2">
+        <div id="upiQrCode" class="rounded-lg border border-slate-200 p-2 bg-white inline-block"></div>
+        <p class="text-xs text-slate-500">Scan with any UPI app (GPay, PhonePe, Paytm…)</p>
       </div>
 
-      <!-- Same-device fallback: real UPI deep link, opens GPay / PhonePe / Paytm / BHIM etc. -->
+      <!-- Secondary action: real UPI deep link — useful when this page is
+           open on the member's OWN phone, opens GPay / PhonePe / Paytm / BHIM etc. -->
       <a id="upiPayLink" href="#" class="hidden btn-success">
         Pay Now via UPI App 📲
       </a>
@@ -711,31 +701,31 @@
   </div>
 
   <!-- ============= WELCOME & GYM RULES MODAL ============= -->
-<div id="welcomeModal" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-3">
+<div id="welcomeModal" class="hidden fixed inset-0 bg-white z-50 flex items-center justify-center">
 
-  <div class="w-full max-w-sm rounded-2xl paper-card p-4 space-y-3 max-h-[90vh] overflow-y-auto shadow-2xl">
-    
+  <div class="w-full h-full mx-auto p-8 space-y-6 overflow-y-auto flex flex-col justify-center">
+
     <!-- Header -->
-    <div class="text-center space-y-1">
-      <div class="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-2xl mx-auto mb-1">🎉</div>
-      <h2 id="welcomeModalTitle" class="font-display text-lg font-bold text-slate-900"></h2>
-      <p id="welcomeModalSub" class="text-xs text-slate-500"></p>
+    <div class="text-center space-y-2">
+      <div class="w-20 h-20 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-5xl mx-auto mb-2">🎉</div>
+      <h2 id="welcomeModalTitle" class="font-display text-3xl font-bold text-slate-900"></h2>
+      <p id="welcomeModalSub" class="text-base text-slate-500"></p>
     </div>
 
     <!-- Rules Box -->
-    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-5 space-y-3">
       <div class="flex items-center justify-between gap-2">
-        <p id="welcomeModalRulesTitle" class="text-xs font-semibold text-slate-800"></p>
+        <p id="welcomeModalRulesTitle" class="text-base font-semibold text-slate-800"></p>
         <button type="button" id="rulesLangToggle" data-lang="en"
-          class="shrink-0 text-[11px] font-medium rounded-full border border-slate-300 px-3 py-1 text-slate-600 hover:border-accentDark hover:text-accentDark transition">
+          class="shrink-0 text-sm font-medium rounded-full border border-slate-300 px-3.5 py-1.5 text-slate-600 hover:border-accentDark hover:text-accentDark transition">
           🇮🇳 हिंदी
         </button>
       </div>
-      <ul id="welcomeModalRulesList" class="space-y-1.5 text-xs text-slate-600"></ul>
+      <ul id="welcomeModalRulesList" class="space-y-3 text-sm text-slate-600 leading-relaxed"></ul>
     </div>
 
     <!-- Action Button -->
-    <button id="closeWelcomeModalBtn" type="button" class="btn-primary w-full !min-h-[3rem] !py-2 !text-sm">
+    <button id="closeWelcomeModalBtn" type="button" class="btn-primary w-full !min-h-[3.25rem] !py-3 !text-base">
       Let's Workout &amp; Go! 🚀
     </button>
   </div>
@@ -836,15 +826,12 @@
     </button>
   </div>
 
-  <!-- Renders the scannable UPI QR code inside the payment modal, client-side
-       (no third-party server ever sees the UPI ID / amount). -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-
   <!-- Firebase SDKs (compat — no build step needed) -->
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-check-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
   <script src="js/firebase-config.js"></script>
   <script src="js/member.js"></script>
@@ -1068,21 +1055,6 @@
   }
 </script>
 
-<script>
-  // Back button trap — user ko app ke andar hi rakhta hai, splash/previous
-  // page pe nahi jaane deta. History ke top pe hamesha ek dummy state
-  // push karte rehte hain, taaki popstate (back press) se app band/navigate
-  // na ho, sirf state re-push ho jaye.
-  (function () {
-    history.pushState(null, '', location.href);
-    window.addEventListener('popstate', function () {
-      history.pushState(null, '', location.href);
-      // agar koi modal khula hai tho use close karna chahte ho back se,
-      // tho yahan check kar sakte ho, e.g.:
-      // if (!welcomeModal.classList.contains('hidden')) closeWelcomeModal();
-    });
-  })();
-</script>
 
 </body>
 </html>
