@@ -224,6 +224,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     const btn = e.target.closest('button[data-action="remove-staff"]');
     if (!btn) return;
     const email = btn.closest(".staff-row").dataset.email;
+    // Same reason as handleAddStaffSubmit below: close this modal before
+    // the reauth modal opens, or the two (same z-50) stack in DOM order
+    // and this one hides the "Confirm" button underneath it.
+    closeStaffAccessModal();
     requestReauth("remove-staff", null, btn, { email });
   });
 
@@ -2260,6 +2264,10 @@ function handleAddStaffSubmit(e) {
   }
 
   const btn = document.getElementById("staffAccessAddBtn");
+  // Close this modal before the reauth modal opens — both are z-50, and
+  // this one comes later in the DOM, so left open it visually stacks on
+  // top of (hides) the reauth modal's "Confirm" button underneath it.
+  closeStaffAccessModal();
   requestReauth("add-staff", null, btn, { email });
 }
 
