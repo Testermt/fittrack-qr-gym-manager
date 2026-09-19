@@ -946,8 +946,9 @@ function computeNotifications({ includeDismissed = false } = {}) {
         id: `member-new-${m.id}-${createdAtMs}`,
         icon: "🆕",
         title: "New member joined",
-        subtitle: m.name || "A new member",
+        subtitle: `${m.name || "A new member"} · +${GYM_SETTINGS.defaultCountryCode} ${m.phone || ""}`,
         timeMs: createdAtMs,
+        memberId: m.id,
       });
     }
   });
@@ -957,12 +958,14 @@ function computeNotifications({ includeDismissed = false } = {}) {
     if (!m.expiryDate) return;
     const due = daysUntil(m.expiryDate);
     if (due <= 0) {
+      const status = due === 0 ? "Due today." : `Overdue by ${Math.abs(due)} day${Math.abs(due) === 1 ? "" : "s"}.`;
       items.push({
         id: `member-due-${m.id}-${m.expiryDate}`,
         icon: "⚠️",
         title: `Membership due: ${m.name || "Member"}`,
-        subtitle: due === 0 ? "Due today." : `Overdue by ${Math.abs(due)} day${Math.abs(due) === 1 ? "" : "s"}.`,
+        subtitle: `+${GYM_SETTINGS.defaultCountryCode} ${m.phone || ""} · ${status}`,
         timeMs: new Date(m.expiryDate).getTime() || now,
+        memberId: m.id,
       });
     }
   });
@@ -1049,6 +1052,7 @@ function renderNotifications() {
     row.querySelector('[data-role="notif-open"]').addEventListener("click", () => {
       markNotifRead(n.id);
       renderNotifications();
+      if (n.memberId) jumpToMemberCard(n.memberId);
     });
     row.querySelector('[data-role="notif-clear"]').addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1056,6 +1060,54 @@ function renderNotifications() {
     });
     list.appendChild(row);
   });
+}
+
+/** Called when a notification tied to a specific member is tapped.
+ * Closes the notification dropdown, clears any search/filter that
+ * could be hiding that member from the list, then scrolls to and
+ * briefly highlights their row/card so the owner can find them
+ * instantly instead of having to search manually. */
+function jumpToMemberCard(memberId) {
+  toggleNotifDropdown(true);
+  toggleMoreMenu(true);
+
+  const searchEl = document.getElementById("memberSearch");
+  let needsRerender = false;
+  if (searchEl && searchEl.value.trim() !== "") {
+    searchEl.value = "";
+    needsRerender = true;
+  }
+  if (currentMemberFilter !== "all") {
+    currentMemberFilter = "all";
+    updateMemberFilterStyles();
+    needsRerender = true;
+  }
+  if (needsRerender) renderMemberTable();
+
+  // Give the DOM a tick to repaint after any re-render above, then scroll.
+  setTimeout(() => {
+    const targets = document.querySelectorAll(`[data-member-id="${cssEscape(memberId)}"]`);
+    if (!targets.length) return;
+    // Scroll whichever one is actually visible (table row on desktop,
+    // card on mobile) — offscreen (display:none via responsive classes)
+    // elements report 0 size and are skipped.
+    let el = null;
+    targets.forEach((t) => {
+      if (!el && t.offsetParent !== null) el = t;
+    });
+    if (!el) el = targets[0];
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("notif-jump-highlight");
+    setTimeout(() => el.classList.remove("notif-jump-highlight"), 2200);
+  }, 60);
+}
+
+/** Minimal CSS.escape polyfill fallback for member phone-number ids
+ * (Firestore doc id / member.id), which are plain digit strings anyway,
+ * but this keeps the selector safe if that ever changes. */
+function cssEscape(value) {
+  if (window.CSS && CSS.escape) return CSS.escape(String(value));
+  return String(value).replace(/[^a-zA-Z0-9_\-]/g, "\\$&");
 }
 
 function buildMemberActionsHtml(m, dotSizeClass) {
@@ -1140,6 +1192,7 @@ function renderMemberTable() {
 
     // ---- desktop/tablet table row (md and up) ----
     const tr = document.createElement("tr");
+    tr.dataset.memberId = m.id;
     tr.className = "border-b border-slate-800/70 hover:bg-slate-800/30 transition";
     tr.innerHTML = `
       <td class="py-3 pr-4">
@@ -1180,6 +1233,7 @@ function renderMemberTable() {
 
     // ---- mobile card (below md) ----
     const card = document.createElement("div");
+    card.dataset.memberId = m.id;
     card.className = "rounded-xl border border-slate-800 bg-slate-900/50 p-3.5";
     card.innerHTML = `
       <div class="flex items-start justify-between gap-3">

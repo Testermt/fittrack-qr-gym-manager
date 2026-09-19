@@ -62,6 +62,12 @@
   table { border-collapse: collapse; width: 100%; }
   ::-webkit-scrollbar { height: 6px; width: 6px; }
   ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+  /* Brief highlight flash when a notification jumps to a member's row/card */
+  @keyframes notifJumpFlash {
+    0%   { background-color: rgba(56, 189, 248, 0.35); }
+    100% { background-color: transparent; }
+  }
+  .notif-jump-highlight { animation: notifJumpFlash 2.2s ease-out; }
 </style>
 </head>
 <body class="min-h-screen bg-base text-slate-200 antialiased">
