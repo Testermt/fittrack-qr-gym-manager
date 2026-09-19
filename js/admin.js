@@ -2247,8 +2247,14 @@ function handleAddStaffSubmit(e) {
   errorEl.classList.add("hidden");
 
   const email = document.getElementById("staffEmailInput").value.trim().toLowerCase();
-  if (!email || !email.includes("@")) {
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !emailPattern.test(email)) {
     errorEl.textContent = "Enter a valid email address.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  if (!email.endsWith("@gmail.com")) {
+    errorEl.textContent = "Staff sign in with Google — enter a @gmail.com address.";
     errorEl.classList.remove("hidden");
     return;
   }
