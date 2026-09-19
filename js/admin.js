@@ -219,7 +219,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("staffAccessCloseBtn").addEventListener("click", closeStaffAccessModal);
   document.getElementById("staffAccessBackdrop").addEventListener("click", closeStaffAccessModal);
   document.getElementById("staffAccessForm").addEventListener("submit", handleAddStaffSubmit);
-  document.getElementById("staffAccessBtn").addEventListener("click", () => toggleMoreMenu(true));
+  document.getElementById("staffAccessBtn").addEventListener("click", () => toggleProfileMenu(true));
   document.getElementById("staffListRows").addEventListener("click", (e) => {
     const btn = e.target.closest('button[data-action="remove-staff"]');
     if (!btn) return;
@@ -234,26 +234,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Plan & Features modal (Basic/Prime/Advance tier + which features that
   // unlocks) — controls hasFeature() everywhere else in the app.
   document.getElementById("planFeaturesBtn").addEventListener("click", () => {
-    toggleMoreMenu(true);
+    toggleProfileMenu(true);
     openPlanFeaturesModal(false);
   });
   document.getElementById("exportCsvBtn").addEventListener("click", () => {
-    toggleMoreMenu(true);
+    toggleProfileMenu(true);
     exportMembersToCsv();
   });
-  document.getElementById("gymSettingsBtn").addEventListener("click", () => toggleMoreMenu(true));
-
-  // Round "more options" menu (Plan & Features / Gym Settings list)
-  document.getElementById("moreMenuBtn").addEventListener("click", (e) => {
-    e.stopPropagation();
-    toggleNotifDropdown(true);
-    toggleMoreMenu();
-  });
+  document.getElementById("gymSettingsBtn").addEventListener("click", () => toggleProfileMenu(true));
 
   // Notification bell (new member / SaaS trial-plan expiry / custom broadcasts)
   document.getElementById("notifBtn").addEventListener("click", (e) => {
     e.stopPropagation();
-    toggleMoreMenu(true);
+    toggleProfileMenu(true);
     toggleNotifDropdown();
   });
   document.getElementById("notifMarkAllReadBtn").addEventListener("click", (e) => {
@@ -266,18 +259,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   subscribeBroadcasts();
 
-  // Profile menu (photo/name button -> Sign Out dropdown)
+  // Profile menu (photo/name button -> Sign Out + settings dropdown)
   document.getElementById("profileMenuBtn").addEventListener("click", (e) => {
     e.stopPropagation();
-    toggleMoreMenu(true);
     toggleNotifDropdown(true);
     toggleProfileMenu();
   });
   document.addEventListener("click", (e) => {
     const wrap = document.getElementById("profileMenuWrap");
     if (wrap && !wrap.contains(e.target)) toggleProfileMenu(true);
-    const moreWrap = document.getElementById("moreMenuWrap");
-    if (moreWrap && !moreWrap.contains(e.target)) toggleMoreMenu(true);
     const notifWrap = document.getElementById("notifWrap");
     if (notifWrap && !notifWrap.contains(e.target)) toggleNotifDropdown(true);
   });
@@ -558,7 +548,7 @@ function renderProfileMenu(user) {
 // desktop window. Recomputed on open and on resize/orientation-change
 // while a panel is open.
 // ----------------------------------------------------------------------
-const HEADER_DROPDOWN_IDS = ["notifDropdown", "moreMenuDropdown", "profileMenuDropdown"];
+const HEADER_DROPDOWN_IDS = ["notifDropdown", "profileMenuDropdown"];
 
 function positionHeaderDropdown(triggerBtn, dropdownEl) {
   const rect = triggerBtn.getBoundingClientRect();
@@ -572,7 +562,7 @@ function positionHeaderDropdown(triggerBtn, dropdownEl) {
 }
 
 function repositionOpenHeaderDropdowns() {
-  const map = { notifDropdown: "notifBtn", moreMenuDropdown: "moreMenuBtn", profileMenuDropdown: "profileMenuBtn" };
+  const map = { notifDropdown: "notifBtn", profileMenuDropdown: "profileMenuBtn" };
   HEADER_DROPDOWN_IDS.forEach((id) => {
     const dropdown = document.getElementById(id);
     const btn = document.getElementById(map[id]);
@@ -592,19 +582,6 @@ function toggleProfileMenu(forceClose) {
     const willOpen = dropdown.classList.contains("hidden");
     dropdown.classList.toggle("hidden");
     if (willOpen) positionHeaderDropdown(document.getElementById("profileMenuBtn"), dropdown);
-  }
-}
-
-// Round "more options" menu — Plan & Features / Gym Settings list.
-function toggleMoreMenu(forceClose) {
-  const dropdown = document.getElementById("moreMenuDropdown");
-  if (!dropdown) return;
-  if (forceClose) {
-    dropdown.classList.add("hidden");
-  } else {
-    const willOpen = dropdown.classList.contains("hidden");
-    dropdown.classList.toggle("hidden");
-    if (willOpen) positionHeaderDropdown(document.getElementById("moreMenuBtn"), dropdown);
   }
 }
 
@@ -1069,7 +1046,7 @@ function renderNotifications() {
  * instantly instead of having to search manually. */
 function jumpToMemberCard(memberId) {
   toggleNotifDropdown(true);
-  toggleMoreMenu(true);
+  toggleProfileMenu(true);
 
   const searchEl = document.getElementById("memberSearch");
   let needsRerender = false;
