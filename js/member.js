@@ -52,6 +52,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     syncMarketingRow();
   }
   document.getElementById("statusForm").addEventListener("submit", handleStatusCheck);
+  // Privacy: lets the member close their own status card the instant
+  // they're done reading it, instead of leaving it on screen for the
+  // full 7s auto-reset window (see resetStatusView / STATUS_AUTO_RESET_MS).
+  document.getElementById("statusCardDoneBtn").addEventListener("click", resetStatusView);
   document.getElementById("closeModalBtn").addEventListener("click", closeModal);
   document.getElementById("copyUpiIdBtn").addEventListener("click", handleCopyUpiId);
   document.getElementById("closeWelcomeModalBtn").addEventListener("click", closeWelcomeModal);
@@ -85,12 +89,15 @@ function initTabs() {
 // This runs on a shared gym-desk phone/tablet -- one member checks in,
 // reads their status, and walks off, but their name/plan/expiry stays on
 // screen until the NEXT member happens to tap "Go" and overwrite it. In
-// between, anyone at the desk can see the previous person's details. A
-// short auto-reset closes that window: 30 seconds after a status card is
-// shown, the page reloads back to the blank "enter your number" screen on
-// its own, whether or not anyone touches it again.
+// between, anyone at the desk can see the previous person's details.
+// Two things close that window: (1) the status card now opens as a
+// popup (statusCardBackdrop) with a "Done" button the member can tap
+// the moment they're done reading, closing it immediately; (2) as a
+// fallback for whoever doesn't tap it, a short auto-reset closes the
+// page back to the blank "enter your number" screen on its own after
+// STATUS_AUTO_RESET_MS, whether or not anyone touches it again.
 let statusAutoResetTimer = null;
-const STATUS_AUTO_RESET_MS = 12000; // 12s -- enough to read, clears fast for the next member
+const STATUS_AUTO_RESET_MS = 7000; // 7s -- enough to read, clears fast for the next member
 
 function scheduleStatusAutoReset() {
   clearTimeout(statusAutoResetTimer);
@@ -334,6 +341,7 @@ function resetStatusView() {
   currentMember = null;
   cancelStatusAutoReset();
   document.getElementById("statusCard").classList.add("hidden");
+  document.getElementById("statusCardBackdrop")?.classList.add("hidden");
   hideBanner("statusBanner");
   const statusForm = document.getElementById("statusForm");
   if (statusForm) statusForm.phone.value = "";
@@ -343,6 +351,7 @@ async function handleStatusCheck(e) {
   e.preventDefault();
   hideBanner("statusBanner");
   document.getElementById("statusCard").classList.add("hidden");
+  document.getElementById("statusCardBackdrop")?.classList.add("hidden");
 
   const form = e.target;
   const submitBtn = form.querySelector("button[type=submit]");
@@ -416,6 +425,7 @@ function renderStatusCard(member, checkinStatus) {
 
   const card = document.getElementById("statusCard");
   card.classList.remove("hidden");
+  document.getElementById("statusCardBackdrop")?.classList.remove("hidden");
 
   // Privacy: full name isn't shown -- masked the same way as the phone
   // number (last 3 letters visible) so anyone standing behind the member
