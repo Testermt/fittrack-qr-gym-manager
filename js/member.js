@@ -5,28 +5,6 @@
 // removed; it's no longer needed here.
 
 
-// ==================== VOICE-ASSISTED KIOSK (Web Speech API) ====================
-/**
- * Speaks a short message aloud — used so members get audible feedback
- * without needing to read the screen. Cancels any message currently
- * speaking first, so rapid actions don't queue up and talk over each
- * other. No-ops silently on browsers/WebViews without speech synthesis
- * support.
- */
-function speakText(message) {
-  if (!("speechSynthesis" in window) || !message) return;
-  try {
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(message);
-    utterance.lang = "en-IN";
-    utterance.rate = 1;
-    window.speechSynthesis.speak(utterance);
-  } catch (err) {
-    console.warn("speakText failed:", err);
-  }
-}
-
-
 
 
 
@@ -90,13 +68,11 @@ function initTabs() {
         panel.classList.toggle("hidden", panel.dataset.tabPanel !== tab.dataset.tabTarget);
       });
       if (tab.dataset.tabTarget === "status") {
-        speakText("Welcome to the gym. Please check in.");
         // Resume the privacy auto-reset clock if a status card is still
         // sitting on screen from before (see scheduleStatusAutoReset).
         const card = document.getElementById("statusCard");
         if (card && !card.classList.contains("hidden")) scheduleStatusAutoReset();
       } else if (tab.dataset.tabTarget === "register") {
-        speakText("Hey, please enter your details to join the gym.");
         // Don't let a kiosk-reset reload wipe out an in-progress
         // registration form -- only the status view needs the timeout.
         cancelStatusAutoReset();
@@ -226,6 +202,12 @@ function toggleRulesLang() {
 }
 
 /** Opens the post-registration welcome & gym-rules modal with the new member's details. */
+// Phone number of the member who just finished registering — set right
+// before openWelcomeModal() shows, used by closeWelcomeModal() below to
+// jump straight to their Check-In status instead of leaving them on a
+// blank, just-reset registration form.
+let justRegisteredPhone = null;
+
 function openWelcomeModal(name, planLabel, expiryDateStr) {
   document.getElementById("welcomeModalTitle").textContent = `Welcome aboard, ${name}! 🎉`;
   document.getElementById("welcomeModalSub").textContent =
@@ -236,6 +218,21 @@ function openWelcomeModal(name, planLabel, expiryDateStr) {
 
 function closeWelcomeModal() {
   document.getElementById("welcomeModal").classList.add("hidden");
+
+  // "Let's Workout & Go!" should land them on their Check-In status, not
+  // back on the registration tab — most new members will want to see
+  // their plan/pay-now screen (or check in, if already approved) right away.
+  const statusTabBtn = document.querySelector('[data-tab-target="status"]');
+  if (statusTabBtn) statusTabBtn.click();
+
+  if (justRegisteredPhone) {
+    const statusForm = document.getElementById("statusForm");
+    if (statusForm) {
+      statusForm.phone.value = justRegisteredPhone;
+      statusForm.requestSubmit();
+    }
+    justRegisteredPhone = null;
+  }
 }
 
 // Check-in itself (logCheckinIfNeeded, GPS/geofencing) has been removed from
@@ -267,7 +264,6 @@ async function handleRegisterSubmit(e) {
 
   if (!name || phone.length < 7 || !address || !joinDate || !planId) {
     showBanner("registerBanner", "Please fill every field with a valid phone number.");
-    speakText("Please fill every field with a valid phone number.");
     return;
   }
 
@@ -315,6 +311,7 @@ async function handleRegisterSubmit(e) {
     buildPlanPicker("planPicker", "plan");
     hideBanner("registerBanner");
 
+    justRegisteredPhone = phone;
     openWelcomeModal(name, plan.label, formatDate(expiryDate));
   } catch (err) {
     console.error(err);
@@ -353,7 +350,6 @@ async function handleStatusCheck(e) {
 
   if (phone.length < 7) {
     showBanner("statusBanner", "Enter a valid mobile number.");
-    speakText("Please enter a valid mobile number.");
     return;
   }
 
@@ -365,7 +361,6 @@ async function handleStatusCheck(e) {
         "statusBanner",
         "No membership found for this number. Switch to the 'New Member' tab to register."
       );
-      speakText("No membership found for this number. Please switch to the new member tab to register.");
       return;
     }
     
@@ -694,7 +689,6 @@ async function openPaymentModal(planId, { amountOverride, label } = {}) {
   const settings = await getPaymentSettings();
   if (!settings.upiId) {
     unavailableNote.classList.remove("hidden");
-    speakText("Online payments aren't set up yet for this gym. Please pay at the front desk.");
     return;
   }
 
