@@ -184,16 +184,33 @@ service cloud.firestore {
     }
 
 
-    // Admins collection: Strictly locked down.
-    // A signed-in user may read ONLY their own doc ID (needed by the
-    // client's direct isVerifiedAdmin() lookup in admin.js). Nobody, not
-    // even an authenticated admin, can list the whole collection, and no
-    // client write is ever allowed — the whitelist is managed exclusively
-    // from the Firebase Console / Admin SDK.
+    // Admins collection: Locked down, with two narrow owner-only exceptions
+    // added for in-app staff management (Staff Access modal in admin.js).
+    // A signed-in user may still read ONLY their own doc ID directly (the
+    // isVerifiedAdmin() lookup). List is now allowed for the owner alone,
+    // so the Staff Access modal can show the current staff list without
+    // opening list access to staff or the public.
     match /admins/{email} {
       allow get: if request.auth != null && request.auth.token.email.lower() == email.lower();
-      allow list: if false;
-      allow write: if false;
+      allow list: if isOwnerAdmin();
+
+      // Owner can grant staff access — but ONLY as role "staff", never
+      // "owner", and only as a brand-new doc: `create` in Firestore rules
+      // matches solely when no document already exists at this path, so
+      // this can never silently overwrite (and thus never downgrade) an
+      // existing owner's or staff member's doc. Nothing else may be set on
+      // this doc from the client (no extra fields), keeping the shape the
+      // rest of these rules (adminRole()) expect.
+      allow create: if isOwnerAdmin()
+        && request.resource.data.role == 'staff'
+        && request.resource.data.keys().hasOnly(['role', 'addedBy', 'addedAt']);
+
+      // Owner can revoke access — but only ever a staff doc, never an
+      // owner's own or another owner's doc, so this can't be used (by
+      // mistake or otherwise) to lock an owner out via the app.
+      allow delete: if isOwnerAdmin() && resource.data.role == 'staff';
+
+      allow update: if false;
     }
   }
 }

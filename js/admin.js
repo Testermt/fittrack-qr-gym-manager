@@ -214,6 +214,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     btn.closest(".settings-plan-row").remove();
   });
 
+  // Staff Access modal (owner-only) — add/remove front-desk staff logins.
+  document.getElementById("staffAccessBtn").addEventListener("click", openStaffAccessModal);
+  document.getElementById("staffAccessCloseBtn").addEventListener("click", closeStaffAccessModal);
+  document.getElementById("staffAccessBackdrop").addEventListener("click", closeStaffAccessModal);
+  document.getElementById("staffAccessForm").addEventListener("submit", handleAddStaffSubmit);
+  document.getElementById("staffAccessBtn").addEventListener("click", () => toggleMoreMenu(true));
+  document.getElementById("staffListRows").addEventListener("click", (e) => {
+    const btn = e.target.closest('button[data-action="remove-staff"]');
+    if (!btn) return;
+    const email = btn.closest(".staff-row").dataset.email;
+    requestReauth("remove-staff", null, btn, { email });
+  });
+
   // Plan & Features modal (Basic/Prime/Advance tier + which features that
   // unlocks) — controls hasFeature() everywhere else in the app.
   document.getElementById("planFeaturesBtn").addEventListener("click", () => {
@@ -422,6 +435,7 @@ function showLogin() {
   if (unsubCheckins) unsubCheckins();
   if (unsubPayments) unsubPayments();
   if (unsubAllPayments) unsubAllPayments();   // <-- yeh line missing thi, add karo
+  if (unsubStaff) unsubStaff();
   if (planLockCheckInterval) { clearInterval(planLockCheckInterval); planLockCheckInterval = null; }
   planModalLocked = false;
   closeReauthModal();
@@ -453,6 +467,7 @@ function applyRolePermissions() {
 
   const ownerOnlyIds = [
     "gymSettingsBtn",     // gym's own membership plan pricing / config
+    "staffAccessBtn",     // add/remove staff logins (list on /admins is owner-only in rules)
     "openAddMemberBtn",   // manual registration (create is owner-only in rules)
     "revenueStatCard",    // Revenue (This Month) stat
   ];
@@ -483,6 +498,9 @@ function showDashboard(user) {
   if (currentAdminRole === "owner") {
     subscribeMonthlyRevenue();
     subscribeMonthlyHistory();
+    // /admins list access is owner-only in firestore.rules — a staff login
+    // would get permission-denied here, so skip subscribing entirely.
+    subscribeStaffList();
   }
 
   // Trial/plan gate — checked against the control project's live doc
@@ -2167,6 +2185,134 @@ function closeGymSettingsModal() {
   document.getElementById("gymSettingsModal").classList.add("hidden");
 }
 
+// ----------------------------------------------------------------- staff --
+// Owner-only. `allStaff` is only ever populated for an owner login (see
+// subscribeStaffList's guard in showDashboard) — a staff account never
+// requests or receives this list, both because the UI is hidden for them
+// (applyRolePermissions) and because firestore.rules only grants `list` on
+// /admins to isOwnerAdmin().
+let allStaff = [];
+let unsubStaff = null;
+
+function subscribeStaffList() {
+  unsubStaff = db.collection("admins")
+    .where("role", "==", "staff")
+    .onSnapshot(
+      (snap) => {
+        allStaff = snap.docs.map((d) => ({ email: d.id, ...d.data() }));
+        renderStaffList();
+      },
+      (err) => console.error("staff listener error:", err)
+    );
+}
+
+function renderStaffList() {
+  const container = document.getElementById("staffListRows");
+  const emptyState = document.getElementById("staffListEmptyState");
+  if (!container) return;
+
+  container.innerHTML = "";
+  emptyState.classList.toggle("hidden", allStaff.length > 0);
+
+  const template = document.getElementById("staffRowTemplate");
+  allStaff
+    .slice()
+    .sort((a, b) => a.email.localeCompare(b.email))
+    .forEach((staff) => {
+      const row = template.content.cloneNode(true).querySelector(".staff-row");
+      row.dataset.email = staff.email;
+      row.querySelector('[data-field="email"]').textContent = staff.email;
+      container.appendChild(row);
+    });
+}
+
+function openStaffAccessModal() {
+  document.getElementById("staffEmailInput").value = "";
+  document.getElementById("staffAccessError").classList.add("hidden");
+  renderStaffList();
+  document.getElementById("staffAccessModal").classList.remove("hidden");
+}
+
+function closeStaffAccessModal() {
+  document.getElementById("staffAccessModal").classList.add("hidden");
+}
+
+function handleAddStaffSubmit(e) {
+  e.preventDefault();
+  const errorEl = document.getElementById("staffAccessError");
+  errorEl.classList.add("hidden");
+
+  const email = document.getElementById("staffEmailInput").value.trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    errorEl.textContent = "Enter a valid email address.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  if (email === (auth.currentUser && auth.currentUser.email.toLowerCase())) {
+    errorEl.textContent = "You're already the owner — enter a different email.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  if (allStaff.some((s) => s.email === email)) {
+    errorEl.textContent = "This email is already a staff member.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  const btn = document.getElementById("staffAccessAddBtn");
+  requestReauth("add-staff", null, btn, { email });
+}
+
+async function executeAddStaff(email, btn) {
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Adding…";
+  }
+  try {
+    // .create() semantics come from firestore.rules (`allow create` only —
+    // no update/delete on this path), so this can never silently overwrite
+    // an existing admin's role even if called twice.
+    await db.collection("admins").doc(email).set({
+      role: "staff",
+      addedBy: auth.currentUser.email,
+      addedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    document.getElementById("staffEmailInput").value = "";
+  } catch (err) {
+    console.error(err);
+    const errorEl = document.getElementById("staffAccessError");
+    errorEl.textContent = err.code === "permission-denied"
+      ? "That email is already registered as an admin."
+      : "Could not add staff member. Please try again.";
+    errorEl.classList.remove("hidden");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Add Staff";
+    }
+  }
+}
+
+async function executeRemoveStaff(email, btn) {
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Removing…";
+  }
+  try {
+    await db.collection("admins").doc(email).delete();
+  } catch (err) {
+    console.error(err);
+    alert("Could not remove staff member. Please try again.");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Remove";
+    }
+  }
+}
+
 async function handleGymSettingsSubmit(e) {
   e.preventDefault();
   const errorEl = document.getElementById("gymSettingsError");
@@ -2360,6 +2506,10 @@ async function dispatchReauthedAction({ type, member, btn, extra }) {
     await executePhoneChangeMigration(member, extra.newPhone, btn);
   } else if (type === "refund") {
     await executeRefundMigration(member, extra.amount, extra.reason);
+  } else if (type === "add-staff") {
+    await executeAddStaff(extra.email, btn);
+  } else if (type === "remove-staff") {
+    await executeRemoveStaff(extra.email, btn);
   }
 }
 
@@ -2399,6 +2549,12 @@ function requestReauth(type, member, btn, extra) {
   } else if (type === "refund") {
     titleEl.textContent = "Confirm refund?";
     msgEl.textContent = `This refunds ${formatCurrency(extra.amount)} to ${member.name} and ends their membership immediately. Confirm your identity to continue.`;
+  } else if (type === "add-staff") {
+    titleEl.textContent = "Grant staff access?";
+    msgEl.textContent = `This gives ${extra.email} sign-in access to this dashboard (check-in/approve only). Confirm your identity to continue.`;
+  } else if (type === "remove-staff") {
+    titleEl.textContent = "Revoke staff access?";
+    msgEl.textContent = `${extra.email} will immediately lose access to this dashboard. Confirm your identity to continue.`;
   } else {
     titleEl.textContent = "Confirm payment update";
     msgEl.textContent = `This marks ${member.name}'s payment as PAID. Confirm your identity to continue.`;
