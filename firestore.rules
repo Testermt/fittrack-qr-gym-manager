@@ -76,7 +76,7 @@ service cloud.firestore {
       function hasValidMemberShape() {
         return phone.matches('^[0-9]{7,15}$')
               && request.resource.data.keys().hasOnly(
-                   ['name','phone','address','joinDate','plan','expiryDate',
+                   ['name','phone','address','joinDate','plan','planLabel','expiryDate',
                     'paymentStatus','approved','createdAt','updatedAt',
                     'whatsappBotOptIn','whatsappMarketingOptIn'])
               && request.resource.data.phone == phone
@@ -101,7 +101,12 @@ service cloud.firestore {
               && request.resource.data.joinDate is string
               && request.resource.data.expiryDate is string
               && (!('whatsappBotOptIn' in request.resource.data) || request.resource.data.whatsappBotOptIn is bool)
-              && (!('whatsappMarketingOptIn' in request.resource.data) || request.resource.data.whatsappMarketingOptIn is bool);
+              && (!('whatsappMarketingOptIn' in request.resource.data) || request.resource.data.whatsappMarketingOptIn is bool)
+              // planLabel is a snapshot of the plan's name at the moment it was
+              // chosen (registration/renewal) -- kept alongside the plan ID so
+              // a later rename/delete of that plan in Gym Settings can never
+              // retroactively break how this member's plan displays.
+              && (!('planLabel' in request.resource.data) || (request.resource.data.planLabel is string && request.resource.data.planLabel.size() > 0));
       }
 
       allow create: if
@@ -174,7 +179,7 @@ service cloud.firestore {
         ||
         (hasPerm('editMemberDetails') && hasPerm('payments')
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['plan', 'expiryDate', 'paymentStatus', 'duesAmount', 'updatedAt']))
+               .hasOnly(['plan', 'planLabel', 'expiryDate', 'paymentStatus', 'duesAmount', 'updatedAt']))
         ||
         (hasPerm('refunds')
           && request.resource.data.diff(resource.data).affectedKeys()

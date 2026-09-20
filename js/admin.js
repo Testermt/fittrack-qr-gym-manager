@@ -1360,7 +1360,7 @@ function renderMemberTable() {
   filtered.forEach((m) => {
     const days = daysUntil(m.expiryDate);
     const isActive = days >= 0;
-    const plan = PLANS[m.plan] || { label: m.plan };
+    const planLabelText = getPlanLabel(m);
     const isPaid = m.paymentStatus === "paid";
     const isApproved = m.approved === true;
     const isFrozen = m.isFrozen === true;
@@ -1377,7 +1377,7 @@ function renderMemberTable() {
         <p class="text-xs text-slate-500">+${GYM_SETTINGS.defaultCountryCode} ${m.phone}</p>
       </td>
       <td class="py-3 pr-4 text-slate-300 max-w-[200px] truncate" title="${escapeHtml(m.address || "")}">${escapeHtml(m.address || "—")}</td>
-      <td class="py-3 pr-4 text-slate-300">${plan.label}</td>
+      <td class="py-3 pr-4 text-slate-300">${planLabelText}</td>
       <td class="py-3 pr-4 text-slate-300">${formatDate(m.expiryDate)}</td>
       <td class="py-3 pr-4">
         <!-- 🔥 Unapproved members: sirf "Pending Approval" dikhega, ACTIVE/EXPIRED nahi (kyunki abhi member confirm hi nahi hai) -->
@@ -1435,7 +1435,7 @@ function renderMemberTable() {
       ` : ""}
 
       <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-400 mt-2.5 pt-2.5 border-t border-slate-800/70">
-        <p class="truncate"><span class="text-slate-600">Plan:</span> ${plan.label}</p>
+        <p class="truncate"><span class="text-slate-600">Plan:</span> ${planLabelText}</p>
         <p class="truncate"><span class="text-slate-600">Expiry:</span> ${formatDate(m.expiryDate)} · ${isFrozen ? `paused ${frozenDaysSoFar}d` : (isActive ? days + "d left" : Math.abs(days) + "d ago")}</p>
         ${m.address ? `<p class="col-span-2 truncate" title="${escapeHtml(m.address)}"><span class="text-slate-600">Address:</span> ${escapeHtml(m.address)}</p>` : ""}
       </div>
@@ -1781,6 +1781,7 @@ async function handleRenewSubmit(e) {
   try {
     const update = {
       plan: planId,
+      planLabel: plan.label,
       expiryDate: newExpiry,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
@@ -2820,6 +2821,7 @@ async function handleAddMemberSubmit(e) {
       address,
       joinDate,
       plan: planId,
+      planLabel: plan.label,
       expiryDate,
       paymentStatus,
       approved: true,
@@ -3165,7 +3167,7 @@ function exportMembersToCsv() {
     m.name,
     m.phone,
     m.address,
-    (PLANS[m.plan] || { label: m.plan }).label,
+    getPlanLabel(m),
     formatDate(m.joinDate),
     formatDate(m.expiryDate),
     daysUntil(m.expiryDate),

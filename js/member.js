@@ -366,6 +366,7 @@ async function handleRegisterSubmit(e) {
         address,
         joinDate,
         plan: planId,
+        planLabel: plan.label,
         expiryDate,
         paymentStatus: "pending",
         approved: false,
@@ -505,7 +506,7 @@ function renderStatusCard(member, checkinStatus) {
   const days = daysUntil(member.expiryDate);
   const isActive = days >= 0;
   const isFrozen = member.isFrozen === true;
-  const plan = PLANS[member.plan] || { label: member.plan };
+  const planLabelText = getPlanLabel(member);
 
   const card = document.getElementById("statusCard");
   card.classList.remove("hidden");
@@ -520,7 +521,7 @@ function renderStatusCard(member, checkinStatus) {
   nameEl.textContent = member.name || "";
   nameEl.classList.remove("hidden");
   document.getElementById("statusPhone").textContent = `+${GYM_SETTINGS.defaultCountryCode} ${maskPhone(member.phone)}`;
-  document.getElementById("statusPlan").textContent = plan.label;
+  document.getElementById("statusPlan").textContent = planLabelText;
   document.getElementById("statusJoin").textContent = formatDate(member.joinDate);
   document.getElementById("statusExpiry").textContent = formatDate(member.expiryDate);
 

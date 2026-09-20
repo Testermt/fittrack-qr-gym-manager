@@ -550,6 +550,32 @@ function formatCurrency(amount) {
   return `${GYM_SETTINGS.currencySymbol}${Number(amount || 0).toLocaleString("en-IN")}`;
 }
 
+/**
+ * Resolves a member's plan display name safely.
+ *
+ * Plan names are NOT looked up live from PLANS as the only source — a plan
+ * can be renamed/deleted later from Gym Settings, which would silently break
+ * the display for every member already registered under that old plan ID
+ * (they'd show the raw internal ID, e.g. "plan_mu5ou1bc...", instead of a
+ * real name). To prevent that, registration/renewal now also snapshots the
+ * plan's label onto the member doc itself (`planLabel`) at the moment it's
+ * chosen — so it stays correct forever, independent of later Settings edits.
+ *
+ * Order of preference:
+ *   1. member.planLabel  — the snapshot taken at registration/renewal time.
+ *   2. PLANS[member.plan] — live lookup, for older records saved before
+ *      this field existed.
+ *   3. member.plan itself — last-resort fallback so the UI never crashes,
+ *      even though it's not a friendly label.
+ */
+function getPlanLabel(member) {
+  if (!member) return "—";
+  if (member.planLabel) return member.planLabel;
+  const livePlan = PLANS[member.plan];
+  if (livePlan && livePlan.label) return livePlan.label;
+  return member.plan || "—";
+}
+
 // ---- Payment settings (UPI ID) — fetched from Firestore, never hardcoded --
 //
 // The gym's official UPI ID lives in a single Firestore document:
