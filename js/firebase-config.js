@@ -109,6 +109,15 @@ const appCheckReady = appCheck.getToken().catch((err) => {
 const db = firebase.firestore();
 const auth = firebase.auth();
 
+// ---- Cache size: unlimited ------------------------------------------------
+// Default Firestore cache cap is ~40MB, after which old docs get evicted to
+// make room for new ones. For a gym kiosk tablet that's the same handful of
+// members checking in every single day, that eviction is exactly what we
+// don't want -- a regular member's cached record could get pushed out and
+// then be unavailable the one day the tablet's internet happens to be down.
+// Must be set before enablePersistence() below.
+db.settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED });
+
 // ---- Offline persistence -------------------------------------------------
 // Caches every doc this device has successfully read (admins/{email},
 // members, checkins, payments…) in IndexedDB. This means:
@@ -464,6 +473,20 @@ async function loadTierConfig() {
 const tierConfigReady = loadTierConfig();
 
 // ---- Shared helpers -----------------------------------------------------
+
+/** True when a Firestore error is (most likely) caused by no/poor internet
+ *  rather than a real bug -- lets the UI say "no internet" specifically
+ *  instead of a generic "something went wrong" for every possible failure.
+ *  "unavailable"/"deadline-exceeded" are what the SDK throws when it can't
+ *  reach the server at all (and, for a `.get()`, has no cached copy to fall
+ *  back on -- see cacheSizeBytes/enablePersistence above). Anything else
+ *  (permission-denied, invalid-argument, etc.) is a real error and should
+ *  keep showing the generic message so it doesn't get misdiagnosed as a
+ *  connectivity issue and mislead whoever's looking at the kiosk. */
+function isOfflineError(err) {
+  const code = err && err.code;
+  return code === "unavailable" || code === "deadline-exceeded" || navigator.onLine === false;
+}
 
 function normalizePhone(raw) {
   return String(raw || "").replace(/\D/g, "");

@@ -322,7 +322,11 @@ async function handleRegisterSubmit(e) {
     openWelcomeModal(name, plan.label, formatDate(expiryDate));
   } catch (err) {
     console.error(err);
-    showBanner("registerBanner", "Something went wrong. Please try again or ask staff for help.");
+    if (isOfflineError(err)) {
+      showBanner("registerBanner", "No internet connection. Please check the WiFi/data on this device and try again.");
+    } else {
+      showBanner("registerBanner", "Something went wrong. Please try again or ask staff for help.");
+    }
   } finally {
     setBusy(submitBtn, false);
   }
@@ -380,7 +384,14 @@ async function handleStatusCheck(e) {
     
   } catch (err) {
     console.error(err);
-    showBanner("statusBanner", "Something went wrong. Please try again.");
+    if (isOfflineError(err)) {
+      showBanner(
+        "statusBanner",
+        "No internet connection. Please check the WiFi/data on this device and try again."
+      );
+    } else {
+      showBanner("statusBanner", "Something went wrong. Please try again.");
+    }
   } finally {
     setBusy(submitBtn, false);
   }
