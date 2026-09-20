@@ -12,6 +12,16 @@
 const membersCol = db.collection("members");
 const checkinsCol = db.collection("checkins");
 
+// Firestore's own "give up, we're offline" (unavailable) can take a long
+// time to fire on its own -- it internally retries a few times first. On a
+// kiosk with genuinely no internet, that means "Checking..." can sit stuck
+// for a long while before anything shows up. So instead of waiting for
+// Firestore to decide that, this races every member lookup/write against
+// a short local timeout and treats "timed out" the same as "no internet" --
+// see STATUS_CHECK_TIMEOUT_MS below and how it's used in handleStatusCheck /
+// handleRegisterSubmit.
+const STATUS_CHECK_TIMEOUT_MS = 6000;
+
 // ---------------------------------------------------------------- setup --
 document.addEventListener("DOMContentLoaded", async () => {
   // Wait for settings/gymConfig (name, currency, plans) before rendering
@@ -149,6 +159,36 @@ function showBanner(elId, message, kind = "error") {
   el.classList.add(kind === "error" ? "text-rose-400" : "text-emerald-400");
 }
 
+/** Same as showBanner, but with a "Retry" button attached (only makes
+ *  sense for connectivity errors -- resubmitting a "something went wrong"
+ *  bug wouldn't help). Clicking it just re-submits the same form, which
+ *  naturally re-runs the exact handler (handleStatusCheck / handleRegisterSubmit)
+ *  that called this in the first place, with the phone number/fields the
+ *  member already typed still intact -- no re-typing needed. */
+function showBannerWithRetry(elId, message, form) {
+  const el = document.getElementById(elId);
+  el.textContent = "";
+  el.classList.remove("hidden", "text-emerald-400");
+  el.classList.add("text-rose-400");
+
+  const wrap = document.createElement("div");
+  wrap.className = "flex items-center justify-between gap-3";
+
+  const span = document.createElement("span");
+  span.textContent = message;
+  wrap.appendChild(span);
+
+  const retryBtn = document.createElement("button");
+  retryBtn.type = "button";
+  retryBtn.textContent = "Retry";
+  retryBtn.className =
+    "shrink-0 text-xs font-semibold px-3.5 py-1.5 rounded-full bg-rose-500 text-white hover:bg-rose-600 transition";
+  retryBtn.addEventListener("click", () => form.requestSubmit());
+  wrap.appendChild(retryBtn);
+
+  el.appendChild(wrap);
+}
+
 function hideBanner(elId) {
   document.getElementById(elId).classList.add("hidden");
 }
@@ -187,7 +227,7 @@ function renderRulesList(lang) {
     .map(
       (item) => `
         <li class="flex gap-2">
-          <span class="text-accent"></span>
+          <span class="text-accent"></span>
           <span>
             <span class="font-semibold text-slate-900">${item.label}:</span> ${item.text}
           </span>
@@ -274,9 +314,20 @@ async function handleRegisterSubmit(e) {
     return;
   }
 
-  setBusy(submitBtn, true, "Registering…");
+  setBusy(submitBtn, true, "Registeringâ€¦");
   try {
-    const existingDoc = await membersCol.doc(phone).get();
+    const existingDoc = await Promise.race([
+      membersCol.doc(phone).get(),
+      timeoutAfter(STATUS_CHECK_TIMEOUT_MS),
+    ]);
+    if (existingDoc === null) {
+      showBannerWithRetry(
+        "registerBanner",
+        "No internet connection. Please check the WiFi/data on this device and try again.",
+        form
+      );
+      return;
+    }
     if (existingDoc.exists) {
       showBanner(
         "registerBanner",
@@ -298,20 +349,36 @@ async function handleRegisterSubmit(e) {
       expiryDate = addMonthsToDateKey(joinDate, plan.months || 1);
     }
 
-    await membersCol.doc(phone).set({
-      name,
-      phone,
-      address,
-      joinDate,
-      plan: planId,
-      expiryDate,
-      paymentStatus: "pending",
-      approved: false,
-      whatsappBotOptIn,
-      whatsappMarketingOptIn,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    const wroteOk = await Promise.race([
+      membersCol.doc(phone).set({
+        name,
+        phone,
+        address,
+        joinDate,
+        plan: planId,
+        expiryDate,
+        paymentStatus: "pending",
+        approved: false,
+        whatsappBotOptIn,
+        whatsappMarketingOptIn,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }).then(() => true),
+      timeoutAfter(STATUS_CHECK_TIMEOUT_MS),
+    ]);
+    if (wroteOk === null) {
+      // A queued offline write's promise doesn't resolve until the server
+      // acks it, so this can hang exactly like the read above when there's
+      // no internet. Since nobody's usually around to notice/confirm it
+      // synced later on this unattended kiosk, play it safe and tell the
+      // member to retry once online rather than assume it went through.
+      showBannerWithRetry(
+        "registerBanner",
+        "No internet connection. Please check the WiFi/data on this device and try again.",
+        form
+      );
+      return;
+    }
 
     form.reset();
     document.getElementById("joinDate").value = toDateKey(new Date());
@@ -323,7 +390,11 @@ async function handleRegisterSubmit(e) {
   } catch (err) {
     console.error(err);
     if (isOfflineError(err)) {
-      showBanner("registerBanner", "No internet connection. Please check the WiFi/data on this device and try again.");
+      showBannerWithRetry(
+        "registerBanner",
+        "No internet connection. Please check the WiFi/data on this device and try again.",
+        form
+      );
     } else {
       showBanner("registerBanner", "Something went wrong. Please try again or ask staff for help.");
     }
@@ -366,9 +437,23 @@ async function handleStatusCheck(e) {
     return;
   }
 
-  setBusy(submitBtn, true, "Checking");
+  setBusy(submitBtn, true, "Checking");
   try {
-    const doc = await membersCol.doc(phone).get();
+    const doc = await Promise.race([
+      membersCol.doc(phone).get(),
+      timeoutAfter(STATUS_CHECK_TIMEOUT_MS),
+    ]);
+    if (doc === null) {
+      // timeoutAfter won the race -- no response within STATUS_CHECK_TIMEOUT_MS,
+      // which on this kiosk almost always means no internet, not a slow
+      // lookup (it's a single doc-by-id read, always fast once connected).
+      showBannerWithRetry(
+        "statusBanner",
+        "No internet connection. Please check the WiFi/data on this device and try again.",
+        form
+      );
+      return;
+    }
     if (!doc.exists) {
       showBanner(
         "statusBanner",
@@ -385,9 +470,10 @@ async function handleStatusCheck(e) {
   } catch (err) {
     console.error(err);
     if (isOfflineError(err)) {
-      showBanner(
+      showBannerWithRetry(
         "statusBanner",
-        "No internet connection. Please check the WiFi/data on this device and try again."
+        "No internet connection. Please check the WiFi/data on this device and try again.",
+        form
       );
     } else {
       showBanner("statusBanner", "Something went wrong. Please try again.");
@@ -801,7 +887,7 @@ async function loadMemberCheckinHistory(memberId) {
     records.forEach((record) => {
       const timeStr = record.timestamp?.toDate 
         ? record.timestamp.toDate().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) 
-        : "";
+        : "";
       
       // Only last 7 days are ever shown here, so the full "YYYY-MM-DD" is
       // more than needed -- weekday name + day number ("Wed 17") reads
