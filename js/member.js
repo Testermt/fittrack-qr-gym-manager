@@ -12,6 +12,16 @@
 const membersCol = db.collection("members");
 const checkinsCol = db.collection("checkins");
 
+// True when this page is running on the gym's own front-desk kiosk device
+// (the "Kiosk WebView" native wrapper), not on a member's personal phone.
+// Set by adding "?kiosk=1" to the URL saved inside that native app's setup
+// screen -- no native code change needed, this is just a URL flag. Used to
+// hide "Pay Now via UPI App" / "Copy UPI ID" in the payment modal, since
+// tapping either on the shared desk device would try to pay FROM the
+// gym's own device, not the member's -- only the QR (scanned with the
+// member's own phone) makes sense there. See openPaymentModal below.
+const isKioskDevice = new URLSearchParams(location.search).get("kiosk") === "1";
+
 // Firestore's own "give up, we're offline" (unavailable) can take a long
 // time to fire on its own -- it internally retries a few times first. On a
 // kiosk with genuinely no internet, that means "Checking..." can sit stuck
@@ -809,11 +819,19 @@ async function openPaymentModal(planId, { amountOverride, label } = {}) {
     qrWrap.classList.remove("hidden");
   }
 
-  payLink.href = upiLink;
-  payLink.classList.remove("hidden");
+  // On the gym's own kiosk device, "Pay Now" would open GPay/PhonePe on
+  // THIS shared device, and "Copy UPI ID" would copy it to THIS device's
+  // clipboard -- neither helps the member, who needs to pay from their own
+  // phone. So on the kiosk, only the QR (scanned with their own phone)
+  // shows; on a member's own phone (no ?kiosk=1 in the URL), both the
+  // deep link and the copy fallback still show as before.
+  if (!isKioskDevice) {
+    payLink.href = upiLink;
+    payLink.classList.remove("hidden");
 
-  document.getElementById("upiIdText").textContent = settings.upiId;
-  fallback.classList.remove("hidden");
+    document.getElementById("upiIdText").textContent = settings.upiId;
+    fallback.classList.remove("hidden");
+  }
 }
 
 function closeModal() {
