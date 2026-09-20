@@ -142,7 +142,7 @@ function buildPlanPicker(containerId, hiddenInputName) {
   Object.entries(PLANS).forEach(([id, plan], idx) => {
     const card = document.createElement("label");
     card.className =
-      "plan-card cursor-pointer rounded-xl border border-slate-700 bg-slate-800/60 p-4 flex flex-col gap-1 transition hover:border-sky-500";
+      "plan-card cursor-pointer rounded-xl border border-slate-700 bg-slate-800/60 p-4 flex flex-col gap-1 transition hover:border-accent";
     card.innerHTML = `
       <input type="radio" name="${hiddenInputName}" value="${id}" class="sr-only peer" ${idx === 0 ? "checked" : ""} required />
       <span class="text-sm text-slate-700 font-medium">${plan.label}</span>

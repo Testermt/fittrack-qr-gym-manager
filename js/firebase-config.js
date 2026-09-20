@@ -576,6 +576,160 @@ function getPlanLabel(member) {
   return member.plan || "—";
 }
 
+// ==================== CUSTOM SYSTEM DIALOGS (confirm/alert replacement) ====================
+// Native confirm()/alert() render as the browser/OS's own dialog chrome —
+// on a PWA/kiosk that's a dead giveaway it's "just a website" (it even
+// prints the page's raw URL: "fittrack-....vercel.app says…"), which breaks
+// the native-app feel everywhere it pops up. These are drop-in async
+// replacements — same call shape, but a styled overlay that matches the
+// rest of the app. Lives here (not member.js/admin.js) so both pages share
+// one implementation and one look. Styles are injected once, in JS, so
+// this works regardless of which page's <style> block is present.
+let _sysDialogStylesInjected = false;
+function _ensureSysDialogStyles() {
+  if (_sysDialogStylesInjected) return;
+  _sysDialogStylesInjected = true;
+  const style = document.createElement("style");
+  style.id = "sysDialogStyles";
+  style.textContent = `
+    .sys-dialog-overlay {
+      position: fixed; inset: 0; z-index: 10000;
+      background: rgba(15, 15, 15, 0.6);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      animation: sysDialogFadeIn 150ms ease-out;
+    }
+    @keyframes sysDialogFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .sys-dialog-card {
+      width: 100%; max-width: 360px;
+      background: #FFFFFF;
+      border-radius: 1.25rem;
+      padding: 1.5rem;
+      box-shadow: 0 24px 48px -12px rgba(0,0,0,0.35);
+      font-family: "Inter", system-ui, sans-serif;
+      animation: sysDialogPopUp 200ms cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes sysDialogPopUp {
+      0% { opacity: 0; transform: scale(0.92) translateY(8px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .sys-dialog-title {
+      font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+      font-weight: 700; font-size: 1.05rem; color: #0F172A;
+      margin: 0 0 0.5rem 0;
+    }
+    .sys-dialog-message {
+      font-size: 0.9rem; line-height: 1.5; color: #475569;
+      margin: 0; white-space: pre-line;
+    }
+    .sys-dialog-actions {
+      display: flex; gap: 0.6rem; margin-top: 1.5rem;
+    }
+    .sys-dialog-btn {
+      flex: 1; min-height: 2.75rem; border-radius: 0.9rem;
+      font-weight: 700; font-size: 0.88rem; cursor: pointer;
+      border: none; transition: transform 0.1s ease, opacity 0.15s ease;
+    }
+    .sys-dialog-btn:active { transform: scale(0.97); }
+    .sys-dialog-btn-secondary { background: #F1F5F9; color: #334155; }
+    .sys-dialog-btn-secondary:hover { background: #E2E8F0; }
+    .sys-dialog-btn-primary {
+      background: linear-gradient(135deg, var(--sys-accent, #FF6A1A), var(--sys-accent-dark, #E24E00));
+      color: #FFFFFF;
+      box-shadow: 0 6px 16px -6px rgba(226, 78, 0, 0.55);
+    }
+    .sys-dialog-btn-primary:hover { opacity: 0.92; }
+    .sys-dialog-btn-danger {
+      background: #E11D48; color: #FFFFFF;
+      box-shadow: 0 6px 16px -6px rgba(225, 29, 72, 0.5);
+    }
+    .sys-dialog-btn-danger:hover { opacity: 0.92; }
+  `;
+  document.head.appendChild(style);
+}
+
+let _sysDialogHost = null;
+function _ensureSysDialogHost() {
+  _ensureSysDialogStyles();
+  if (_sysDialogHost) return _sysDialogHost;
+  const host = document.createElement("div");
+  host.id = "sysDialogHost";
+  document.body.appendChild(host);
+  _sysDialogHost = host;
+  return host;
+}
+
+function _renderSysDialog({ title, message, buttons }) {
+  return new Promise((resolve) => {
+    const host = _ensureSysDialogHost();
+    const overlay = document.createElement("div");
+    overlay.className = "sys-dialog-overlay";
+
+    const card = document.createElement("div");
+    card.className = "sys-dialog-card";
+    card.setAttribute("role", "alertdialog");
+    card.setAttribute("aria-modal", "true");
+
+    if (title) {
+      const titleEl = document.createElement("h3");
+      titleEl.className = "sys-dialog-title";
+      titleEl.textContent = title;
+      card.appendChild(titleEl);
+    }
+
+    const msgEl = document.createElement("p");
+    msgEl.className = "sys-dialog-message";
+    msgEl.textContent = message;
+    card.appendChild(msgEl);
+
+    const actionsEl = document.createElement("div");
+    actionsEl.className = "sys-dialog-actions";
+    let lastBtnEl = null;
+    buttons.forEach((btn) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = btn.label;
+      b.className = `sys-dialog-btn ${btn.variant || "sys-dialog-btn-secondary"}`;
+      b.addEventListener("click", () => {
+        host.removeChild(overlay);
+        resolve(btn.value);
+      });
+      actionsEl.appendChild(b);
+      lastBtnEl = b;
+    });
+    card.appendChild(actionsEl);
+    overlay.appendChild(card);
+    host.appendChild(overlay);
+
+    // Focus the primary (rightmost) button so Enter/Space confirms —
+    // matches native dialog keyboard behaviour.
+    if (lastBtnEl) lastBtnEl.focus();
+  });
+}
+
+/** Drop-in async replacement for confirm() — `await`s a true/false choice
+ *  instead of blocking the thread. Usage: `if (!(await showConfirm("..."))) return;` */
+function showConfirm(message, opts = {}) {
+  return _renderSysDialog({
+    title: opts.title,
+    message,
+    buttons: [
+      { label: opts.cancelLabel || "Cancel", value: false, variant: "sys-dialog-btn-secondary" },
+      { label: opts.okLabel || "OK", value: true, variant: opts.danger ? "sys-dialog-btn-danger" : "sys-dialog-btn-primary" },
+    ],
+  });
+}
+
+/** Drop-in async replacement for alert() — resolves once dismissed. */
+function showAlert(message, opts = {}) {
+  return _renderSysDialog({
+    title: opts.title,
+    message,
+    buttons: [{ label: opts.okLabel || "OK", value: true, variant: "sys-dialog-btn-primary" }],
+  });
+}
+
 // ---- Payment settings (UPI ID) — fetched from Firestore, never hardcoded --
 //
 // The gym's official UPI ID lives in a single Firestore document:

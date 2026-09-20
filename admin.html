@@ -4,7 +4,7 @@
 
 <link rel="manifest" href="manifest-admin.json">
 
-<meta name="theme-color" content="#EEF2F7">
+<meta name="theme-color" content="#F4F1EC">
 
 <!-- iOS "Add to Home Screen" support (Safari ignores manifest.json) -->
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -26,9 +26,10 @@
     theme: {
       extend: {
         colors: {
-          base: "#EEF2F7",
+          base: "#F4F1EC",
           panel: "#FFFFFF",
-          accent: "#0284C7",
+          accent: "#FF6A1A",
+          accentDark: "#E24E00",
           success: "#059669",
           slate: {
             50: "#0F172A",
@@ -46,28 +47,43 @@
           rose: { 400: "#E11D48" },
           amber: { 400: "#D97706" },
         },
-        fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
+        fontFamily: {
+          sans: ["Inter", "system-ui", "sans-serif"],
+          display: ["Space Grotesk", "Inter", "system-ui", "sans-serif"],
+        },
       },
     },
   };
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
 <style>
-  body { font-family: "Inter", system-ui, sans-serif; background-color: #EEF2F7; }
+  :root { --sys-accent: #FF6A1A; --sys-accent-dark: #E24E00; }
+  body {
+    font-family: "Inter", system-ui, sans-serif;
+    background-color: #F4F1EC;
+    background-image: radial-gradient(rgba(15,23,42,0.06) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
   .badge { display: inline-flex; align-items: center; padding: 0.25rem 0.7rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
   .badge-success { background: #DCFCE7; color: #166534; }
-  .badge-warning { background: #FEF3C7; color: #92400E; }
+  .badge-warning { background: #FFEDD5; color: #9A3412; }
   .badge-danger { background: #FEE2E2; color: #991B1B; }
   table { border-collapse: collapse; width: 100%; }
   ::-webkit-scrollbar { height: 6px; width: 6px; }
   ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
   /* Brief highlight flash when a notification jumps to a member's row/card */
   @keyframes notifJumpFlash {
-    0%   { background-color: rgba(56, 189, 248, 0.35); }
+    0%   { background-color: rgba(255, 106, 26, 0.22); }
     100% { background-color: transparent; }
   }
   .notif-jump-highlight { animation: notifJumpFlash 2.2s ease-out; }
+  /* Stat card icon chip -- small colored badge behind each dashboard stat's icon */
+  .stat-icon {
+    width: 2.5rem; height: 2.5rem; border-radius: 0.9rem;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem; flex-shrink: 0;
+  }
 </style>
 </head>
 <body class="min-h-screen bg-base text-slate-200 antialiased">
@@ -118,7 +134,7 @@
       <div id="deviceVerifyError" class="hidden text-sm text-rose-400"></div>
       <div class="flex flex-col gap-2 pt-2">
         <button id="deviceVerifyRetryBtn" type="button"
-          class="hidden w-full rounded-lg bg-accent text-slate-950 font-semibold py-2.5 hover:bg-sky-400 active:scale-[0.99] transition">
+          class="hidden w-full rounded-lg bg-accent text-slate-950 font-semibold py-2.5 hover:brightness-110 active:scale-[0.99] transition">
           Try Again
         </button>
         <button id="deviceVerifyResetBtn" type="button"
@@ -161,9 +177,9 @@
     <header class="border-b border-slate-800/80 sticky top-0 bg-base/90 backdrop-blur z-10">
       <div class="max-w-6xl mx-auto px-4 sm:px-5 py-3 sm:py-4 flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div class="w-9 h-9 shrink-0 rounded-lg bg-accent/15 flex items-center justify-center text-accent font-bold">⚡</div>
+          <div class="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-white font-bold shadow-sm" style="background: linear-gradient(135deg, var(--sys-accent), var(--sys-accent-dark));">🏋️</div>
           <div class="min-w-0">
-            <p id="dashboardTitleLabel" class="font-semibold text-slate-50 leading-tight text-sm sm:text-base truncate">Owner Dashboard</p>
+            <p id="dashboardTitleLabel" class="font-display font-semibold text-slate-50 leading-tight text-sm sm:text-base truncate">Owner Dashboard</p>
             <p id="adminEmailLabel" class="text-xs text-slate-500 leading-tight truncate max-w-[45vw] sm:max-w-none"></p>
           </div>
         </div>
@@ -251,28 +267,43 @@
 
       <!-- Stats -->
       <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
-          <p class="text-xs text-slate-500 mb-1">Total Members</p>
-          <p id="statTotal" class="text-xl sm:text-2xl font-bold text-slate-50">0</p>
+        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4 flex items-start gap-3">
+          <div class="stat-icon bg-accent/15 text-accent">👥</div>
+          <div class="min-w-0">
+            <p class="text-xs text-slate-500 mb-1">Total Members</p>
+            <p id="statTotal" class="font-display text-xl sm:text-2xl font-bold text-slate-50">0</p>
+          </div>
         </div>
-        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
-          <p class="text-xs text-slate-500 mb-1">Active Members</p>
-          <p id="statActive" class="text-xl sm:text-2xl font-bold text-success">0</p>
+        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4 flex items-start gap-3">
+          <div class="stat-icon bg-success/15 text-success">💪</div>
+          <div class="min-w-0">
+            <p class="text-xs text-slate-500 mb-1">Active Members</p>
+            <p id="statActive" class="font-display text-xl sm:text-2xl font-bold text-success">0</p>
+          </div>
         </div>
         <!-- 🔥 Naya stat: total members jo abhi approve nahi hue -->
-        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
-          <p class="text-xs text-slate-500 mb-1">Pending Approval</p>
-          <p id="statPendingApproval" class="text-xl sm:text-2xl font-bold text-amber-400">0</p>
+        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4 flex items-start gap-3">
+          <div class="stat-icon bg-amber-400/15 text-amber-400">⏳</div>
+          <div class="min-w-0">
+            <p class="text-xs text-slate-500 mb-1">Pending Approval</p>
+            <p id="statPendingApproval" class="font-display text-xl sm:text-2xl font-bold text-amber-400">0</p>
+          </div>
         </div>
-        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
-          <p class="text-xs text-slate-500 mb-1">Pending Payments</p>
-          <p id="statPending" class="text-xl sm:text-2xl font-bold text-amber-400">0</p>
-          <!-- 🔥 Total accumulated dues across all members (credit renewals) -->
-          <p id="statDuesSub" class="text-[11px] text-rose-400 mt-0.5"></p>
+        <div class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4 flex items-start gap-3">
+          <div class="stat-icon bg-amber-400/15 text-amber-400">💰</div>
+          <div class="min-w-0">
+            <p class="text-xs text-slate-500 mb-1">Pending Payments</p>
+            <p id="statPending" class="font-display text-xl sm:text-2xl font-bold text-amber-400">0</p>
+            <!-- 🔥 Total accumulated dues across all members (credit renewals) -->
+            <p id="statDuesSub" class="text-[11px] text-rose-400 mt-0.5"></p>
+          </div>
         </div>
-        <div id="revenueStatCard" class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4">
-          <p class="text-xs text-slate-500 mb-1">Revenue (This Month)</p>
-          <p id="statRevenue" class="text-xl sm:text-2xl font-bold text-accent">—</p>
+        <div id="revenueStatCard" class="rounded-2xl border border-slate-800 bg-panel shadow-sm p-3 sm:p-4 flex items-start gap-3">
+          <div class="stat-icon bg-accent/15 text-accent">🔥</div>
+          <div class="min-w-0">
+            <p class="text-xs text-slate-500 mb-1">Revenue (This Month)</p>
+            <p id="statRevenue" class="font-display text-xl sm:text-2xl font-bold text-accent">—</p>
+          </div>
         </div>
       </section>
 

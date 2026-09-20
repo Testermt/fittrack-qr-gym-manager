@@ -3,7 +3,7 @@
 <head>
 
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#EEF2F7">
+<meta name="theme-color" content="#F4F1EC">
 
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -15,8 +15,8 @@
     theme: {
       extend: {
         colors: {
-          accent: "#38BDF8",
-          accentDark: "#0284C7",
+          accent: "#FF6A1A",
+          accentDark: "#E24E00",
           success: "#10B981",
           successDark: "#047857",
           amberGlow: "#F59E0B",
@@ -33,7 +33,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
 <style>
-  :root { color-scheme: light; }
+  :root { color-scheme: light; --sys-accent: #FF6A1A; --sys-accent-dark: #E24E00; }
 
   /* Kiosk mode: no text/element should be selectable, copyable, or
      right-click/long-press-menu-able anywhere in this app (status card
@@ -50,7 +50,7 @@
 
   body {
     font-family: "Inter", system-ui, sans-serif;
-    background-color: #EEF2F7;
+    background-color: #F4F1EC;
     background-image: radial-gradient(rgba(15,23,42,0.07) 1px, transparent 1px);
     background-size: 22px 22px;
     min-height: 100vh;
@@ -77,12 +77,12 @@
      OS keyboard — but should still look/feel like a normal focused input
      when the keypad is open, cursor included. */
   .custom-keypad-input {
-    caret-color: #0284C7;
+    caret-color: #E24E00;
   }
   .custom-keypad-input.keypad-focused {
     outline: none;
-    border-color: #0284C7;
-    box-shadow: 0 0 0 4px rgba(14,165,233,0.16);
+    border-color: #E24E00;
+    box-shadow: 0 0 0 4px rgba(255,106,26,0.18);
     background: #FFFFFF;
   }
 
@@ -178,7 +178,7 @@
   header, main, #paymentModal, #welcomeModal, #mascotDock { position: relative; z-index: 1; }
 
   button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
-    outline: 2px solid #0284C7; outline-offset: 3px;
+    outline: 2px solid #E24E00; outline-offset: 3px;
   }
 
   /* Solid "paper card" surface — no transparency, no blur */
@@ -199,14 +199,14 @@
     transition: color 200ms ease, background 200ms ease, box-shadow 200ms ease;
   }
   .tab-btn.tab-active {
-    color: #04101B;
-    background: linear-gradient(135deg, #38BDF8, #0EA5E9);
-    box-shadow: 0 4px 12px -4px rgba(14,165,233,0.5);
+    color: #2A0A00;
+    background: linear-gradient(135deg, #FF8A47, #FF6A1A);
+    box-shadow: 0 4px 12px -4px rgba(226,78,0,0.5);
   }
 
   .badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.4rem 0.9rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; border: 1px solid transparent; }
   .badge-success { background: #D1FAE5; color: #047857; border-color: #6EE7B7; }
-  .badge-warning { background: #FEF3C7; color: #B45309; border-color: #FCD34D; }
+  .badge-warning { background: #FFEDD5; color: #9A3412; border-color: #FDBA74; }
   .badge-danger { background: #FFE4E6; color: #BE123C; border-color: #FDA4AF; }
   .badge-paused { background: #EDE9FE; color: #6D28D9; border-color: #C4B5FD; }
 
@@ -221,7 +221,7 @@
     transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
   }
   .field-input::placeholder { color: #94A3B8; }
-  .field-input:focus { outline: none; border-color: #0284C7; box-shadow: 0 0 0 4px rgba(14,165,233,0.16); background: #FFFFFF; }
+  .field-input:focus { outline: none; border-color: #E24E00; box-shadow: 0 0 0 4px rgba(255,106,26,0.18); background: #FFFFFF; }
 
   /* Tactile "keycap" buttons — flat offset shadow, presses down on tap */
   .btn-primary {
@@ -229,13 +229,13 @@
     min-height: 3.75rem;
     border-radius: 1.1rem;
     font-weight: 700; font-size: 1rem;
-    color: #04101B;
-    background: linear-gradient(135deg, #38BDF8, #0EA5E9);
-    box-shadow: 0 4px 0 0 #0284C7, 0 10px 20px -8px rgba(14,165,233,0.45);
+    color: #2A0A00;
+    background: linear-gradient(135deg, #FF8A47, #FF6A1A);
+    box-shadow: 0 4px 0 0 #E24E00, 0 10px 20px -8px rgba(226,78,0,0.45);
     transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
   }
   .btn-primary:hover { filter: brightness(1.04); }
-  .btn-primary:active { transform: translateY(3px); box-shadow: 0 1px 0 0 #0284C7, 0 4px 10px -6px rgba(14,165,233,0.4); }
+  .btn-primary:active { transform: translateY(3px); box-shadow: 0 1px 0 0 #E24E00, 0 4px 10px -6px rgba(226,78,0,0.4); }
 
   .btn-success {
     display: flex; align-items: center; justify-content: center; gap: 0.5rem;
@@ -251,11 +251,11 @@
   .btn-success:active { transform: translateY(3px); box-shadow: 0 1px 0 0 #047857, 0 4px 10px -6px rgba(16,185,129,0.4); }
 
   .plan-card { border-radius: 1.1rem !important; padding: 1rem !important; background: #FFFFFF !important; border: 1.5px solid #E2E8F0 !important; box-shadow: 0 2px 6px rgba(15,23,42,0.05) !important; transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease !important; cursor: pointer; }
-  .plan-card:hover { border-color: #7DD3FC !important; }
+  .plan-card:hover { border-color: #FFB37A !important; }
   .plan-card:has(input:checked) {
-    border-color: #0EA5E9 !important;
-    background: #F0F9FF !important;
-    box-shadow: 0 0 0 2px #0EA5E9 inset, 0 6px 16px -6px rgba(14,165,233,0.35) !important;
+    border-color: #FF6A1A !important;
+    background: #FFF4EC !important;
+    box-shadow: 0 0 0 2px #FF6A1A inset, 0 6px 16px -6px rgba(226,78,0,0.35) !important;
   }
 
   input[type="date"] { color-scheme: light; }
@@ -282,7 +282,7 @@
   .mascot-bubble {
     max-width: 190px;
     background: #0F1524;
-    border: 1px solid rgba(56,189,248,0.35);
+    border: 1px solid rgba(255,106,26,0.35);
     color: #E2E8F0;
     font-size: 12.5px;
     line-height: 1.35;
@@ -305,7 +305,7 @@
     height: 66px;
     border-radius: 9999px;
     background: radial-gradient(circle at 32% 28%, #16233A, #0B0F19 72%);
-    border: 1px solid rgba(56,189,248,0.4);
+    border: 1px solid rgba(255,106,26,0.4);
     box-shadow: 0 6px 20px -6px rgba(15,23,42,0.35), 0 4px 14px -4px rgba(15,23,42,0.25);
     display: flex;
     align-items: center;
@@ -473,7 +473,7 @@
   <header class="sticky top-0 z-20 paper-card border-x-0 border-t-0 rounded-none">
     <div class="max-w-lg md:max-w-xl mx-auto px-5 py-4 md:py-5 flex items-center justify-between gap-3">
       <div class="flex items-center gap-3">
-        <div class="w-11 h-11 md:w-12 md:h-12 rounded-2xl bg-sky-50 border border-sky-200 flex items-center justify-center text-accentDark font-bold text-xl">⚡</div>
+        <div class="w-11 h-11 md:w-12 md:h-12 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-sm" style="background: linear-gradient(135deg, #FF8A47, #E24E00);">🏋️</div>
         <div>
           <p id="gymNameLabel" class="font-display font-semibold text-slate-900 leading-tight text-base md:text-lg">FitTrack Gym</p>
           <p class="text-xs md:text-sm text-slate-500 leading-tight">Member Check-In Portal</p>
@@ -788,33 +788,33 @@
       <svg id="mascotChar" viewBox="0 0 120 140" xmlns="http://www.w3.org/2000/svg">
         <!-- feet -->
         <ellipse cx="60" cy="126" rx="20" ry="3" fill="#000" opacity="0.28"/>
-        <rect x="44" y="108" width="10" height="16" rx="4" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
-        <rect x="66" y="108" width="10" height="16" rx="4" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
+        <rect x="44" y="108" width="10" height="16" rx="4" fill="#1B2436" stroke="#FF6A1A" stroke-width="1.5"/>
+        <rect x="66" y="108" width="10" height="16" rx="4" fill="#1B2436" stroke="#FF6A1A" stroke-width="1.5"/>
 
         <!-- left arm (holds dumbbell) -->
         <g class="mascot-arm-l" style="transform-origin: 34px 74px;">
-          <rect x="24" y="70" width="10" height="26" rx="5" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
+          <rect x="24" y="70" width="10" height="26" rx="5" fill="#1B2436" stroke="#FF6A1A" stroke-width="1.5"/>
           <g transform="translate(14,92)">
-            <rect x="0" y="4" width="16" height="4" rx="2" fill="#38BDF8"/>
-            <circle cx="1" cy="6" r="5.5" fill="#0F1524" stroke="#38BDF8" stroke-width="1.5"/>
-            <circle cx="17" cy="6" r="5.5" fill="#0F1524" stroke="#38BDF8" stroke-width="1.5"/>
+            <rect x="0" y="4" width="16" height="4" rx="2" fill="#FF6A1A"/>
+            <circle cx="1" cy="6" r="5.5" fill="#0F1524" stroke="#FF6A1A" stroke-width="1.5"/>
+            <circle cx="17" cy="6" r="5.5" fill="#0F1524" stroke="#FF6A1A" stroke-width="1.5"/>
           </g>
         </g>
 
         <!-- right arm (waves / cheers) -->
         <g class="mascot-arm-r" style="transform-origin: 86px 74px;">
-          <rect x="86" y="70" width="10" height="26" rx="5" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
-          <circle cx="91" cy="98" r="5.5" fill="#1B2436" stroke="#38BDF8" stroke-width="1.5"/>
+          <rect x="86" y="70" width="10" height="26" rx="5" fill="#1B2436" stroke="#FF6A1A" stroke-width="1.5"/>
+          <circle cx="91" cy="98" r="5.5" fill="#1B2436" stroke="#FF6A1A" stroke-width="1.5"/>
         </g>
 
         <!-- body -->
-        <rect x="35" y="62" width="50" height="48" rx="16" fill="#0F1524" stroke="#38BDF8" stroke-width="2"/>
-        <path d="M63 74 L54 90 L60 90 L57 100 L69 84 L62 84 Z" fill="#38BDF8"/>
+        <rect x="35" y="62" width="50" height="48" rx="16" fill="#0F1524" stroke="#FF6A1A" stroke-width="2"/>
+        <path d="M63 74 L54 90 L60 90 L57 100 L69 84 L62 84 Z" fill="#FF6A1A"/>
 
         <!-- head -->
-        <line x1="60" y1="16" x2="60" y2="26" stroke="#38BDF8" stroke-width="2"/>
+        <line x1="60" y1="16" x2="60" y2="26" stroke="#FF6A1A" stroke-width="2"/>
         <circle class="mascot-antenna-tip" cx="60" cy="13" r="3.4" fill="#10B981"/>
-        <circle cx="60" cy="44" r="24" fill="#0F1524" stroke="#38BDF8" stroke-width="2"/>
+        <circle cx="60" cy="44" r="24" fill="#0F1524" stroke="#FF6A1A" stroke-width="2"/>
 
         <!-- eyebrows (error state only) -->
         <rect class="mascot-brow" x="45" y="34" width="10" height="2.4" rx="1.2" fill="#FB7185" transform="rotate(18 50 35)"/>
@@ -833,10 +833,10 @@
         </g>
 
         <!-- mouths (cross-faded by state) -->
-        <path class="mascot-mouth mouth-idle" d="M53 54 Q60 59 67 54" stroke="#38BDF8" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <path class="mascot-mouth mouth-idle" d="M53 54 Q60 59 67 54" stroke="#FF6A1A" stroke-width="2" fill="none" stroke-linecap="round"/>
         <path class="mascot-mouth mouth-happy" d="M50 52 Q60 65 70 52" stroke="#10B981" stroke-width="2.4" fill="none" stroke-linecap="round"/>
         <path class="mascot-mouth mouth-worried" d="M52 57 Q56 53 60 57 Q64 53 68 57" stroke="#FB7185" stroke-width="2" fill="none" stroke-linecap="round"/>
-        <ellipse class="mascot-mouth mouth-o" cx="60" cy="55" rx="3.4" ry="4.2" fill="#38BDF8"/>
+        <ellipse class="mascot-mouth mouth-o" cx="60" cy="55" rx="3.4" ry="4.2" fill="#FF6A1A"/>
 
         <g id="mascotConfetti"></g>
       </svg>
@@ -902,7 +902,7 @@
     }
 
     function burstConfetti(count) {
-      var colors = ['#38BDF8', '#10B981', '#FBBF24', '#FB7185', '#818CF8'];
+      var colors = ['#FF6A1A', '#10B981', '#FBBF24', '#FB7185', '#818CF8'];
       for (var i = 0; i < count; i++) {
         var p = document.createElement('span');
         p.className = 'confetti-piece';

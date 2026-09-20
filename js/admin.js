@@ -269,7 +269,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!btn) return;
     const rows = document.querySelectorAll("#settingsPlanRows .settings-plan-row");
     if (rows.length <= 1) {
-      alert("At least one plan is required.");
+      showAlert("At least one plan is required.");
       return;
     }
     btn.closest(".settings-plan-row").remove();
@@ -878,10 +878,10 @@ async function runDeviceVerification(user, storedCredentialId) {
   }
 }
 
-function handleDeviceVerifyReset() {
+async function handleDeviceVerifyReset() {
   const user = auth.currentUser;
   if (!user) return;
-  const confirmed = confirm("Reset the device lock for this browser?");
+  const confirmed = await showConfirm("Reset the device lock for this browser?");
   if (!confirmed) return;
   clearStoredCredentialId(user.uid);
   clearDeviceVerifiedThisSession(user.uid);
@@ -1492,7 +1492,7 @@ function openRowMenuFor(btn, member) {
     ${canResume ? `<button data-menu-action="resume" class="w-full text-left px-3 py-2 text-violet-300 hover:bg-slate-800 transition">Resume Membership</button>` : ""}
     ${canRefund ? `<button data-menu-action="refund" class="w-full text-left px-3 py-2 text-amber-400 hover:bg-slate-800 transition">Cancel & Refund</button>` : ""}
     ${canWhatsapp ? `<button data-menu-action="whatsapp" class="w-full text-left px-3 py-2 text-emerald-400 hover:bg-slate-800 transition">Send WhatsApp</button>` : ""}
-    ${canChangePhone ? `<button data-menu-action="change-phone" class="w-full text-left px-3 py-2 text-sky-400 hover:bg-slate-800 transition">Change Phone Number</button>` : ""}
+    ${canChangePhone ? `<button data-menu-action="change-phone" class="w-full text-left px-3 py-2 text-indigo-400 hover:bg-slate-800 transition">Change Phone Number</button>` : ""}
     ${canDelete ? `<button data-menu-action="delete" class="w-full text-left px-3 py-2 text-rose-400 hover:bg-slate-800 transition">Delete</button>` : ""}
   `;
   document.body.appendChild(menu);
@@ -1591,9 +1591,10 @@ async function executeApproveMember(member, btn) {
   // to collect later.
   let collectPaymentToo = false;
   if (isDayPass && isUnpaid && hasPermission("payments")) {
-    collectPaymentToo = confirm(
+    collectPaymentToo = await showConfirm(
       `This is a ${plan.label || "day pass"} (${formatCurrency(plan.price || 0)}) and payment is still pending.\n\n` +
-      `Click OK to collect ${formatCurrency(plan.price || 0)} now and approve together, or Cancel to go back without approving.`
+      `Click OK to collect ${formatCurrency(plan.price || 0)} now and approve together, or Cancel to go back without approving.`,
+      { title: "Collect payment now?" }
     );
     if (!collectPaymentToo) return; // admin backed out — member stays unapproved
   }
@@ -1628,7 +1629,7 @@ async function executeApproveMember(member, btn) {
     }
   } catch (err) {
     console.error(err);
-    alert("Could not approve member. Please try again.");
+    showAlert("Could not approve member. Please try again.");
     if (btn) {
       btn.disabled = false;
       btn.textContent = originalLabel || "Approve";
@@ -1830,7 +1831,7 @@ async function handleRenewSubmit(e) {
 async function executeFreezeMember(member, btn) {
   if (member.isFrozen) return;
   if (daysUntil(member.expiryDate) < 0) return; // expired plan has nothing running to pause
-  if (!confirm(`Freeze ${member.name}'s membership? Their expiry date won't move while paused, and they won't be able to check in until you resume it.`)) return;
+  if (!(await showConfirm(`Freeze ${member.name}'s membership? Their expiry date won't move while paused, and they won't be able to check in until you resume it.`, { title: "Freeze membership?" }))) return;
 
   const originalLabel = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; }
@@ -1842,7 +1843,7 @@ async function executeFreezeMember(member, btn) {
     });
   } catch (err) {
     console.error(err);
-    alert("Could not freeze membership. Please try again.");
+    showAlert("Could not freeze membership. Please try again.");
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
   }
@@ -1855,7 +1856,7 @@ async function executeResumeMember(member, btn) {
   const frozenDays = Math.max(0, daysBetweenKeys(member.freezeStartDate || today, today));
   const newExpiry = addDaysToDateKey(member.expiryDate, frozenDays);
 
-  if (!confirm(`Resume ${member.name}'s membership? They were paused for ${frozenDays} day${frozenDays === 1 ? "" : "s"} — their new expiry will be ${formatDate(newExpiry)}.`)) return;
+  if (!(await showConfirm(`Resume ${member.name}'s membership? They were paused for ${frozenDays} day${frozenDays === 1 ? "" : "s"} — their new expiry will be ${formatDate(newExpiry)}.`, { title: "Resume membership?" }))) return;
 
   const originalLabel = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; }
@@ -1869,7 +1870,7 @@ async function executeResumeMember(member, btn) {
     });
   } catch (err) {
     console.error(err);
-    alert("Could not resume membership. Please try again.");
+    showAlert("Could not resume membership. Please try again.");
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
   }
@@ -1964,7 +1965,7 @@ async function executeRefundMigration(member, amount, reason) {
     });
   } catch (err) {
     console.error(err);
-    alert("Could not process refund. Please try again.");
+    showAlert("Could not process refund. Please try again.");
   }
 }
 
@@ -2068,7 +2069,7 @@ async function executePhoneChangeMigration(member, newPhone, btn) {
     const newDocRef = membersCol.doc(newPhone);
     const oldSnap = await membersCol.doc(oldPhone).get();
     if (!oldSnap.exists) {
-      alert("This member's record could not be found. Please refresh and try again.");
+      showAlert("This member's record could not be found. Please refresh and try again.");
       return;
     }
     const oldData = oldSnap.data();
@@ -2133,7 +2134,7 @@ async function executePhoneChangeMigration(member, newPhone, btn) {
     await membersCol.doc(oldPhone).delete();
   } catch (err) {
     console.error(err);
-    alert("Could not change phone number. Please try again.");
+    showAlert("Could not change phone number. Please try again.");
   }
 }
 
@@ -2311,12 +2312,12 @@ function enforcePlanLock() {
  * ============================================================ */
 function payAndUpgradeTier(tier) {
   const price = TIER_PRICING[tier]?.price ?? 0;
-  return new Promise((resolve, reject) => {
-    const confirmed = confirm(
-      `Pay ₹${price}/month for the ${tierLabel(tier)} plan?\n\n(Payment gateway isn't connected yet — this marks it as a confirmed test upgrade.)`
-    );
-    if (confirmed) resolve({ trust: true });
-    else reject(new Error("Payment cancelled"));
+  return showConfirm(
+    `Pay ₹${price}/month for the ${tierLabel(tier)} plan?\n\n(Payment gateway isn't connected yet — this marks it as a confirmed test upgrade.)`,
+    { title: "Confirm upgrade" }
+  ).then((confirmed) => {
+    if (confirmed) return { trust: true };
+    throw new Error("Payment cancelled");
   });
 }
 
@@ -2564,7 +2565,7 @@ async function executeEditStaffPermissions(email, permissions, btn) {
     });
   } catch (err) {
     console.error(err);
-    alert("Could not update permissions. Please try again.");
+    showAlert("Could not update permissions. Please try again.");
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -2662,7 +2663,7 @@ async function executeRemoveStaff(email, btn) {
     await db.collection("admins").doc(email).delete();
   } catch (err) {
     console.error(err);
-    alert("Could not remove staff member. Please try again.");
+    showAlert("Could not remove staff member. Please try again.");
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -3063,7 +3064,7 @@ async function executeMarkAsPaid(member, btn) {
     });
   } catch (err) {
     console.error(err);
-    alert("Could not update payment status. Please try again.");
+    showAlert("Could not update payment status. Please try again.");
     if (btn) {
       btn.disabled = false;
       btn.textContent = originalLabel || "Mark as Paid";
@@ -3091,7 +3092,7 @@ async function executeDeleteMember(member, btn) {
 
   } catch (err) {
     console.error(err);
-    alert("Could not delete member and records. Please try again.");
+    showAlert("Could not delete member and records. Please try again.");
     if (btn) {
       btn.disabled = false;
       btn.textContent = originalLabel || "Delete";
@@ -3137,7 +3138,7 @@ async function manualCheckIn(member, btn) {
     member.checkinMonthKey = currentMonthKey;
   } catch (err) {
     console.error(err);
-    alert("Could not log check-in. Please try again.");
+    showAlert("Could not log check-in. Please try again.");
     btn.disabled = false;
     btn.textContent = originalLabel;
   }
@@ -3153,7 +3154,7 @@ async function manualCheckIn(member, btn) {
  */
 function exportMembersToCsv() {
   if (!allMembers.length) {
-    alert("No members to export yet.");
+    showAlert("No members to export yet.");
     return;
   }
 
@@ -3424,11 +3425,11 @@ function renderWeeklyCheckinsChart(checkinsList) {
   // flat fill — reads as a lot more polished on a stats-card chart than a
   // single solid colour.
   const barGradient = canvasCtx.createLinearGradient(0, 0, 0, ctx.clientHeight || 140);
-  barGradient.addColorStop(0, "#0284C7");
-  barGradient.addColorStop(1, "#7DD3FC");
+  barGradient.addColorStop(0, "#FF6A1A");
+  barGradient.addColorStop(1, "#FFC79A");
   const barGradientHover = canvasCtx.createLinearGradient(0, 0, 0, ctx.clientHeight || 140);
-  barGradientHover.addColorStop(0, "#0369A1");
-  barGradientHover.addColorStop(1, "#38BDF8");
+  barGradientHover.addColorStop(0, "#E24E00");
+  barGradientHover.addColorStop(1, "#FF6A1A");
 
   checkinsChartInstance = new Chart(ctx, {
     type: "bar",
@@ -3484,7 +3485,7 @@ function renderWeeklyCheckinsChart(checkinsList) {
           grid: { display: false },
           border: { display: false },
           ticks: {
-            color: (context) => (context.index === todayIndex ? "#0284C7" : "#94A3B8"),
+            color: (context) => (context.index === todayIndex ? "#E24E00" : "#94A3B8"),
             font: (context) => ({
               size: 11,
               weight: context.index === todayIndex ? "700" : "500",
