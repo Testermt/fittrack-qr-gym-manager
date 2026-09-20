@@ -9,6 +9,7 @@ let allMembers = [];
 let unsubMembers = null;
 let unsubCheckins = null;
 let unsubPayments = null;
+let unsubAdminStatus = null; // live admins/{email} listener — catches revocation mid-session
 
 // "owner" (full access) or "staff" (front-desk: check-in/approve only).
 // Set from the admins/{email} doc's `role` field once sign-in verifies
@@ -144,7 +145,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Email/Password form listeners hata diye gaye hain kyunki form remove kar diya hai
   document.getElementById("googleSignInBtn").addEventListener("click", handleGoogleSignIn);
-  document.getElementById("logoutBtn").addEventListener("click", () => { lastVerifiedAt = 0; currentAdminRole = "owner"; auth.signOut(); });
+  document.getElementById("logoutBtn").addEventListener("click", () => {
+    const uid = auth.currentUser && auth.currentUser.uid;
+    if (uid) clearDeviceVerifiedThisSession(uid);
+    lastVerifiedAt = 0;
+    currentAdminRole = "owner";
+    auth.signOut();
+  });
   document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
 
   // Status Filter Buttons listener
@@ -306,42 +313,86 @@ async function handleAuthenticatedUser(user) {
 
   if (signedInWithGoogle) {
     showScreen("deviceVerifyScreen");
-    setDeviceVerifyStage("checkingAdmin");
 
-    let isAdmin = false;
+    // Kick this off in parallel — it's a local browser capability check with
+    // zero dependency on the admin lookup, so no reason to make it wait
+    // behind the Firestore round trip below. It resolves almost instantly
+    // and just sits ready by the time we need it.
+    const biometricSupportedPromise = isPlatformAuthenticatorAvailable();
+
+    // --- Fast path: optimistic read from Firestore's local cache -----------
+    // If this admin has verified successfully on this device before, the
+    // admins/{email} doc is already sitting in the offline cache. Reading it
+    // with source: "cache" is a local disk read — no network round trip — so
+    // it resolves in a few ms instead of waiting on the server, letting a
+    // returning admin skip the "Verifying admin access…" spinner entirely.
+    //
+    // IMPORTANT: this never grants access by itself. The authoritative,
+    // server-verified isVerifiedAdmin() call still runs underneath via
+    // verifyAdminInBackground() — if it disagrees (access was revoked since
+    // the cache was written), the user is signed out immediately, wherever
+    // they've gotten to in the flow, including if they're already past the
+    // dashboard.
+    const docId = user.email.trim().toLowerCase();
+    let optimisticallyAdmin = false;
     try {
-      // isVerifiedAdmin owns its own token-sync + retry/backoff internally.
-      // It only throws when the check genuinely couldn't complete (network
-      // blip or the post-popup token-propagation race) — never for a
-      // legitimate "not an admin" result, which comes back as `false`.
-      // Note: with Firestore offline persistence enabled (firebase-config.js),
-      // this now resolves instantly from cache — with no throw at all — for
-      // any admin who has successfully verified on this device before, even
-      // with zero connection. This catch only fires for a device/account
-      // that has never verified successfully before, so "connect to the
-      // internet" is genuinely the right ask in that case.
-      isAdmin = await isVerifiedAdmin(user.email);
-    } catch (err) {
-      console.error("Admin verification lookup failed:", err, err && err.cause ? err.cause : "");
-      showAuthGateError(
-        navigator.onLine
-          ? "Couldn't verify admin access right now. Please try again in a moment."
-          : "You're offline and this device hasn't verified admin access before — please connect to the internet once to finish setup."
-      );
-      await auth.signOut();
-      return;
+      const cachedDoc = await db.collection("admins").doc(docId).get({ source: "cache" });
+      if (cachedDoc.exists) {
+        currentAdminRole = cachedDoc.data().role === "staff" ? "staff" : "owner";
+        optimisticallyAdmin = true;
+      }
+    } catch (e) {
+      // No cached doc yet (first sign-in on this device) — fine, just means
+      // no fast path here; fall through to the normal server-verified check.
     }
 
-    if (!isAdmin) {
-      showAuthGateError(`This Google account (${user.email}) isn't authorized as a gym admin.`);
-      await auth.signOut();
-      return;
+    let isAdmin;
+    if (optimisticallyAdmin) {
+      isAdmin = true;
+      verifyAdminInBackground(user); // authoritative recheck + live revocation guard, non-blocking
+    } else {
+      setDeviceVerifyStage("checkingAdmin");
+      try {
+        // isVerifiedAdmin owns its own token-sync + retry/backoff internally.
+        // It only throws when the check genuinely couldn't complete (network
+        // blip or the post-popup token-propagation race) — never for a
+        // legitimate "not an admin" result, which comes back as `false`.
+        isAdmin = await isVerifiedAdmin(user.email);
+      } catch (err) {
+        console.error("Admin verification lookup failed:", err, err && err.cause ? err.cause : "");
+        showAuthGateError(
+          navigator.onLine
+            ? "Couldn't verify admin access right now. Please try again in a moment."
+            : "You're offline and this device hasn't verified admin access before — please connect to the internet once to finish setup."
+        );
+        await auth.signOut();
+        return;
+      }
+
+      if (!isAdmin) {
+        showAuthGateError(`This Google account (${user.email}) isn't authorized as a gym admin.`);
+        await auth.signOut();
+        return;
+      }
+
+      // Confirmed by the server — start the same live revocation guard so a
+      // later access change is caught immediately, not just at next login.
+      subscribeAdminStatusLive(user);
     }
 
-    const biometricSupported = await isPlatformAuthenticatorAvailable();
+    const biometricSupported = await biometricSupportedPromise;
     if (biometricSupported) {
       const storedCredentialId = getStoredCredentialId(user.uid);
       if (storedCredentialId) {
+        // Already confirmed with fingerprint/face earlier in this same
+        // browser session (e.g. this is a refresh, not a fresh visit) —
+        // don't re-prompt. The device lock's job is to guard a *new*
+        // session on this device, not to interrupt every reload of one
+        // that's already been verified.
+        if (hasVerifiedDeviceThisSession(user.uid)) {
+          showDashboard(user);
+          return;
+        }
         // Device lock already registered — force fingerprint verification prompt!
         setDeviceVerifyStage("biometric");
         await runDeviceVerification(user, storedCredentialId);
@@ -359,6 +410,50 @@ async function handleAuthenticatedUser(user) {
   }
 
   showDashboard(user);
+}
+
+// Authoritative server recheck for the optimistic-cache fast path. Runs
+// underneath the UI without blocking it. Only acts on a *definitive*
+// "not admin" result — a transient network error doesn't boot an admin
+// who's already in via cache, since that would defeat the point of the
+// fast path over a flaky connection.
+function verifyAdminInBackground(user) {
+  isVerifiedAdmin(user.email)
+    .then((confirmedAdmin) => {
+      if (!confirmedAdmin) {
+        bootRevokedAdmin(user);
+      } else {
+        subscribeAdminStatusLive(user);
+      }
+    })
+    .catch((err) => {
+      console.error("Background admin re-verification failed:", err);
+    });
+}
+
+// Real-time revocation guard: keeps listening on the admin's own doc for as
+// long as they're signed in, so if their admin access is removed *during*
+// an active session (not just checked at next login), they're booted out
+// immediately instead of keeping dashboard access until they sign out.
+function subscribeAdminStatusLive(user) {
+  if (unsubAdminStatus) unsubAdminStatus();
+  const docId = user.email.trim().toLowerCase();
+  unsubAdminStatus = db.collection("admins").doc(docId).onSnapshot(
+    (doc) => {
+      if (!doc.exists) {
+        bootRevokedAdmin(user);
+      } else {
+        currentAdminRole = doc.data().role === "staff" ? "staff" : "owner";
+      }
+    },
+    (err) => console.error("Admin status listener error:", err)
+  );
+}
+
+function bootRevokedAdmin(user) {
+  if (unsubAdminStatus) { unsubAdminStatus(); unsubAdminStatus = null; }
+  showAuthGateError(`This Google account (${user.email}) isn't authorized as a gym admin.`);
+  auth.signOut();
 }
 
 
@@ -428,6 +523,7 @@ function showLogin() {
   if (unsubMembers) unsubMembers();
   if (unsubCheckins) unsubCheckins();
   if (unsubPayments) unsubPayments();
+  if (unsubAdminStatus) { unsubAdminStatus(); unsubAdminStatus = null; }
   if (unsubAllPayments) unsubAllPayments();   // <-- yeh line missing thi, add karo
   if (unsubStaff) unsubStaff();
   if (planLockCheckInterval) { clearInterval(planLockCheckInterval); planLockCheckInterval = null; }
@@ -684,6 +780,7 @@ async function runDeviceVerification(user, storedCredentialId) {
       },
     });
     if (!assertion) throw new Error("No credential returned");
+    markDeviceVerifiedThisSession(user.uid);
     showDashboard(user);
   } catch (err) {
     titleEl.textContent = "Device verification failed";
@@ -701,6 +798,7 @@ function handleDeviceVerifyReset() {
   const confirmed = confirm("Reset the device lock for this browser?");
   if (!confirmed) return;
   clearStoredCredentialId(user.uid);
+  clearDeviceVerifiedThisSession(user.uid);
   showScreen("biometricSetupScreen");
 }
 
@@ -729,6 +827,7 @@ async function handleBiometricSetup() {
     });
     if (!credential) throw new Error("No credential created");
     storeCredentialId(user.uid, bufferToBase64url(credential.rawId));
+    markDeviceVerifiedThisSession(user.uid);
     showDashboard(user);
   } catch (err) {
     errorEl.textContent = "Couldn't set up device lock.";
@@ -752,6 +851,18 @@ function storeCredentialId(uid, id) { try { localStorage.setItem(credentialStora
 function clearStoredCredentialId(uid) { try { localStorage.removeItem(credentialStorageKey(uid)); } catch (e) {} }
 function hasSkippedBiometricSetup(uid) { try { return localStorage.getItem(skippedStorageKey(uid)) === "true"; } catch (e) { return false; } }
 function markBiometricSetupSkipped(uid) { try { localStorage.setItem(skippedStorageKey(uid), "true"); } catch (e) {} }
+
+// Session-scoped device-verified flag: deliberately sessionStorage, not
+// localStorage. sessionStorage survives a refresh/reload in the same tab
+// (so the fingerprint prompt doesn't re-fire on every page load) but is
+// wiped the moment the tab or browser is closed — so re-opening the admin
+// panel later, or opening it in a new tab, still asks fresh. That's the
+// same trade-off banking/webmail apps make: re-verify per session, not per
+// page load, while still requiring it again for a genuinely new session.
+function deviceSessionKey(uid) { return `ft_device_verified_session_${uid}`; }
+function markDeviceVerifiedThisSession(uid) { try { sessionStorage.setItem(deviceSessionKey(uid), "1"); } catch (e) {} }
+function hasVerifiedDeviceThisSession(uid) { try { return sessionStorage.getItem(deviceSessionKey(uid)) === "1"; } catch (e) { return false; } }
+function clearDeviceVerifiedThisSession(uid) { try { sessionStorage.removeItem(deviceSessionKey(uid)); } catch (e) {} }
 
 function bufferToBase64url(buffer) {
   const bytes = new Uint8Array(buffer);
