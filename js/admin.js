@@ -930,9 +930,12 @@ function computeNotifications({ includeDismissed = false } = {}) {
     }
   });
 
-  // 2. Members whose due date has arrived or already passed
+  // 2. Members whose due date has arrived or already passed. Frozen/paused
+  // members are skipped -- their expiryDate isn't moving while paused, so
+  // a long-enough freeze can leave that stored date looking "overdue" even
+  // though nothing is actually due (mirrors the Freeze/Pause menu fix).
   allMembers.forEach((m) => {
-    if (!m.expiryDate) return;
+    if (!m.expiryDate || m.isFrozen) return;
     const due = daysUntil(m.expiryDate);
     if (due <= 0) {
       const status = due === 0 ? "Due today." : `Overdue by ${Math.abs(due)} day${Math.abs(due) === 1 ? "" : "s"}.`;
@@ -2203,7 +2206,7 @@ function addPlanRow(id, plan) {
   document.getElementById("settingsPlanRows").appendChild(row);
 }
 
-function openGymSettingsModal() {
+async function openGymSettingsModal() {
   document.getElementById("settingsGymName").value = GYM_SETTINGS.name || "";
   document.getElementById("settingsCurrencySymbol").value = GYM_SETTINGS.currencySymbol || "₹";
   document.getElementById("settingsCountryCode").value = GYM_SETTINGS.defaultCountryCode || "91";
@@ -2211,6 +2214,23 @@ function openGymSettingsModal() {
   const rowsContainer = document.getElementById("settingsPlanRows");
   rowsContainer.innerHTML = "";
   Object.entries(PLANS).forEach(([id, plan]) => addPlanRow(id, plan));
+
+  // 🔒 UPI section is owner-only -- hidden outright for staff, both here
+  // (so it's never even shown) and in firestore.rules (so it can't be
+  // written even if someone forced it visible via devtools).
+  const upiSection = document.getElementById("upiSettingsSection");
+  const isOwner = currentAdminRole === "owner";
+  upiSection.classList.toggle("hidden", !isOwner);
+  if (isOwner) {
+    try {
+      const snap = await db.collection("settings").doc("config").get();
+      const data = snap.exists ? snap.data() : {};
+      document.getElementById("settingsUpiId").value = data.upiId || "";
+      document.getElementById("settingsUpiPayeeName").value = data.payeeName || "";
+    } catch (err) {
+      console.error("Could not load payment settings:", err);
+    }
+  }
 
   document.getElementById("gymSettingsError").classList.add("hidden");
   document.getElementById("gymSettingsSuccess").classList.add("hidden");
@@ -2406,6 +2426,17 @@ async function handleGymSettingsSubmit(e) {
 
   try {
     await db.collection("settings").doc("gymConfig").set(data);
+
+    // 🔒 UPI section only exists in the DOM for an owner login (see
+    // openGymSettingsModal) -- staff never reaches this branch, and
+    // firestore.rules independently enforces the same owner-only write
+    // even if that were somehow bypassed client-side.
+    const upiSection = document.getElementById("upiSettingsSection");
+    if (!upiSection.classList.contains("hidden")) {
+      const upiId = document.getElementById("settingsUpiId").value.trim();
+      const payeeName = document.getElementById("settingsUpiPayeeName").value.trim();
+      await db.collection("settings").doc("config").set({ upiId, payeeName }, { merge: true });
+    }
 
     // Reflect immediately across the app — GYM_SETTINGS/PLANS are mutated
     // in place (see firebase-config.js), so every existing reference

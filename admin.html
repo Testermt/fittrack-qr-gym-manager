@@ -481,6 +481,21 @@
         <p class="text-[11px] text-slate-500 mt-1.5">Plan ID stays fixed once created (used internally) — edit the label, duration, or price freely.</p>
       </div>
 
+      <!-- 🔒 Owner-only: UPI payment destination. Hidden entirely (not just
+           disabled) for staff logins -- both here (UI) and in firestore.rules
+           (server-side), so a staff account can never see or redirect where
+           member payments go, even via devtools. See openGymSettingsModal(). -->
+      <div id="upiSettingsSection" class="border-t border-slate-800 pt-4">
+        <label class="block text-xs font-medium text-slate-400 mb-1" for="settingsUpiId">UPI ID (for member QR payments)</label>
+        <input id="settingsUpiId" type="text"
+          class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="yourgym@okaxis" />
+        <p class="text-[11px] text-slate-500 mt-1.5">Members scan a QR built from this to pay renewals directly. Leave blank to keep showing "pay at the front desk".</p>
+
+        <label class="block text-xs font-medium text-slate-400 mb-1 mt-3" for="settingsUpiPayeeName">Payee Name shown in payment apps (optional)</label>
+        <input id="settingsUpiPayeeName" type="text"
+          class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent" placeholder="Defaults to gym name" />
+      </div>
+
       <p id="gymSettingsError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2"></p>
       <p id="gymSettingsSuccess" class="hidden text-xs text-success bg-success/10 border border-success/30 rounded-lg px-3 py-2"></p>
 
