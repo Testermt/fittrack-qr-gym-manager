@@ -33,6 +33,41 @@ service cloud.firestore {
       return isVerifiedAdminDirect() && adminRole() == 'owner';
     }
 
+    // Granular staff permissions — lives on the same admins/{email} doc as
+    // `role`, as a `permissions` map (see isValidPermissionsMap() below for
+    // the full set of keys). Owner is implicitly "all permissions"
+    // regardless of this map (see hasPerm()) — the map only ever matters
+    // for role == 'staff'. Missing/absent `permissions` defaults to {}
+    // (nothing granted), so a staff doc created before this feature
+    // existed is locked down, not accidentally opened up.
+    function adminPermissions() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.get('permissions', {});
+    }
+    // True for an owner (always), or for a signed-in staff admin whose
+    // `permissions` map has `key` explicitly set to true. This is what lets
+    // an owner delegate individual capabilities (add members, edit member
+    // details, payments, refunds, delete members, gym settings) to specific
+    // staff logins from the in-app Staff Access → Edit Permissions modal,
+    // instead of every staff account being all-or-nothing.
+    function hasPerm(key) {
+      return isVerifiedAdminDirect()
+        && (adminRole() == 'owner' || adminPermissions().get(key, false) == true);
+    }
+    // The only valid shape for a `permissions` map — kept in sync with the
+    // checkboxes in admin.js's Staff Access → Edit Permissions UI.
+    function isValidPermissionsMap(p) {
+      return p.keys().hasOnly(
+               ['addMembers','editMemberDetails','payments','refunds',
+                'deleteMembers','manageSettings','whatsappBroadcast'])
+          && p.keys().hasAll(
+               ['addMembers','editMemberDetails','payments','refunds',
+                'deleteMembers','manageSettings','whatsappBroadcast'])
+          && p.addMembers is bool && p.editMemberDetails is bool
+          && p.payments is bool && p.refunds is bool
+          && p.deleteMembers is bool && p.manageSettings is bool
+          && p.whatsappBroadcast is bool;
+    }
+
 
     // Members collection: Public read for status, secure write/update
     match /members/{phone} {
@@ -76,32 +111,74 @@ service cloud.firestore {
           && request.resource.data.paymentStatus == "pending"
           && request.resource.data.approved == false)
         ||
-        // Admin manual registration: owner-only — it can create a member
-        // pre-approved and/or already marked paid, both of which skip the
-        // front-desk's normal Approve step, so staff can't use this branch.
-        (isOwnerAdmin()
+        // Admin manual registration: owner, or staff granted the
+        // `addMembers` permission — it can create a member pre-approved
+        // and/or already marked paid, both of which skip the front-desk's
+        // normal Approve step, so a staff account without this permission
+        // can't use this branch.
+        (hasPerm('addMembers')
           && hasValidMemberShape()
           && request.resource.data.paymentStatus in ['pending', 'paid']
           && request.resource.data.approved == true);
 
       allow get: if true;
       allow list: if isVerifiedAdminDirect();
-      // Deleting a member record is owner-only.
-      allow delete: if isOwnerAdmin();
+      // Deleting a member record: owner, or staff granted `deleteMembers`.
+      allow delete: if hasPerm('deleteMembers');
 
-      // Update: owners can change anything. Staff get a narrow carve-out to
-      // flip ONLY `approved` from false → true (the Approve button) — every
-      // other field (paymentStatus, plan, expiryDate, dues, freeze state,
-      // phone…) requires isOwnerAdmin(). The public self-checkin kiosk
-      // (member.js, no auth) separately gets its own narrow carve-out to
-      // bump its OWN doc's monthly check-in counter after a successful
-      // checkin — a harmless display stat, not a trust boundary.
+      // Update: owners can change anything. Staff get a few narrow
+      // carve-outs, each tied to a specific granted permission, on top of
+      // the always-available Approve carve-out:
+      //  - Approve (false -> true) needs no permission — every staff login
+      //    can do this, same as before.
+      //  - Freeze / Resume needs `editMemberDetails`.
+      //  - Mark as Paid needs `payments`.
+      //  - Renew Plan changes plan/expiry AND payment status/dues together,
+      //    so it needs BOTH `editMemberDetails` and `payments`.
+      //  - Cancel & Refund needs `refunds`.
+      // Any field outside these named sets (phone-number-change migration,
+      // anything else) still requires isOwnerAdmin() — phone change in
+      // particular rewrites the doc under a new ID with a wide field copy,
+      // which is too broad to safely carve out per-field, so it stays
+      // owner-only regardless of the permissions map.
+      // The public self-checkin kiosk (member.js, no auth) separately gets
+      // its own narrow carve-out to bump its OWN doc's monthly check-in
+      // counter after a successful checkin — a harmless display stat, not
+      // a trust boundary.
       allow update: if isOwnerAdmin()
         ||
         (isVerifiedAdminDirect()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approved', 'updatedAt'])
           && resource.data.approved == false
           && request.resource.data.approved == true)
+        ||
+        (hasPerm('editMemberDetails')
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['isFrozen', 'freezeStartDate', 'totalFrozenDays', 'expiryDate', 'updatedAt']))
+        ||
+        (hasPerm('payments')
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['paymentStatus', 'updatedAt']))
+        ||
+        // Approving an unpaid day-pass member and collecting payment in the
+        // same step (see admin.js executeApproveMember's collectPaymentToo)
+        // combines the Approve carve-out's field with payment fields in one
+        // write, so it needs its own branch rather than fitting either one
+        // above — same false->true approve guard as the plain Approve
+        // carve-out, plus `payments`.
+        (hasPerm('payments')
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['approved', 'paymentStatus', 'duesAmount', 'updatedAt'])
+          && resource.data.approved == false
+          && request.resource.data.approved == true)
+        ||
+        (hasPerm('editMemberDetails') && hasPerm('payments')
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['plan', 'expiryDate', 'paymentStatus', 'duesAmount', 'updatedAt']))
+        ||
+        (hasPerm('refunds')
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['expiryDate', 'cancelledAt', 'updatedAt']))
         ||
         (request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['monthlyCheckinCount', 'checkinMonthKey'])
@@ -138,17 +215,21 @@ service cloud.firestore {
 }
 
     
-    // Payments collection: financial records — owner-only end to end so
-    // front-desk staff can't see payment history.
+    // Payments collection: financial records. Owner, or staff granted the
+    // `payments` permission, can log a new payment and read payment/
+    // revenue history. Editing or deleting an existing payment record stays
+    // owner-only (the client never does this — it's an accountability log).
     match /payments/{paymentId} {
-      allow create, read, update, delete: if isOwnerAdmin();
+      allow create, read: if hasPerm('payments');
+      allow update, delete: if isOwnerAdmin();
     }
 
-    // Refunds collection: same trust boundary as payments — every
-    // mid-plan-cancellation refund is logged here for accountability.
-    // Owner-only end to end, same as payments above.
+    // Refunds collection: same pattern as payments above — owner, or staff
+    // granted `refunds`, can log/read refunds; editing or deleting a past
+    // refund record stays owner-only (also unused by the client).
     match /refunds/{refundId} {
-      allow create, read, update, delete: if isOwnerAdmin();
+      allow create, read: if hasPerm('refunds');
+      allow update, delete: if isOwnerAdmin();
     }
 
     // Settings collection: Public read (UPI config, gym config/plans),
@@ -175,9 +256,11 @@ service cloud.firestore {
 
       allow get: if true;
       allow list: if isVerifiedAdminDirect();
-      // Changing gym config / pricing / tier is owner-only — staff can
-      // still read it (needed to render the dashboard), just not edit it.
-      allow create, update: if isOwnerAdmin()
+      // Changing gym config / pricing / tier: owner, or staff granted
+      // `manageSettings` — every staff login can still READ it (needed to
+      // render the dashboard) regardless. Deleting a settings doc stays
+      // owner-only (also unused by the client — extra safety net).
+      allow create, update: if hasPerm('manageSettings')
                             && (docId != 'gymConfig' || isValidGymConfig())
                             && (docId != 'tier' || isValidTierConfig());
       allow delete: if isOwnerAdmin();
@@ -198,19 +281,31 @@ service cloud.firestore {
       // "owner", and only as a brand-new doc: `create` in Firestore rules
       // matches solely when no document already exists at this path, so
       // this can never silently overwrite (and thus never downgrade) an
-      // existing owner's or staff member's doc. Nothing else may be set on
-      // this doc from the client (no extra fields), keeping the shape the
-      // rest of these rules (adminRole()) expect.
+      // existing owner's or staff member's doc. `permissions` must be a
+      // full, valid map (see isValidPermissionsMap) — admin.js always
+      // creates a new staff login with every permission explicitly false,
+      // which the owner then turns on individually from Edit Permissions.
+      // Nothing else may be set on this doc from the client.
       allow create: if isOwnerAdmin()
         && request.resource.data.role == 'staff'
-        && request.resource.data.keys().hasOnly(['role', 'addedBy', 'addedAt']);
+        && request.resource.data.keys().hasOnly(['role', 'addedBy', 'addedAt', 'permissions'])
+        && isValidPermissionsMap(request.resource.data.permissions);
 
       // Owner can revoke access — but only ever a staff doc, never an
       // owner's own or another owner's doc, so this can't be used (by
       // mistake or otherwise) to lock an owner out via the app.
       allow delete: if isOwnerAdmin() && resource.data.role == 'staff';
 
-      allow update: if false;
+      // Owner can edit an EXISTING staff login's `permissions` map (the
+      // Edit Permissions modal in the Staff Access panel) — this is the
+      // only field an update may ever touch, `role` can never be changed
+      // in place (granting/revoking owner access always goes through
+      // create/delete above, never update), and the target must already be
+      // a staff doc, never the owner's own.
+      allow update: if isOwnerAdmin()
+        && resource.data.role == 'staff'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['permissions', 'updatedAt'])
+        && isValidPermissionsMap(request.resource.data.permissions);
     }
   }
 }

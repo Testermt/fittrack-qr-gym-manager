@@ -18,6 +18,60 @@ let unsubAdminStatus = null; // live admins/{email} listener — catches revocat
 // admin without this field set isn't accidentally locked out.
 let currentAdminRole = "owner";
 
+// Granular staff permissions, mirrored from admins/{email}.permissions —
+// only ever meaningful when currentAdminRole === "staff" (an owner login
+// implicitly has everything, see hasPermission() below). Keys match
+// PERMISSION_DEFS below and firestore.rules' isValidPermissionsMap().
+// Starts as "all false" so a staff account is locked down by default until
+// the loaded doc's real permissions map (or the total absence of one, for
+// a staff doc created before this feature existed) overrides it.
+let currentAdminPermissions = {
+  addMembers: false,
+  editMemberDetails: false,
+  payments: false,
+  refunds: false,
+  deleteMembers: false,
+  manageSettings: false,
+  whatsappBroadcast: false,
+};
+
+// The full set of togglable staff permissions, with the label + helper
+// text shown in the Edit Permissions modal. Single source of truth for
+// both that modal's checkbox list and the default "all off" map given to
+// a brand-new staff login in executeAddStaff.
+const PERMISSION_DEFS = [
+  { key: "addMembers", label: "Add new members", hint: "Manually register a member (walk-in registration) from the dashboard." },
+  { key: "editMemberDetails", label: "Edit member details", hint: "Freeze/Resume a membership. Combined with \"Payments\" below, also lets them Renew a plan." },
+  { key: "payments", label: "Payments & revenue", hint: "Mark payment as received, view revenue stats/history, and see the UPI settings." },
+  { key: "refunds", label: "Refunds & cancellation", hint: "Cancel a membership and process a refund." },
+  { key: "deleteMembers", label: "Delete a member", hint: "Permanently remove a member and their check-in history." },
+  { key: "manageSettings", label: "Gym settings & pricing", hint: "Change gym name, currency, and membership plan pricing." },
+  { key: "whatsappBroadcast", label: "Send WhatsApp messages", hint: "Send a WhatsApp reminder to an individual member from the dashboard." },
+];
+
+function defaultStaffPermissions() {
+  const perms = {};
+  PERMISSION_DEFS.forEach((p) => { perms[p.key] = false; });
+  return perms;
+}
+
+/** True for an owner (always), or a staff login with `key` explicitly
+ *  granted in currentAdminPermissions. Mirrors firestore.rules' hasPerm() —
+ *  keep both in sync when adding a new permission key. */
+function hasPermission(key) {
+  return currentAdminRole === "owner" || currentAdminPermissions[key] === true;
+}
+
+/** Sets currentAdminRole + currentAdminPermissions together from an
+ *  admins/{email} doc's data — used at every place this doc is read
+ *  (fresh sign-in, cached fallback, live listener) so the two never drift
+ *  apart. A staff doc with no `permissions` field yet (created before this
+ *  feature existed) safely defaults to "everything off". */
+function applyAdminDocData(data) {
+  currentAdminRole = data && data.role === "staff" ? "staff" : "owner";
+  currentAdminPermissions = Object.assign(defaultStaffPermissions(), (data && data.permissions) || {});
+}
+
 let currentMemberFilter = "all";
 let todayCheckedInIds = new Set();
 
@@ -83,7 +137,7 @@ async function isVerifiedAdmin(email, { retries = 4, baseDelayMs = 600 } = {}) {
 
       const doc = await db.collection("admins").doc(docId).get();
       if (doc.exists) {
-        currentAdminRole = doc.data().role === "staff" ? "staff" : "owner";
+        applyAdminDocData(doc.data());
       }
       return doc.exists;
     } catch (err) {
@@ -228,15 +282,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("staffAccessForm").addEventListener("submit", handleAddStaffSubmit);
   document.getElementById("staffAccessBtn").addEventListener("click", () => toggleProfileMenu(true));
   document.getElementById("staffListRows").addEventListener("click", (e) => {
-    const btn = e.target.closest('button[data-action="remove-staff"]');
-    if (!btn) return;
-    const email = btn.closest(".staff-row").dataset.email;
-    // Same reason as handleAddStaffSubmit below: close this modal before
-    // the reauth modal opens, or the two (same z-50) stack in DOM order
-    // and this one hides the "Confirm" button underneath it.
-    closeStaffAccessModal();
-    requestReauth("remove-staff", null, btn, { email });
+    const removeBtn = e.target.closest('button[data-action="remove-staff"]');
+    const editBtn = e.target.closest('button[data-action="edit-permissions"]');
+    if (removeBtn) {
+      const email = removeBtn.closest(".staff-row").dataset.email;
+      // Same reason as handleAddStaffSubmit below: close this modal before
+      // the reauth modal opens, or the two (same z-50) stack in DOM order
+      // and this one hides the "Confirm" button underneath it.
+      closeStaffAccessModal();
+      requestReauth("remove-staff", null, removeBtn, { email });
+    } else if (editBtn) {
+      const email = editBtn.closest(".staff-row").dataset.email;
+      const staff = allStaff.find((s) => s.email === email);
+      if (staff) openStaffPermissionsModal(staff);
+    }
   });
+  document.getElementById("staffPermissionsCloseBtn").addEventListener("click", closeStaffPermissionsModal);
+  document.getElementById("staffPermissionsBackdrop").addEventListener("click", closeStaffPermissionsModal);
+  document.getElementById("staffPermissionsForm").addEventListener("submit", handleSavePermissionsSubmit);
 
   // Plan & Features modal (Basic/Prime/Advance tier + which features that
   // unlocks) — controls hasFeature() everywhere else in the app.
@@ -338,7 +401,7 @@ async function handleAuthenticatedUser(user) {
     try {
       const cachedDoc = await db.collection("admins").doc(docId).get({ source: "cache" });
       if (cachedDoc.exists) {
-        currentAdminRole = cachedDoc.data().role === "staff" ? "staff" : "owner";
+        applyAdminDocData(cachedDoc.data());
         optimisticallyAdmin = true;
       }
     } catch (e) {
@@ -443,7 +506,20 @@ function subscribeAdminStatusLive(user) {
       if (!doc.exists) {
         bootRevokedAdmin(user);
       } else {
-        currentAdminRole = doc.data().role === "staff" ? "staff" : "owner";
+        applyAdminDocData(doc.data());
+        // Re-apply immediately so a permission the owner just revoked (or
+        // granted) disappears/appears from this staff session's UI right
+        // away, not just on next login — same spirit as bootRevokedAdmin
+        // above for a fully-removed staff login.
+        applyRolePermissions();
+        // A newly-granted `payments` permission needs its own listeners
+        // started mid-session too (they're only started once in
+        // showDashboard) — subscribeMonthlyRevenue/History already guard
+        // against double-subscribing via unsubPayments.
+        if (hasPermission("payments") && !unsubPayments) {
+          subscribeMonthlyRevenue();
+          subscribeMonthlyHistory();
+        }
       }
     },
     (err) => console.error("Admin status listener error:", err)
@@ -535,18 +611,21 @@ function showLogin() {
 let planLockCheckInterval = null;
 
 /**
- * Staff (front-desk) role gets check-in/approve only — everything
- * financial or destructive is hidden here, and separately hard-blocked at
- * the Firestore rules level (isOwnerAdmin()) so hiding a button is a UX
- * nicety, not the actual security boundary.
+ * Owner always gets everything. Staff gets check-in/approve (always) plus
+ * whatever the owner has individually granted them in the Edit Permissions
+ * modal (see PERMISSION_DEFS/hasPermission above) — everything else is
+ * hidden here, and separately hard-blocked at the Firestore rules level
+ * (hasPerm()/isOwnerAdmin()) so hiding a button is a UX nicety, not the
+ * actual security boundary.
  *
  * NOTE on limits: Firestore has no field-level read security — a staff
  * login can still technically read a member's `duesAmount`/`paymentStatus`
  * fields via the members list (they're on the same doc as name/approval
- * status, which staff legitimately needs for check-in). This hides the
- * dedicated revenue/dues *summary* views; it can't redact those two
- * fields from the member directory without moving them into a separate,
- * owner-only subcollection — a bigger data-model change, ask if you want it.
+ * status, which staff legitimately needs for check-in) even without the
+ * `payments` permission. This hides the dedicated revenue/dues *summary*
+ * views; it can't redact those two fields from the member directory
+ * without moving them into a separate, owner-only subcollection — a bigger
+ * data-model change, ask if you want it.
  */
 function applyRolePermissions() {
   const isOwner = currentAdminRole === "owner";
@@ -555,22 +634,26 @@ function applyRolePermissions() {
   if (titleEl) titleEl.textContent = isOwner ? "Owner Dashboard" : "Staff Dashboard";
   document.title = isOwner ? "FitTrack — Owner Dashboard" : "FitTrack — Staff Dashboard";
 
-  const ownerOnlyIds = [
-    "gymSettingsBtn",     // gym's own membership plan pricing / config
-    "staffAccessBtn",     // add/remove staff logins (list on /admins is owner-only in rules)
-    "openAddMemberBtn",   // manual registration (create is owner-only in rules)
-    "revenueStatCard",    // Revenue (This Month) stat
-  ];
-  ownerOnlyIds.forEach((id) => {
+  // Staff Access (add/remove staff logins, edit their permissions) always
+  // stays owner-only — it isn't one of the delegable permissions.
+  const staffAccessBtn = document.getElementById("staffAccessBtn");
+  if (staffAccessBtn) staffAccessBtn.classList.toggle("hidden", !isOwner);
+
+  const permGatedIds = {
+    gymSettingsBtn: "manageSettings",   // gym's own membership plan pricing / config
+    openAddMemberBtn: "addMembers",     // manual registration
+    revenueStatCard: "payments",        // Revenue (This Month) stat
+  };
+  Object.entries(permGatedIds).forEach(([id, permKey]) => {
     const el = document.getElementById(id);
-    if (el) el.classList.toggle("hidden", !isOwner);
+    if (el) el.classList.toggle("hidden", !hasPermission(permKey));
   });
 
   const revenueHistorySection = document.getElementById("monthlyRevenueHistorySection");
-  if (revenueHistorySection) revenueHistorySection.classList.toggle("hidden", !isOwner);
+  if (revenueHistorySection) revenueHistorySection.classList.toggle("hidden", !hasPermission("payments"));
 
   const duesSub = document.getElementById("statDuesSub");
-  if (duesSub) duesSub.classList.toggle("hidden", !isOwner);
+  if (duesSub) duesSub.classList.toggle("hidden", !hasPermission("payments"));
 }
 
 function showDashboard(user) {
@@ -582,14 +665,17 @@ function showDashboard(user) {
 
   subscribeMembers();
   subscribeWeeklyAndTodayCheckins(); // <-- Yeh dono cheezein ek sath handle karega (Chart + Today's List)
-  // Payments collection is owner-only in firestore.rules — these would
-  // throw permission-denied for a staff login, so skip subscribing at all
-  // rather than hide the failing listener's output.
-  if (currentAdminRole === "owner") {
+  // Payments collection needs the `payments` permission in firestore.rules
+  // (owner always has it) — subscribing without it would throw
+  // permission-denied, so skip subscribing at all rather than hide the
+  // failing listener's output.
+  if (hasPermission("payments")) {
     subscribeMonthlyRevenue();
     subscribeMonthlyHistory();
-    // /admins list access is owner-only in firestore.rules — a staff login
-    // would get permission-denied here, so skip subscribing entirely.
+  }
+  // /admins list access is owner-only in firestore.rules — a staff login
+  // would get permission-denied here, so skip subscribing entirely.
+  if (currentAdminRole === "owner") {
     subscribeStaffList();
   }
 
@@ -1378,18 +1464,23 @@ function openRowMenuFor(btn, member) {
 
   const isOwner = currentAdminRole === "owner";
   const wrapper = btn.nextElementSibling; // the data-menu-actions div holding flags
-  // Staff (front-desk) only ever gets the Check-In / Approve buttons
-  // outside this menu, plus WhatsApp reminders here — everything else in
-  // this menu is financial or destructive and is owner-only, mirroring the
-  // isOwnerAdmin() gate on the matching Firestore writes.
-  const canMarkPaid = isOwner && wrapper.dataset.markPaid === "true";
-  const canWhatsapp = wrapper.dataset.whatsapp === "true";
-  const canRenew = isOwner && wrapper.dataset.renew === "true";
-  const canFreeze = isOwner && wrapper.dataset.freeze === "true";
-  const canResume = isOwner && wrapper.dataset.resume === "true";
-  const canRefund = isOwner && wrapper.dataset.refund === "true";
+  // Staff (front-desk) always gets the Check-In / Approve buttons outside
+  // this menu. Everything in this menu is gated behind the specific
+  // permission the owner granted them (see PERMISSION_DEFS/hasPermission),
+  // mirroring the matching hasPerm()/isOwnerAdmin() gate on the Firestore
+  // write each action makes. Change Phone Number is the one exception —
+  // it's a full doc-migration, kept owner-only regardless of permissions
+  // (see the comment on the members `update` rule in firestore.rules).
+  const canMarkPaid = hasPermission("payments") && wrapper.dataset.markPaid === "true";
+  const canWhatsapp = hasPermission("whatsappBroadcast") && wrapper.dataset.whatsapp === "true";
+  // Renew changes plan/expiry AND payment status/dues together, so it
+  // needs both permissions — matching the combined branch in firestore.rules.
+  const canRenew = hasPermission("editMemberDetails") && hasPermission("payments") && wrapper.dataset.renew === "true";
+  const canFreeze = hasPermission("editMemberDetails") && wrapper.dataset.freeze === "true";
+  const canResume = hasPermission("editMemberDetails") && wrapper.dataset.resume === "true";
+  const canRefund = hasPermission("refunds") && wrapper.dataset.refund === "true";
   const canChangePhone = isOwner && wrapper.dataset.changePhone === "true";
-  const canDelete = isOwner;
+  const canDelete = hasPermission("deleteMembers");
 
   const menu = document.createElement("div");
   menu.className =
@@ -1494,11 +1585,12 @@ async function executeApproveMember(member, btn) {
   // later. So approving an unpaid day-pass member now asks to collect
   // payment in the same step, instead of silently approving on trust
   // (which is fine for regular members, but risky for a one-time visitor).
-  // Staff (front-desk) can't collect/record payment (owner-only, same as
-  // Mark as Paid) — for them this always stays a plain approve, payment
-  // stays pending for an owner to collect later.
+  // Staff without the `payments` permission can't collect/record payment
+  // here (same permission as Mark as Paid) — for them this always stays a
+  // plain approve, payment stays pending for someone with that permission
+  // to collect later.
   let collectPaymentToo = false;
-  if (isDayPass && isUnpaid && currentAdminRole === "owner") {
+  if (isDayPass && isUnpaid && hasPermission("payments")) {
     collectPaymentToo = confirm(
       `This is a ${plan.label || "day pass"} (${formatCurrency(plan.price || 0)}) and payment is still pending.\n\n` +
       `Click OK to collect ${formatCurrency(plan.price || 0)} now and approve together, or Cancel to go back without approving.`
@@ -2326,13 +2418,16 @@ async function openGymSettingsModal() {
   rowsContainer.innerHTML = "";
   Object.entries(PLANS).forEach(([id, plan]) => addPlanRow(id, plan));
 
-  // 🔒 UPI section is owner-only -- hidden outright for staff, both here
-  // (so it's never even shown) and in firestore.rules (so it can't be
-  // written even if someone forced it visible via devtools).
+  // 🔒 UPI section needs the `manageSettings` permission -- hidden outright
+  // for staff without it, both here (so it's never even shown) and in
+  // firestore.rules (so it can't be written even if someone forced it
+  // visible via devtools). This whole modal is already gated behind the
+  // same permission via gymSettingsBtn in applyRolePermissions, but this
+  // check stays as its own defense in depth.
   const upiSection = document.getElementById("upiSettingsSection");
-  const isOwner = currentAdminRole === "owner";
-  upiSection.classList.toggle("hidden", !isOwner);
-  if (isOwner) {
+  const canManageSettings = hasPermission("manageSettings");
+  upiSection.classList.toggle("hidden", !canManageSettings);
+  if (canManageSettings) {
     try {
       const snap = await db.collection("settings").doc("config").get();
       const data = snap.exists ? snap.data() : {};
@@ -2389,8 +2484,92 @@ function renderStaffList() {
       const row = template.content.cloneNode(true).querySelector(".staff-row");
       row.dataset.email = staff.email;
       row.querySelector('[data-field="email"]').textContent = staff.email;
+      const permCountEl = row.querySelector('[data-field="permCount"]');
+      if (permCountEl) {
+        const granted = PERMISSION_DEFS.filter((p) => (staff.permissions || {})[p.key] === true).length;
+        permCountEl.textContent = granted === 0
+          ? "Check-in/approve only"
+          : `${granted} of ${PERMISSION_DEFS.length} extra permission${granted === 1 ? "" : "s"} on`;
+      }
       container.appendChild(row);
     });
+}
+
+// ---------------------------------------- edit staff permissions modal --
+let pendingPermissionsStaff = null;
+
+function renderPermissionCheckboxes(currentPermissions) {
+  const container = document.getElementById("staffPermissionsRows");
+  if (!container) return;
+  container.innerHTML = "";
+  const perms = currentPermissions || {};
+  PERMISSION_DEFS.forEach((def) => {
+    const row = document.createElement("label");
+    row.className = "flex items-start gap-3 rounded-lg border border-slate-700 bg-slate-800/60 p-3 cursor-pointer";
+    row.innerHTML = `
+      <input type="checkbox" data-perm-key="${def.key}" class="mt-1 h-4 w-4 rounded" ${perms[def.key] === true ? "checked" : ""} />
+      <span>
+        <span class="block text-sm font-semibold text-slate-100">${def.label}</span>
+        <span class="block text-xs text-slate-400">${def.hint}</span>
+      </span>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function openStaffPermissionsModal(staff) {
+  pendingPermissionsStaff = staff;
+  document.getElementById("staffPermissionsEmail").textContent = staff.email;
+  renderPermissionCheckboxes(staff.permissions);
+  document.getElementById("staffPermissionsError").classList.add("hidden");
+  document.getElementById("staffPermissionsModal").classList.remove("hidden");
+}
+
+function closeStaffPermissionsModal() {
+  document.getElementById("staffPermissionsModal").classList.add("hidden");
+  pendingPermissionsStaff = null;
+}
+
+function handleSavePermissionsSubmit(e) {
+  e.preventDefault();
+  if (!pendingPermissionsStaff) return;
+
+  const permissions = defaultStaffPermissions();
+  document.querySelectorAll('#staffPermissionsRows input[data-perm-key]').forEach((input) => {
+    permissions[input.dataset.permKey] = input.checked;
+  });
+
+  const email = pendingPermissionsStaff.email;
+  const btn = document.getElementById("staffPermissionsSaveBtn");
+  // Same reason as handleAddStaffSubmit: close this modal before the
+  // reauth modal opens, so the two (same z-50) don't stack in DOM order
+  // and hide the "Confirm" button underneath this one.
+  closeStaffPermissionsModal();
+  requestReauth("edit-staff-permissions", null, btn, { email, permissions });
+}
+
+/** Runs the actual permissions write — only called after
+ *  requestReauth("edit-staff-permissions", …) succeeds. */
+async function executeEditStaffPermissions(email, permissions, btn) {
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+  }
+  try {
+    await db.collection("admins").doc(email).update({
+      permissions,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    console.error(err);
+    alert("Could not update permissions. Please try again.");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Save";
+    }
+  }
 }
 
 function openStaffAccessModal() {
@@ -2454,6 +2633,7 @@ async function executeAddStaff(email, btn) {
       role: "staff",
       addedBy: auth.currentUser.email,
       addedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      permissions: defaultStaffPermissions(),
     });
     document.getElementById("staffEmailInput").value = "";
   } catch (err) {
@@ -2698,6 +2878,8 @@ async function dispatchReauthedAction({ type, member, btn, extra }) {
     await executeAddStaff(extra.email, btn);
   } else if (type === "remove-staff") {
     await executeRemoveStaff(extra.email, btn);
+  } else if (type === "edit-staff-permissions") {
+    await executeEditStaffPermissions(extra.email, extra.permissions, btn);
   }
 }
 
@@ -2739,10 +2921,13 @@ function requestReauth(type, member, btn, extra) {
     msgEl.textContent = `This refunds ${formatCurrency(extra.amount)} to ${member.name} and ends their membership immediately. Confirm your identity to continue.`;
   } else if (type === "add-staff") {
     titleEl.textContent = "Grant staff access?";
-    msgEl.textContent = `This gives ${extra.email} sign-in access to this dashboard (check-in/approve only). Confirm your identity to continue.`;
+    msgEl.textContent = `This gives ${extra.email} sign-in access to this dashboard (check-in/approve only until you grant more from Edit Permissions). Confirm your identity to continue.`;
   } else if (type === "remove-staff") {
     titleEl.textContent = "Revoke staff access?";
     msgEl.textContent = `${extra.email} will immediately lose access to this dashboard. Confirm your identity to continue.`;
+  } else if (type === "edit-staff-permissions") {
+    titleEl.textContent = "Update staff permissions?";
+    msgEl.textContent = `This changes what ${extra.email} can control on this dashboard, effective immediately. Confirm your identity to continue.`;
   } else {
     titleEl.textContent = "Confirm payment update";
     msgEl.textContent = `This marks ${member.name}'s payment as PAID. Confirm your identity to continue.`;
