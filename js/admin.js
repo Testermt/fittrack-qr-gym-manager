@@ -1119,7 +1119,7 @@ function buildMemberActionsHtml(m, dotSizeClass) {
         data-mark-paid="${!isPaid}"
         data-whatsapp="${!isActive || !isPaid}"
         data-renew="${isApproved}"
-        data-freeze="${isApproved && !isFrozen}"
+        data-freeze="${isApproved && !isFrozen && isActive}"
         data-resume="${isApproved && isFrozen}"
         data-refund="${isApproved && isPaid && isActive && !isFrozen}"
         data-change-phone="true"
@@ -1622,6 +1622,7 @@ async function handleRenewSubmit(e) {
 
 async function executeFreezeMember(member, btn) {
   if (member.isFrozen) return;
+  if (daysUntil(member.expiryDate) < 0) return; // expired plan has nothing running to pause
   if (!confirm(`Freeze ${member.name}'s membership? Their expiry date won't move while paused, and they won't be able to check in until you resume it.`)) return;
 
   const originalLabel = btn ? btn.textContent : "";
