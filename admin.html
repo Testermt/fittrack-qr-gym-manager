@@ -59,6 +59,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
 <style>
   :root { --sys-accent: #FF6A1A; --sys-accent-dark: #E24E00; }
+  /* Guard against any element accidentally being 1-2px wider than the
+     viewport (a common source of a barely-visible horizontal scrollbar)
+     — without this, the page can scroll sideways by that tiny amount,
+     which visually anchors all content to the left and eats the right-
+     side margin, making layouts look off-center even though every
+     container's padding is actually symmetric. */
+  html, body { overflow-x: hidden; max-width: 100vw; }
   body {
     font-family: "Inter", system-ui, sans-serif;
     background-color: #F4F1EC;

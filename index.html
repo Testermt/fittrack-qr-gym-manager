@@ -34,6 +34,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
 <style>
   :root { color-scheme: light; --sys-accent: #FF6A1A; --sys-accent-dark: #E24E00; }
+  /* See admin.html for why this exists — stops a stray 1-2px-too-wide
+     element from ever causing sideways scroll, which is what was making
+     the right-side margin disappear while the left stayed put. */
+  html, body { overflow-x: hidden; max-width: 100vw; }
 
   /* Kiosk mode: no text/element should be selectable, copyable, or
      right-click/long-press-menu-able anywhere in this app (status card
