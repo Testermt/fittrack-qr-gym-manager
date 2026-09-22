@@ -355,29 +355,9 @@ async function handleRegisterSubmit(e) {
 
   setBusy(submitBtn, true, "Registering…");
   try {
-    const existingDoc = await Promise.race([
-      membersCol.doc(phone).get(),
-      timeoutAfter(STATUS_CHECK_TIMEOUT_MS),
-    ]);
-    if (existingDoc === null) {
-      showBannerWithRetry(
-        "registerBanner",
-        "No internet connection. Please check the WiFi/data on this device and try again.",
-        form
-      );
-      return;
-    }
-    if (existingDoc.exists) {
-      showBanner(
-        "registerBanner",
-        "This phone number is already registered. Use the 'Check Status' tab instead."
-      );
-      return;
-    }
-
     const plan = PLANS[planId];
-    
-    //  Naya logic: Days aur Months dono ko support karega
+
+    // Naya logic: Days aur Months dono ko support karega
     let expiryDate;
     if (plan.days) {
       const [y, m, d] = joinDate.split("-").map(Number);
@@ -388,34 +368,55 @@ async function handleRegisterSubmit(e) {
       expiryDate = addMonthsToDateKey(joinDate, plan.months || 1);
     }
 
-    const wroteOk = await Promise.race([
-      membersCol.doc(phone).set({
-        name,
-        phone,
-        address,
-        joinDate,
-        plan: planId,
-        planLabel: plan.label,
-        expiryDate,
-        paymentStatus: "pending",
-        approved: false,
-        whatsappBotOptIn,
-        whatsappMarketingOptIn,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      }).then(() => true),
+    // Check-then-write as two separate calls (.get() followed by .set())
+    // has a race window: if the same phone number is submitted from two
+    // devices/tabs at nearly the same moment, both reads can land before
+    // either write, so both would see "not registered" and the second
+    // .set() would silently overwrite the first with no warning. Doing
+    // the read+write inside a single transaction makes this atomic --
+    // Firestore itself detects the conflict and retries the transaction,
+    // so the second attempt correctly sees the just-created document.
+    const ALREADY_REGISTERED = "ALREADY_REGISTERED";
+    const txnResult = await Promise.race([
+      db.runTransaction(async (transaction) => {
+        const doc = await transaction.get(membersCol.doc(phone));
+        if (doc.exists) return ALREADY_REGISTERED;
+        transaction.set(membersCol.doc(phone), {
+          name,
+          phone,
+          address,
+          joinDate,
+          plan: planId,
+          planLabel: plan.label,
+          expiryDate,
+          paymentStatus: "pending",
+          approved: false,
+          whatsappBotOptIn,
+          whatsappMarketingOptIn,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        return true;
+      }),
       timeoutAfter(STATUS_CHECK_TIMEOUT_MS),
     ]);
-    if (wroteOk === null) {
-      // A queued offline write's promise doesn't resolve until the server
-      // acks it, so this can hang exactly like the read above when there's
-      // no internet. Since nobody's usually around to notice/confirm it
-      // synced later on this unattended kiosk, play it safe and tell the
-      // member to retry once online rather than assume it went through.
+
+    if (txnResult === null) {
+      // Transactions need a live round-trip to the server to check for
+      // conflicts, so this hangs the same way the old read did when
+      // there's no internet. Play it safe and ask the member to retry
+      // once online rather than assume it went through.
       showBannerWithRetry(
         "registerBanner",
         "No internet connection. Please check the WiFi/data on this device and try again.",
         form
+      );
+      return;
+    }
+    if (txnResult === ALREADY_REGISTERED) {
+      showBanner(
+        "registerBanner",
+        "This phone number is already registered. Use the 'Check Status' tab instead."
       );
       return;
     }
