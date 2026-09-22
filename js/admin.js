@@ -1757,7 +1757,7 @@ function closeRenewModal() {
 async function handleRenewSubmit(e) {
   e.preventDefault();
   if (!pendingRenewMember) return;
-  const member = pendingRenewMember;
+  const memberRef = membersCol.doc(pendingRenewMember.id);
   const submitBtn = document.getElementById("renewSubmitBtn");
   const errorEl = document.getElementById("renewError");
   errorEl.classList.add("hidden");
@@ -1771,45 +1771,59 @@ async function handleRenewSubmit(e) {
   // somehow got out of sync with the selected plan.
   if (plan.days) collectNow = true;
 
-  const baseDate = computeRenewBaseDate(member);
-  const newExpiry = computeRenewedExpiry(baseDate, plan);
-  const existingDues = member.duesAmount || 0;
-
   const originalLabel = submitBtn.textContent;
   submitBtn.disabled = true;
   submitBtn.textContent = "Saving…";
 
   try {
-    const update = {
-      plan: planId,
-      planLabel: plan.label,
-      expiryDate: newExpiry,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    };
+    // Re-read the member FRESH inside a transaction instead of computing off
+    // pendingRenewMember (a snapshot captured when this modal was opened).
+    // If another staff login changed duesAmount/expiryDate/froze the member
+    // while this modal sat open, computing off the stale snapshot could
+    // re-charge dues that were already cleared, or renew on top of a
+    // since-cancelled plan. The transaction also makes the read+write
+    // atomic against any other concurrent write to this same member.
+    await db.runTransaction(async (transaction) => {
+      const freshDoc = await transaction.get(memberRef);
+      if (!freshDoc.exists) throw new Error("Member no longer exists.");
+      const freshMember = { id: freshDoc.id, ...freshDoc.data() };
 
-    if (collectNow) {
-      // Collecting now settles this cycle AND any dues already owed.
-      update.paymentStatus = "paid";
-      update.duesAmount = 0;
-      await paymentsCol.add({
-        memberId: member.id,
-        name: member.name,
-        phone: member.phone,
+      const baseDate = computeRenewBaseDate(freshMember);
+      const newExpiry = computeRenewedExpiry(baseDate, plan);
+      const existingDues = freshMember.duesAmount || 0;
+
+      const update = {
         plan: planId,
-        amount: plan.price + existingDues,
-        method: "cash",
-        dateKey: toDateKey(new Date()),
-        note: existingDues > 0 ? `Includes ₹${existingDues} previous dues` : "",
-        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-    } else {
-      // Extended on credit — plan/check-ins continue, payment stays
-      // pending, and the amount owed accumulates instead of resetting.
-      update.paymentStatus = "pending";
-      update.duesAmount = existingDues + plan.price;
-    }
+        planLabel: plan.label,
+        expiryDate: newExpiry,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
 
-    await membersCol.doc(member.id).update(update);
+      if (collectNow) {
+        // Collecting now settles this cycle AND any dues already owed.
+        update.paymentStatus = "paid";
+        update.duesAmount = 0;
+        transaction.set(paymentsCol.doc(), {
+          memberId: freshMember.id,
+          name: freshMember.name,
+          phone: freshMember.phone,
+          plan: planId,
+          amount: plan.price + existingDues,
+          method: "cash",
+          dateKey: toDateKey(new Date()),
+          note: existingDues > 0 ? `Includes ₹${existingDues} previous dues` : "",
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        // Extended on credit — plan/check-ins continue, payment stays
+        // pending, and the amount owed accumulates instead of resetting.
+        update.paymentStatus = "pending";
+        update.duesAmount = existingDues + plan.price;
+      }
+
+      transaction.update(memberRef, update);
+    });
+
     closeRenewModal();
   } catch (err) {
     console.error(err);
@@ -1938,30 +1952,45 @@ async function handleRefundSubmit(e) {
 
 /** Runs the actual refund write — only called after requestReauth("refund", …) succeeds. */
 async function executeRefundMigration(member, amount, reason) {
-  const { plan, daysRemaining } = computeSuggestedRefund(member);
+  const memberRef = membersCol.doc(member.id);
   try {
     const today = toDateKey(new Date());
-    await refundsCol.add({
-      memberId: member.id,
-      name: member.name,
-      phone: member.phone,
-      plan: member.plan,
-      planPrice: plan.price || 0,
-      daysRemaining,
-      amount,
-      reason,
-      dateKey: today,
-      processedBy: auth.currentUser ? auth.currentUser.email : null,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-    });
 
-    // Ends the membership immediately — expiry is cut to today, so the
-    // member table shows EXPIRED right away instead of counting down the
-    // days that were just refunded.
-    await membersCol.doc(member.id).update({
-      expiryDate: today,
-      cancelledAt: today,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    // Re-read fresh instead of trusting `member` (a snapshot from whenever
+    // the refund modal was opened, which can be stale by the time reauth
+    // finishes) — the refund log should reflect the plan/days that were
+    // actually still active just now, not whatever was on screen earlier.
+    // The admin-entered `amount` itself is left as-is (they saw and could
+    // already edit the suggested figure), only the log's plan/day context
+    // and the expiry cut are computed fresh, atomically together.
+    await db.runTransaction(async (transaction) => {
+      const freshDoc = await transaction.get(memberRef);
+      if (!freshDoc.exists) throw new Error("Member no longer exists.");
+      const freshMember = { id: freshDoc.id, ...freshDoc.data() };
+      const { plan, daysRemaining } = computeSuggestedRefund(freshMember);
+
+      transaction.set(refundsCol.doc(), {
+        memberId: freshMember.id,
+        name: freshMember.name,
+        phone: freshMember.phone,
+        plan: freshMember.plan,
+        planPrice: plan.price || 0,
+        daysRemaining,
+        amount,
+        reason,
+        dateKey: today,
+        processedBy: auth.currentUser ? auth.currentUser.email : null,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Ends the membership immediately — expiry is cut to today, so the
+      // member table shows EXPIRED right away instead of counting down the
+      // days that were just refunded.
+      transaction.update(memberRef, {
+        expiryDate: today,
+        cancelledAt: today,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
     });
   } catch (err) {
     console.error(err);
@@ -3048,8 +3077,10 @@ async function executeMarkAsPaid(member, btn) {
   }
   try {
     const plan = PLANS[member.plan] || { price: 0 };
+    const existingDues = member.duesAmount || 0;
     await membersCol.doc(member.id).update({
       paymentStatus: "paid",
+      duesAmount: 0,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
     await paymentsCol.add({
@@ -3057,9 +3088,10 @@ async function executeMarkAsPaid(member, btn) {
       name: member.name,
       phone: member.phone,
       plan: member.plan,
-      amount: plan.price,
+      amount: plan.price + existingDues,
       method: "cash",
       dateKey: toDateKey(new Date()),
+      note: existingDues > 0 ? `Includes ₹${existingDues} previous dues` : "",
       timestamp: firebase.firestore.FieldValue.serverTimestamp(),
     });
   } catch (err) {

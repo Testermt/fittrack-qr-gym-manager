@@ -163,7 +163,7 @@ service cloud.firestore {
         ||
         (hasPerm('payments')
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['paymentStatus', 'updatedAt']))
+               .hasOnly(['paymentStatus', 'duesAmount', 'updatedAt']))
         ||
         // Approving an unpaid day-pass member and collecting payment in the
         // same step (see admin.js executeApproveMember's collectPaymentToo)
