@@ -3027,24 +3027,40 @@ async function handleReauthSubmit(e) {
       if (!assertion) throw new Error("Device verification cancelled");
 
     } else {
-      // SCENARIO B: Desktop / PC without biometric — Fallback to Password Prompt securely
-      const passwordInput = document.getElementById("reauthPasswordInput");
-      // If password field was hidden, make it temporarily visible for desktop fallback
-      const passwordField = document.getElementById("reauthPasswordField");
-      
-      if (passwordField.classList.contains("hidden")) {
-        passwordField.classList.remove("hidden");
-        submitBtn.textContent = "Confirm Password";
-        submitBtn.disabled = false;
-        passwordInput.focus();
-        throw new Error("Biometric not available on this device. Please enter your password below:");
-      }
+      // SCENARIO B: No biometric/passkey available on this device.
+      // A password fallback only makes sense for accounts that actually
+      // *have* a password — Google-only accounts have no password
+      // credential on file, so asking for one here always failed with
+      // auth/operation-not-allowed (or would fail even if that provider
+      // were enabled, since there's genuinely no password to check
+      // against). Route Google accounts through a Google reauth popup
+      // instead, matching what openReauthModal's initial "Confirm with
+      // Google" button text already promised.
+      const isPasswordUser = user.providerData.some((p) => p.providerId === "password");
 
-      const password = passwordInput.value;
-      if (!password) throw { code: "auth/missing-password" };
-      
-      const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
-      await user.reauthenticateWithCredential(credential);
+      if (!isPasswordUser) {
+        submitBtn.textContent = "Confirm with Google…";
+        const googleProvider = new firebase.auth.GoogleAuthProvider();
+        await user.reauthenticateWithPopup(googleProvider);
+      } else {
+        const passwordInput = document.getElementById("reauthPasswordInput");
+        // If password field was hidden, make it temporarily visible for desktop fallback
+        const passwordField = document.getElementById("reauthPasswordField");
+
+        if (passwordField.classList.contains("hidden")) {
+          passwordField.classList.remove("hidden");
+          submitBtn.textContent = "Confirm Password";
+          submitBtn.disabled = false;
+          passwordInput.focus();
+          throw new Error("Biometric not available on this device. Please enter your password below:");
+        }
+
+        const password = passwordInput.value;
+        if (!password) throw { code: "auth/missing-password" };
+
+        const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
+        await user.reauthenticateWithCredential(credential);
+      }
     }
 
     // Security check passed successfully! Start the grace window, then
