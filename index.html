@@ -507,7 +507,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1.5">Full name</label>
-            <input name="name" type="text" required placeholder="e.g. Priya Chaudhary" class="field-input" />
+            <input name="name" type="text" required placeholder="e.g. Priya Chaudhary" pattern="[A-Za-z\s.'-]+" title="Name can only contain letters, spaces, and . ' -" autocomplete="off" class="field-input" />
           </div>
 
           <div>

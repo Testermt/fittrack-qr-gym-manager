@@ -55,6 +55,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   document.getElementById("registerForm").addEventListener("submit", handleRegisterSubmit);
 
+  // Name field: strip digits/symbols live as the member types, instead of
+  // only rejecting on submit. Address is deliberately left unrestricted --
+  // house numbers, flat numbers, and pincodes are valid there.
+  const nameInput = document.querySelector('#registerForm input[name="name"]');
+  if (nameInput) {
+    nameInput.addEventListener("input", () => {
+      const cleaned = nameInput.value.replace(/[^A-Za-z\s.'-]/g, "");
+      if (cleaned !== nameInput.value) nameInput.value = cleaned;
+    });
+  }
+
   // Marketing opt-in is a sub-option of the WhatsApp bot — grey it out
   // (and uncheck it) whenever the bot itself is turned off, so the form
   // never implies "get offers" without "bot enabled". Only wired up when
@@ -321,6 +332,24 @@ async function handleRegisterSubmit(e) {
 
   if (!name || phone.length < 7 || !address || !joinDate || !planId) {
     showBanner("registerBanner", "Please fill every field with a valid phone number.");
+    return;
+  }
+
+  // Belt-and-suspenders: the live input filter + HTML pattern already block
+  // this in normal use, but installed/standalone PWA mode doesn't always
+  // surface the browser's native pattern-mismatch tooltip, so re-check here
+  // with a banner message the member will actually see.
+  if (!/^[A-Za-z\s.'-]+$/.test(name)) {
+    showBanner("registerBanner", "Name can only contain letters (no numbers or symbols).");
+    return;
+  }
+
+  // Address just needs to have at least one letter in it — reject if
+  // someone enters only digits (that's not a real address). Letters-only
+  // or letters+numbers are both fine.
+  const addressHasLetter = /[A-Za-z]/.test(address);
+  if (!addressHasLetter) {
+    showBanner("registerBanner", "Please enter a valid address (not just numbers).");
     return;
   }
 
