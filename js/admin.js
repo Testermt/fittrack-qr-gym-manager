@@ -1299,14 +1299,15 @@ function buildMemberActionsHtml(m, dotSizeClass) {
     <!-- 🔥 Approve Button (Sirf tab dikhega jab user approved na ho) -->
     ${!isApproved ? `<button data-action="approve" data-id="${m.id}" class="text-xs font-semibold rounded-md bg-amber-500/15 text-amber-400 px-3 py-1.5 hover:bg-amber-500/25 transition">Approve</button>` : ""}
 
-    <!-- 🔥 Check-In button sirf approved, non-frozen members ko dikhega -->
-    ${isApproved && !isFrozen ? `
+    <!-- 🔥 Check-In button sirf approved, non-frozen, AUR active (not expired) members ko dikhega -->
+    ${isApproved && !isFrozen && isActive ? `
       <button data-action="check-in" data-id="${m.id}" ${alreadyCheckedIn ? "disabled" : ""}
         class="text-xs font-semibold rounded-md px-3 py-1.5 transition ${
           alreadyCheckedIn ? "bg-slate-800 text-slate-500 cursor-not-allowed" : "bg-accent/15 text-accent hover:bg-accent/25"
         }">${alreadyCheckedIn ? "✓ Checked In" : "Check-In"}</button>
     ` : ""}
     ${isApproved && isFrozen ? `<span class="text-xs font-semibold rounded-md bg-violet-500/15 text-violet-300 px-3 py-1.5">Paused</span>` : ""}
+    ${isApproved && !isFrozen && !isActive ? `<span class="text-xs font-semibold rounded-md bg-rose-500/15 text-rose-400 px-3 py-1.5">Expired</span>` : ""}
 
     <!-- 🔥 3-dot menu: Mark as Paid / Send WhatsApp / Renew / Freeze / Refund / Change Phone / Delete -->
     <div class="relative inline-block">
@@ -2822,16 +2823,9 @@ async function handleAddMemberSubmit(e) {
   submitBtn.textContent = "Registering…";
 
   try {
-    // 1. Pehle check kar ki member pehle se exist karta hai ya nahi
-    const existingDoc = await membersCol.doc(phone).get();
-    if (existingDoc.exists) {
-      showAddMemberError("A member with this phone number already exists.");
-      return;
-    }
-
     const plan = PLANS[planId];
-    
-    // 2. Naya logic: Days aur Months dono ko support karega
+
+    // Naya logic: Days aur Months dono ko support karega
     let expiryDate;
     if (plan.days) {
       // Agar plan days mein hai (jaise 1 day, 7 days)
@@ -2844,32 +2838,47 @@ async function handleAddMemberSubmit(e) {
       expiryDate = addMonthsToDateKey(joinDate, plan.months || 1);
     }
 
-    // 3. Firestore mein member save karna
-    await membersCol.doc(phone).set({
-      name,
-      phone,
-      address,
-      joinDate,
-      plan: planId,
-      planLabel: plan.label,
-      expiryDate,
-      paymentStatus,
-      approved: true,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-
-    if (paymentStatus === "paid") {
-      await paymentsCol.add({
-        memberId: phone,
+    // Same race as the public kiosk's registration had: check-then-write as
+    // two separate calls leaves a window where two staff adding a member
+    // with the same phone number at the same moment could both pass the
+    // "already exists" check before either write lands, and the second
+    // .set() would silently overwrite the first. A transaction makes the
+    // check + write atomic.
+    const ALREADY_EXISTS = "ALREADY_EXISTS";
+    const result = await db.runTransaction(async (transaction) => {
+      const doc = await transaction.get(membersCol.doc(phone));
+      if (doc.exists) return ALREADY_EXISTS;
+      transaction.set(membersCol.doc(phone), {
         name,
         phone,
+        address,
+        joinDate,
         plan: planId,
-        amount: plan.price,
-        method: "cash",
-        dateKey: toDateKey(new Date()),
-        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+        planLabel: plan.label,
+        expiryDate,
+        paymentStatus,
+        approved: true,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
+      if (paymentStatus === "paid") {
+        transaction.set(paymentsCol.doc(), {
+          memberId: phone,
+          name,
+          phone,
+          plan: planId,
+          amount: plan.price,
+          method: "cash",
+          dateKey: toDateKey(new Date()),
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+      return true;
+    });
+
+    if (result === ALREADY_EXISTS) {
+      showAddMemberError("A member with this phone number already exists.");
+      return;
     }
 
     closeAddMemberModal();
@@ -3137,6 +3146,10 @@ async function executeDeleteMember(member, btn) {
 // Manual Check-In with Deterministic ID (`memberId_dateKey`)
 async function manualCheckIn(member, btn) {
   if (todayCheckedInIds.has(member.id)) return;
+  // Belt-and-suspenders: the button is already hidden for expired members
+  // in buildMemberActionsHtml, but guard here too in case this fires from
+  // a stale render (e.g. a click queued just as the row re-rendered).
+  if (daysUntil(member.expiryDate) < 0) return;
 
   const originalLabel = btn.textContent;
   btn.disabled = true;
