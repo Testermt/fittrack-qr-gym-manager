@@ -534,7 +534,13 @@ function maskPhone(phone) {
 
 function renderStatusCard(member, checkinStatus) {
   const days = daysUntil(member.expiryDate);
-  const isActive = days >= 0;
+  // A cancellation/refund cuts expiryDate to *today*, and "today" still
+  // satisfies days >= 0 -- so without this, a cancelled member's own
+  // status page still shows ACTIVE and auto-checks them in below, exactly
+  // contradicting the admin's "ends their membership immediately" refund
+  // promise. Mirrors the same isCancelled override added to admin.js.
+  const isCancelled = !!member.cancelledAt;
+  const isActive = !isCancelled && days >= 0;
   const isFrozen = member.isFrozen === true;
   const planLabelText = getPlanLabel(member);
 
@@ -575,6 +581,9 @@ function renderStatusCard(member, checkinStatus) {
   } else if (isFrozen) {
     badge.textContent = "PAUSED";
     badge.className = "badge badge-paused";
+  } else if (isCancelled) {
+    badge.textContent = "CANCELLED";
+    badge.className = "badge badge-danger";
   } else {
     badge.textContent = isActive ? "ACTIVE" : "EXPIRED";
     badge.className = `badge ${isActive ? "badge-success" : "badge-danger"}`;
@@ -585,6 +594,8 @@ function renderStatusCard(member, checkinStatus) {
     daysLabel.textContent = "Awaiting approval — plan will start once approved";
   } else if (isFrozen) {
     daysLabel.textContent = "Membership paused — days won't count down until resumed";
+  } else if (isCancelled) {
+    daysLabel.textContent = "This membership was cancelled and refunded";
   } else {
     daysLabel.textContent = isActive
       ? `${days} day${days === 1 ? "" : "s"} left`
@@ -618,6 +629,10 @@ function renderStatusCard(member, checkinStatus) {
   } else if (isFrozen) {
     checkinNote.textContent = "Your membership is currently paused. Contact the gym to resume it.";
     checkinNote.className = "text-sm text-violet-600 font-semibold";
+    checkinNote.classList.remove("hidden");
+  } else if (isCancelled) {
+    checkinNote.textContent = "This membership was cancelled. Contact the gym desk if this is unexpected.";
+    checkinNote.className = "text-sm text-rose-500 font-semibold";
     checkinNote.classList.remove("hidden");
   } else if (!isActive) {
     checkinNote.textContent = "";
