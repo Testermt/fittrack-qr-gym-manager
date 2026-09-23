@@ -1289,7 +1289,13 @@ function cssEscape(value) {
 
 function buildMemberActionsHtml(m, dotSizeClass) {
   const days = daysUntil(m.expiryDate);
-  const isActive = days >= 0;
+  // A refund/cancellation cuts expiryDate to *today*, and today still
+  // counts as "days >= 0" in the plain active/expired math -- so without
+  // this override, a member who was just refunded could still check in
+  // for the rest of the day, directly contradicting the "ends their
+  // membership immediately" promise shown in the refund confirmation.
+  const isCancelled = !!m.cancelledAt;
+  const isActive = !isCancelled && days >= 0;
   const isPaid = m.paymentStatus === "paid";
   const isApproved = m.approved === true;
   const isFrozen = m.isFrozen === true;
@@ -1360,7 +1366,8 @@ function renderMemberTable() {
 
   filtered.forEach((m) => {
     const days = daysUntil(m.expiryDate);
-    const isActive = days >= 0;
+    const isCancelled = !!m.cancelledAt;
+    const isActive = !isCancelled && days >= 0;
     const planLabelText = getPlanLabel(m);
     const isPaid = m.paymentStatus === "paid";
     const isApproved = m.approved === true;
@@ -1385,6 +1392,9 @@ function renderMemberTable() {
         ${isApproved ? (isFrozen ? `
           <span class="badge bg-violet-500/15 text-violet-300">PAUSED</span>
           <p class="text-xs text-slate-500 mt-1">${frozenDaysSoFar}d paused so far</p>
+        ` : isCancelled ? `
+          <span class="badge bg-slate-500/15 text-slate-400">CANCELLED</span>
+          <p class="text-xs text-slate-500 mt-1">Refunded ${formatDate(m.cancelledAt)}</p>
         ` : `
           <span class="badge ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>
           <p class="text-xs text-slate-500 mt-1">${isActive ? days + "d left" : Math.abs(days) + "d ago"}</p>
@@ -1422,6 +1432,8 @@ function renderMemberTable() {
         ${isApproved
           ? (isFrozen
               ? `<span class="badge shrink-0 bg-violet-500/15 text-violet-300">PAUSED</span>`
+              : isCancelled
+              ? `<span class="badge shrink-0 bg-slate-500/15 text-slate-400">CANCELLED</span>`
               : `<span class="badge shrink-0 ${isActive ? "badge-success" : "badge-danger"}">${isActive ? "ACTIVE" : "EXPIRED"}</span>`)
           : `<span class="badge shrink-0 badge-warning">Pending Approval</span>`
         }
