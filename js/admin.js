@@ -1131,8 +1131,10 @@ function computeNotifications({ includeDismissed = false } = {}) {
   // members are skipped -- their expiryDate isn't moving while paused, so
   // a long-enough freeze can leave that stored date looking "overdue" even
   // though nothing is actually due (mirrors the Freeze/Pause menu fix).
+  // Cancelled/refunded members are skipped too -- a refund deliberately
+  // cuts expiryDate to today, which isn't an upcoming renewal to nag about.
   allMembers.forEach((m) => {
-    if (!m.expiryDate || m.isFrozen) return;
+    if (!m.expiryDate || m.isFrozen || m.cancelledAt) return;
     const due = daysUntil(m.expiryDate);
     if (due <= 0) {
       const status = due === 0 ? "Due today." : `Overdue by ${Math.abs(due)} day${Math.abs(due) === 1 ? "" : "s"}.`;
@@ -1346,14 +1348,17 @@ function renderMemberTable() {
 
   const filtered = allMembers.filter((m) => {
     if (query && !(m.name.toLowerCase().includes(query) || m.phone.includes(query))) return false;
-    if (currentMemberFilter === "active" && (m.approved !== true || daysUntil(m.expiryDate) < 0)) return false;
+    if (currentMemberFilter === "active" && (m.approved !== true || m.cancelledAt || daysUntil(m.expiryDate) < 0)) return false;
     if (currentMemberFilter === "pending" && (m.approved !== true || m.paymentStatus === "paid")) return false;
     // 🔥 Pending approval filter check
     if (currentMemberFilter === "pending-approval" && m.approved === true) return false;
     // Due Soon: still active, but expiring within the next 3 days (0-3
     // inclusive) — the window the gym owner should be sending renewal
-    // reminders for.
+    // reminders for. Cancelled/refunded members are excluded — their
+    // expiry landing in this window is a side-effect of the refund, not
+    // an actual upcoming renewal to remind them about.
     if (currentMemberFilter === "due-soon") {
+      if (m.cancelledAt) return false;
       const d = daysUntil(m.expiryDate);
       if (!(d >= 0 && d <= 3)) return false;
     }
@@ -3174,10 +3179,10 @@ async function executeDeleteMember(member, btn) {
 // Manual Check-In with Deterministic ID (`memberId_dateKey`)
 async function manualCheckIn(member, btn) {
   if (todayCheckedInIds.has(member.id)) return;
-  // Belt-and-suspenders: the button is already hidden for expired members
-  // in buildMemberActionsHtml, but guard here too in case this fires from
-  // a stale render (e.g. a click queued just as the row re-rendered).
-  if (daysUntil(member.expiryDate) < 0) return;
+  // Belt-and-suspenders: the button is already hidden for expired/cancelled
+  // members in buildMemberActionsHtml, but guard here too in case this fires
+  // from a stale render (e.g. a click queued just as the row re-rendered).
+  if (member.cancelledAt || daysUntil(member.expiryDate) < 0) return;
 
   const originalLabel = btn.textContent;
   btn.disabled = true;
@@ -3372,7 +3377,7 @@ function subscribeMonthlyRevenue() {
 
 function renderStats() {
   // 🔥 Ab active members mein sirf wahi count honge jo approved bhi hain aur expiry bhi bachi hai
-  const active = allMembers.filter((m) => m.approved === true && daysUntil(m.expiryDate) >= 0).length;
+  const active = allMembers.filter((m) => m.approved === true && !m.cancelledAt && daysUntil(m.expiryDate) >= 0).length;
 
   // 🔥 Payment Pending ab sirf approved members mein count hoga (unapproved ka payment status abhi maayne nahi rakhta)
   const pending = allMembers.filter((m) => m.approved === true && m.paymentStatus !== "paid").length;
