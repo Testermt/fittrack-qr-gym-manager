@@ -200,36 +200,87 @@ function timeoutAfter(ms) {
   return new Promise((resolve) => setTimeout(() => resolve(null), ms));
 }
 
-/**
- * Loads settings/gymConfig from Firestore and mutates GYM_SETTINGS/PLANS
- * in place. Never throws and never blocks longer than
- * GYM_CONFIG_FETCH_TIMEOUT_MS — always resolves, so callers can safely
- * `await gymConfigReady` without a try/catch of their own.
- *
- * Load order applied: hardcoded defaults (already in the objects above)
- * -> last cached copy (if any) -> live Firestore value (if it arrives
- * in time). Each step only overwrites fields that are actually present,
- * so a partial/slow read never wipes out good data with blanks.
- */
-async function loadGymConfig() {
-  loadCachedGymConfig(); // best-effort synchronous upgrade over hardcoded defaults
-  await appCheckReady; // don't let this be the request that races the App Check token
-
-  try {
-    const snap = await Promise.race([
-      db.collection("settings").doc("gymConfig").get(),
-      timeoutAfter(GYM_CONFIG_FETCH_TIMEOUT_MS),
-    ]);
-    if (snap && snap.exists) {
-      const data = snap.data();
-      applyGymConfig(data);
-      cacheGymConfig(data);
+// ---- Live update subscriptions -------------------------------------------
+// Anything that renders PLANS/GYM_SETTINGS at a moment OTHER than "once at
+// page load" (a plan picker already on screen, a gym-name label) should
+// register here so it re-renders the instant an admin changes Gym Settings
+// — including on a kiosk tablet that's been sitting open all day and was
+// never going to reload on its own otherwise.
+const gymConfigListeners = [];
+function onGymConfigChange(callback) {
+  gymConfigListeners.push(callback);
+}
+function notifyGymConfigListeners() {
+  gymConfigListeners.forEach((cb) => {
+    try {
+      cb();
+    } catch (err) {
+      console.error("gymConfig change-listener threw:", err);
     }
-  } catch (err) {
-    // Offline, permission hiccup, doc not created yet, etc. — the
-    // already-applied defaults/cache stand, app stays usable.
-    console.warn("Gym config fetch failed, using cached/default values:", err);
-  }
+  });
+}
+
+/**
+ * Keeps GYM_SETTINGS/PLANS in sync with settings/gymConfig for the entire
+ * lifetime of the page — NOT just once at load. A one-time `.get()` here
+ * was the reason a kiosk tablet left open all day (or any already-open
+ * tab) never picked up a plan added/removed from the admin panel until the
+ * app was fully restarted / its cache cleared: the in-memory PLANS object
+ * was populated once at launch and then simply never touched again. An
+ * onSnapshot listener instead keeps firing for as long as the page lives,
+ * so any admin's edit reaches every open member/admin screen within
+ * seconds, automatically.
+ *
+ * Load order / responsiveness is unchanged from before: hardcoded defaults
+ * (already in the objects above) -> last cached copy (sync, instant) ->
+ * first live Firestore value, which resolves `gymConfigReady` as soon as
+ * EITHER that arrives OR GYM_CONFIG_FETCH_TIMEOUT_MS elapses, so a
+ * slow/offline first load still can't hang page render. Every snapshot
+ * after that first one is a genuine live update and notifies listeners
+ * instead of just resolving a promise nobody's awaiting anymore.
+ */
+function loadGymConfig() {
+  loadCachedGymConfig(); // best-effort synchronous upgrade over hardcoded defaults
+  return appCheckReady.then(
+    () =>
+      new Promise((resolveFirstLoad) => {
+        let firstLoadSettled = false;
+        const settleFirstLoad = () => {
+          if (firstLoadSettled) return;
+          firstLoadSettled = true;
+          resolveFirstLoad();
+        };
+        // Don't let a slow/offline first load hang page render forever —
+        // cached/default values already stand in via loadCachedGymConfig().
+        const fallbackTimer = setTimeout(settleFirstLoad, GYM_CONFIG_FETCH_TIMEOUT_MS);
+
+        db.collection("settings")
+          .doc("gymConfig")
+          .onSnapshot(
+            (snap) => {
+              clearTimeout(fallbackTimer);
+              if (snap.exists) {
+                const data = snap.data();
+                applyGymConfig(data);
+                cacheGymConfig(data);
+                // Skip on the very first callback — the page's own
+                // initial render (right after `await gymConfigReady`)
+                // already covers that. Every later callback is a real
+                // change (this admin's edit, or another staff member's).
+                if (firstLoadSettled) notifyGymConfigListeners();
+              }
+              settleFirstLoad();
+            },
+            (err) => {
+              clearTimeout(fallbackTimer);
+              // Offline, permission hiccup, doc not created yet, etc. —
+              // the already-applied defaults/cache stand, app stays usable.
+              console.warn("Gym config listener error, using cached/default values:", err);
+              settleFirstLoad();
+            }
+          );
+      })
+  );
 }
 
 // Kicked off immediately at script load; every page's DOMContentLoaded

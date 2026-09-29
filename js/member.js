@@ -45,6 +45,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   buildPlanPicker("planPicker", "plan");
   initTabs();
 
+  // Kiosk tablets stay open for hours/days without ever reloading — if an
+  // admin adds/removes a plan or renames the gym meanwhile, this is what
+  // makes it show up here within seconds instead of needing the app's
+  // cache cleared (the actual bug this fixes). Only re-renders pickers
+  // that currently exist on screen (register form's is always present;
+  // the status card's renew picker only exists once a member's status has
+  // actually been looked up).
+  onGymConfigChange(() => {
+    document.getElementById("gymNameLabel").textContent = GYM_SETTINGS.name;
+    buildPlanPicker("planPicker", "plan");
+    if (document.getElementById("renewPlanPicker")) {
+      buildPlanPicker("renewPlanPicker", "renewPlan");
+    }
+  });
+
   // WhatsApp bot opt-in is a Prime+ feature — hide the whole block for
   // gyms on Basic instead of showing a checkbox for something that won't
   // actually do anything.
@@ -149,13 +164,19 @@ function cancelStatusAutoReset() {
 /** Renders a row of selectable plan cards into a container, wiring up a hidden input. */
 function buildPlanPicker(containerId, hiddenInputName) {
   const container = document.getElementById(containerId);
+  // Keep whatever was already selected (e.g. the member picked plan #2,
+  // then a live gym-settings update re-ran this) as long as that plan
+  // still exists — only fall back to the first plan otherwise.
+  const previouslySelected = container.querySelector("input:checked")?.value;
+  const keepSelection = previouslySelected && PLANS[previouslySelected];
   container.innerHTML = "";
   Object.entries(PLANS).forEach(([id, plan], idx) => {
+    const isChecked = keepSelection ? id === previouslySelected : idx === 0;
     const card = document.createElement("label");
     card.className =
       "plan-card cursor-pointer rounded-xl border border-slate-700 bg-slate-800/60 p-4 flex flex-col gap-1 transition hover:border-accent";
     card.innerHTML = `
-      <input type="radio" name="${hiddenInputName}" value="${id}" class="sr-only peer" ${idx === 0 ? "checked" : ""} required />
+      <input type="radio" name="${hiddenInputName}" value="${id}" class="sr-only peer" ${isChecked ? "checked" : ""} required />
       <span class="text-sm text-slate-700 font-medium">${plan.label}</span>
       <span class="text-xl font-extrabold text-slate-950">${formatCurrency(plan.price)}</span>
     `;
