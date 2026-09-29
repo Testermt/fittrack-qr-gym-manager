@@ -4,8 +4,8 @@
   "description": "Secure Admin Dashboard for FitTrack Gym",
   "start_url": "/admin.html",
   "display": "standalone",
-  "background_color": "#090D16",
-  "theme_color": "#38BDF8",
+  "background_color": "#F4F1EC",
+  "theme_color": "#FF6A1A",
   "icons": [
     {
       "src": "icon-192.png",

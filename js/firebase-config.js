@@ -491,7 +491,43 @@ function applyTierConfig(data) {
   if (typeof data.trialUsed === "boolean") TIER_STATE.trialUsed = data.trialUsed;
 }
 
-async function loadTierConfig() {
+// Same live-update need as onGymConfigChange above: a dashboard left open
+// past a trial's expiresAt should lock within seconds, not only on the
+// next reload — and a successful upgrade (from this device or another
+// staff login) should unlock just as fast. admin.js's enforcePlanLock()
+// and member.js's WhatsApp-opt-in visibility both subscribe to this.
+const tierConfigListeners = [];
+function onTierConfigChange(callback) {
+  tierConfigListeners.push(callback);
+}
+function notifyTierConfigListeners() {
+  tierConfigListeners.forEach((cb) => {
+    try {
+      cb();
+    } catch (err) {
+      console.error("tierConfig change-listener threw:", err);
+    }
+  });
+}
+
+let _tierConfigSubscribed = false;
+
+/**
+ * Same reasoning as loadGymConfig() above: a one-time `.get()` here meant
+ * a dashboard tab left open past its trial/subscription expiresAt just...
+ * kept working, since nothing ever re-checked isAccessLocked() against a
+ * fresher value. An onSnapshot listener means the lock (or an unlock, from
+ * a payment made on another device) takes effect within seconds on every
+ * open session, not only on the next reload.
+ *
+ * Idempotent by design: admin.js previously polled this function every 60s
+ * as its own workaround for the same staleness problem this now solves
+ * properly — safe to still call it any number of times (e.g. across a
+ * logout/login cycle in the same tab), but only the first call actually
+ * subscribes. Every call still returns a promise that resolves once the
+ * current value is known.
+ */
+function loadTierConfig() {
   try {
     const raw = localStorage.getItem(TIER_CONFIG_CACHE_KEY);
     if (raw) applyTierConfig(JSON.parse(raw));
@@ -499,23 +535,45 @@ async function loadTierConfig() {
     console.warn("Could not read cached tier config:", err);
   }
 
+  if (_tierConfigSubscribed) return Promise.resolve();
+  _tierConfigSubscribed = true;
+
   // NOTE: locking decisions (isAccessLocked) must be based on this LIVE
   // read whenever we can reach it — the cached copy above is only the
   // UI's instant-paint value while this fetch is in flight, so clearing
   // local storage / logging in fresh can never be used to dodge a lock.
-  try {
-    const snap = await Promise.race([
-      controlDb.collection("subscriptions").doc(GYM_ID).get(),
-      timeoutAfter(GYM_CONFIG_FETCH_TIMEOUT_MS),
-    ]);
-    if (snap && snap.exists) {
-      const data = snap.data();
-      applyTierConfig(data);
-      try { localStorage.setItem(TIER_CONFIG_CACHE_KEY, JSON.stringify(data)); } catch (e) {}
-    }
-  } catch (err) {
-    console.warn("Tier config fetch failed, using cached/default value:", err);
-  }
+  return new Promise((resolveFirstLoad) => {
+    let firstLoadSettled = false;
+    const settleFirstLoad = () => {
+      if (firstLoadSettled) return;
+      firstLoadSettled = true;
+      resolveFirstLoad();
+    };
+    const fallbackTimer = setTimeout(settleFirstLoad, GYM_CONFIG_FETCH_TIMEOUT_MS);
+
+    controlDb
+      .collection("subscriptions")
+      .doc(GYM_ID)
+      .onSnapshot(
+        (snap) => {
+          clearTimeout(fallbackTimer);
+          if (snap.exists) {
+            const data = snap.data();
+            applyTierConfig(data);
+            try {
+              localStorage.setItem(TIER_CONFIG_CACHE_KEY, JSON.stringify(data));
+            } catch (e) {}
+            if (firstLoadSettled) notifyTierConfigListeners();
+          }
+          settleFirstLoad();
+        },
+        (err) => {
+          clearTimeout(fallbackTimer);
+          console.warn("Tier config listener error, using cached/default value:", err);
+          settleFirstLoad();
+        }
+      );
+  });
 }
 
 // Every page's DOMContentLoaded handler should `await tierConfigReady`
@@ -793,24 +851,61 @@ function showAlert(message, opts = {}) {
 // that document to signed-in admins only; the public portal is only ever
 // granted read access, so a member can look up where to pay but can never
 // change it.
-let _paymentSettingsCache = null;
+let _paymentSettings = { upiId: "", payeeName: GYM_SETTINGS.name };
+let _paymentSettingsReady = null;
 
-/** Fetches (and caches) { upiId, payeeName } from settings/config. */
+/**
+ * getPaymentSettings() used to fetch settings/config ONCE and cache the
+ * result in memory forever (`if (_paymentSettingsCache) return
+ * _paymentSettingsCache;`). On a kiosk left open all day, that meant: if
+ * the gym ever changed their UPI ID (new bank account, old one closed,
+ * etc.) from the admin panel, every payment QR/deep-link generated on that
+ * already-open kiosk kept pointing at the OLD UPI ID until the app was
+ * restarted — silently misdirecting real money with no error or warning
+ * to catch it. This subscribes live instead, same pattern as gym config
+ * and tier config above, so a UPI ID change takes effect within seconds
+ * on every open session.
+ */
+function _subscribePaymentSettings() {
+  if (_paymentSettingsReady) return _paymentSettingsReady;
+  _paymentSettingsReady = appCheckReady.then(
+    () =>
+      new Promise((resolveFirstLoad) => {
+        let firstLoadSettled = false;
+        const settleFirstLoad = () => {
+          if (firstLoadSettled) return;
+          firstLoadSettled = true;
+          resolveFirstLoad();
+        };
+        const fallbackTimer = setTimeout(settleFirstLoad, GYM_CONFIG_FETCH_TIMEOUT_MS);
+
+        db.collection("settings")
+          .doc("config")
+          .onSnapshot(
+            (snap) => {
+              clearTimeout(fallbackTimer);
+              const data = snap.exists ? snap.data() : {};
+              _paymentSettings = {
+                upiId: (data.upiId || "").trim(),
+                payeeName: (data.payeeName || GYM_SETTINGS.name).trim(),
+              };
+              settleFirstLoad();
+            },
+            (err) => {
+              clearTimeout(fallbackTimer);
+              console.error("Payment settings listener error:", err);
+              settleFirstLoad();
+            }
+          );
+      })
+  );
+  return _paymentSettingsReady;
+}
+
+/** Returns the live { upiId, payeeName } from settings/config. */
 async function getPaymentSettings() {
-  if (_paymentSettingsCache) return _paymentSettingsCache;
-  await appCheckReady;
-  try {
-    const snap = await db.collection("settings").doc("config").get();
-    const data = snap.exists ? snap.data() : {};
-    _paymentSettingsCache = {
-      upiId: (data.upiId || "").trim(),
-      payeeName: (data.payeeName || GYM_SETTINGS.name).trim(),
-    };
-  } catch (err) {
-    console.error("Failed to load payment settings:", err);
-    _paymentSettingsCache = { upiId: "", payeeName: GYM_SETTINGS.name };
-  }
-  return _paymentSettingsCache;
+  await _subscribePaymentSettings();
+  return _paymentSettings;
 }
 
 /**

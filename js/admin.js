@@ -602,13 +602,12 @@ function showLogin() {
   if (unsubAdminStatus) { unsubAdminStatus(); unsubAdminStatus = null; }
   if (unsubAllPayments) unsubAllPayments();   // <-- yeh line missing thi, add karo
   if (unsubStaff) unsubStaff();
-  if (planLockCheckInterval) { clearInterval(planLockCheckInterval); planLockCheckInterval = null; }
   planModalLocked = false;
   closeReauthModal();
 }
 
 
-let planLockCheckInterval = null;
+let tierLockWatcherRegistered = false;
 
 /**
  * Owner always gets everything. Staff gets check-in/approve (always) plus
@@ -685,16 +684,16 @@ function showDashboard(user) {
   // whole dashboard behind a non-dismissible plan picker if expired.
   enforcePlanLock();
 
-  // Also re-check every minute while the session stays open — and this
-  // is a LIVE re-fetch from the control project (not just re-reading
-  // cached TIER_STATE), so if someone pokes TIER_STATE.expiresAt via the
-  // browser console to fake an unlock, it gets overwritten with the real
-  // server value on the very next tick instead of staying bypassed for
-  // the rest of the session.
-  if (planLockCheckInterval) clearInterval(planLockCheckInterval);
-  planLockCheckInterval = setInterval(() => {
-    loadTierConfig().then(enforcePlanLock);
-  }, 60 * 1000);
+  // Also react instantly to any LATER change to that same live doc —
+  // trial expiring while this dashboard is left open, or a payment/
+  // upgrade confirmed on another device — without waiting for a reload.
+  // Registered once per page load (loadTierConfig's own listener is a
+  // singleton for the page's lifetime, same as this registration only
+  // needs to happen once even across a logout/login cycle in one tab).
+  if (!tierLockWatcherRegistered) {
+    tierLockWatcherRegistered = true;
+    onTierConfigChange(enforcePlanLock);
+  }
 }
 
 // Shows the signed-in Google account's photo (or an initial-letter
