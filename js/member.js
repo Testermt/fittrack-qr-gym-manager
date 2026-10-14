@@ -33,15 +33,15 @@ const isKioskDevice = new URLSearchParams(location.search).get("kiosk") === "1";
 const STATUS_CHECK_TIMEOUT_MS = 6000;
 
 // ==================== KIOSK KEY GATE ====================
-// Is page par check-in / registration / member lookup sirf tab chalta hai
-// jab gym owner ki "Kiosk Key" (Admin panel -> Kiosk Setup) is device par
-// ek baar daali gayi ho. Key localStorage me save rehti hai; Firestore rules
-// bhi (isKiosk() -> kioskSessions + gymKeys) yahi check karte hain -- ye
-// lock screen sirf UI hai, asli security rules me hai.
-// Flow: key daalo -> anonymous sign-in -> kioskSessions/{uid} me key likho
-// (rules tabhi allow karte hain jab gymKeys/{key} exist kare) -> probe read.
+// Check-in / registration / member lookup on this page only work after the
+// gym owner's "Kiosk Key" (Admin panel -> Kiosk Setup) has been entered once
+// on this device. The key is kept in localStorage; Firestore rules also
+// enforce it (isKiosk() -> kioskSessions + gymKeys) -- this lock screen is
+// only UI, the real security lives in the rules.
+// Flow: enter key -> anonymous sign-in -> write the key to kioskSessions/{uid}
+// (rules allow it only if gymKeys/{key} exists) -> probe read.
 const KIOSK_KEY_STORAGE = "ftKioskKey";
-const KIOSK_PROBE_PHONE = "0000000000"; // sirf access check ke liye, doc exist karna zaroori nahi
+const KIOSK_PROBE_PHONE = "0000000000"; // only used to test access; the doc does not need to exist
 let kioskGateResolved = false;
 let kioskGateResolve;
 const kioskAuthReady = new Promise((resolve) => { kioskGateResolve = resolve; });
@@ -61,15 +61,15 @@ function finishKioskGate() {
   if (kioskGateResolved) return;
   kioskGateResolved = true;
   kioskGateResolve();
-  // Session kabhi chala gaya (sign-out) to wapas lock screen par.
+  // If the session is ever lost (sign-out), go back to the lock screen.
   auth.onAuthStateChanged((u) => { if (!u) location.reload(); });
-  // Owner ne key revoke ki ho to jaldi pata chale (har 10 min + app wapas khulne par).
+  // Detect a revoked key quickly (every 10 min and when the app comes back to the foreground).
   const recheck = async () => { if (!(await verifyKioskStillValid())) handleKioskRevoked(); };
   setInterval(recheck, 10 * 60 * 1000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) recheck(); });
 }
 
-/** Key ko is device par activate karta hai. Fail hone par error throw karta hai. */
+/** Activates the key on this device. Throws on failure. */
 async function activateKioskKey(key) {
   const work = (async () => {
     let user = auth.currentUser;
@@ -78,14 +78,14 @@ async function activateKioskKey(key) {
       key,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    // Confirm: kya rules ab is device ko kiosk maante hain?
+    // Confirm that the rules now treat this device as a kiosk.
     await db.collection("members").doc(KIOSK_PROBE_PHONE).get({ source: "server" });
   })();
   await Promise.race([work, kioskTimeout(12000)]);
   storeKioskKey(key);
 }
 
-/** true = abhi bhi valid (ya internet nahi -> pata nahi, valid maano). false = revoke ho chuki. */
+/** true = still valid (or offline -> unknown, assume valid). false = key was revoked. */
 async function verifyKioskStillValid() {
   try {
     await db.collection("members").doc(KIOSK_PROBE_PHONE).get({ source: "server" });
@@ -102,8 +102,8 @@ async function handleKioskRevoked() {
   location.reload();
 }
 
-/** Catch blocks me use hota hai: agar permission-denied ka asli kaaran revoked key hai to
- *  lock screen par bhej deta hai aur true return karta hai. */
+/** Used in catch blocks: if a permission-denied error is really caused by a revoked key,
+ *  sends the device back to the lock screen and returns true. */
 async function kioskRevokedCheck(err) {
   if (!err || err.code !== "permission-denied") return false;
   if (await verifyKioskStillValid()) return false;
@@ -113,11 +113,11 @@ async function kioskRevokedCheck(err) {
 
 function kioskErrorMessage(ex) {
   const code = ex && ex.code;
-  if (code === "permission-denied") return "Key galat hai ya owner ne revoke kar di hai.";
-  if (code === "auth/operation-not-allowed") return "Firebase Console me Authentication -> Anonymous sign-in enable karo.";
+  if (code === "permission-denied") return "This key is incorrect or has been revoked by the owner.";
+  if (code === "auth/operation-not-allowed") return "Enable Anonymous sign-in in Firebase Console -> Authentication.";
   if (code === "auth/network-request-failed" || code === "unavailable" || code === "kiosk/timeout")
-    return "Internet nahi hai ya slow hai. Dobara try karo.";
-  return "Activate nahi ho paya. Dobara try karo.";
+    return "No internet or a slow connection. Please try again.";
+  return "Could not activate. Please try again.";
 }
 
 function showKioskOverlay(statusText, errorText) {
@@ -133,7 +133,7 @@ function showKioskOverlay(statusText, errorText) {
     card.innerHTML =
       '<div style="font-size:40px">🔒</div>' +
       '<h2 style="margin:8px 0 4px;font-size:20px;font-weight:700;color:#0F172A">Kiosk Setup</h2>' +
-      '<p style="margin:0 0 16px;font-size:14px;color:#64748B">Gym owner ki Kiosk Key daalo (Admin panel &rarr; Kiosk Setup). Ye sirf ek baar karna hai.</p>' +
+      '<p style="margin:0 0 16px;font-size:14px;color:#64748B">Enter the gym owner&rsquo;s Kiosk Key (Admin panel &rarr; Kiosk Setup). You only need to do this once.</p>' +
       '<form id="kioskKeyForm" autocomplete="off">' +
       '<input id="kioskKeyInput" type="text" placeholder="Kiosk Key" required autocapitalize="off" autocorrect="off" spellcheck="false" style="width:100%;box-sizing:border-box;padding:12px;margin-bottom:10px;border:1px solid #CBD5E1;border-radius:12px;font-size:16px;font-family:monospace">' +
       '<p id="kioskStatus" style="min-height:18px;margin:0 0 4px;font-size:13px;color:#64748B"></p>' +
@@ -161,7 +161,7 @@ async function handleKioskKeySubmit(e) {
   const key = normalizeKioskKey(document.getElementById("kioskKeyInput").value);
   err.textContent = "";
   if (!isValidKioskKeyShape(key)) {
-    err.textContent = "Key poori daalo (24+ letters/numbers).";
+    err.textContent = "Enter the full key (24+ letters/numbers).";
     return;
   }
   btn.disabled = true;
@@ -177,8 +177,8 @@ async function handleKioskKeySubmit(e) {
   }
 }
 
-/** Admin panel ka "Setup Link" (...?kiosk=1#setup=KEY) kholne par key apne aap uthata hai
- *  aur address bar se turant hata deta hai. */
+/** Opening the admin panel's "Setup Link" (...?kiosk=1#setup=KEY) picks the key up
+ *  automatically and removes it from the address bar right away. */
 function consumeSetupKeyFromUrl() {
   try {
     const raw = new URLSearchParams(location.hash.replace(/^#/, "")).get("setup");
@@ -198,10 +198,10 @@ function consumeSetupKeyFromUrl() {
   const storedKey = getStoredKioskKey();
   const key = linkKey || storedKey;
 
-  if (key && initialUser && !linkKey) { finishKioskGate(); return; } // normal restart (offline bhi chalega)
+  if (key && initialUser && !linkKey) { finishKioskGate(); return; } // normal restart (works offline too)
 
-  if (key) { // link se nayi key, ya login session gaya par key saved hai
-    showKioskOverlay("Activate ho raha hai...");
+  if (key) { // new key from a link, or the session is gone but a key is saved
+    showKioskOverlay("Activating...");
     try {
       await activateKioskKey(key);
       finishKioskGate();
@@ -216,7 +216,7 @@ function consumeSetupKeyFromUrl() {
 
 // ---------------------------------------------------------------- setup --
 document.addEventListener("DOMContentLoaded", async () => {
-  // Kiosk login ke bina page aage nahi badhega (lock screen dikhega).
+  // The page does not continue without a valid Kiosk Key (lock screen is shown).
   await kioskAuthReady;
   // Wait for settings/gymConfig (name, currency, plans) before rendering
   // anything that reads GYM_SETTINGS/PLANS. This resolves quickly from

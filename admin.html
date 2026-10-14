@@ -84,8 +84,8 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 1.2rem; flex-shrink: 0;
   }
-  /* Member Directory: sirf list scroll hoti hai (title/search/filters upar fixed rehte hain),
-     poora page nahi. Card ki max height screen ke hisaab se hai. */
+  /* Member Directory: only the list scrolls (title/search/filters stay fixed at the top),
+     not the whole page. The card's max height follows the screen height. */
   .member-dir-card { display: flex; flex-direction: column; max-height: calc(100vh - 6.5rem); max-height: calc(100dvh - 6.5rem); }
   .member-scroll-area { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
   @media (min-width: 768px) { .member-dir-card { max-height: calc(100vh - 8rem); max-height: calc(100dvh - 8rem); } }
@@ -580,8 +580,8 @@
   </div>
 </template>
 
-<!-- Kiosk Setup modal: owner-only. Owner yahan se apne gym ki Kiosk Key banata hai
-     (gymKeys/{key} in Firestore), jo desk phone par ek baar daalni hoti hai. -->
+<!-- Kiosk Setup modal: owner, or staff granted the `kioskSetup` permission. Creates the gym's Kiosk Key
+     (gymKeys/{key} in Firestore), which is entered once on the desk phone. -->
 <div id="kioskSetupModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
   <div id="kioskSetupBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
   <div class="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">
@@ -589,24 +589,24 @@
       <h3 class="font-semibold text-slate-50">Kiosk Setup</h3>
       <button type="button" id="kioskSetupCloseBtn" class="text-slate-500 hover:text-slate-300 transition text-xl leading-none">&times;</button>
     </div>
-    <p class="text-xs text-slate-500 mb-3">Gym ke desk phone par member page tabhi chalega jab ye key wahan daali ho. Key sirf aap (owner) dekh sakte ho.</p>
+    <p class="text-xs text-slate-500 mb-3">The member page on the gym's desk phone only works after this key has been entered there. Only the owner (and staff you grant access) can see it.</p>
 
     <div id="kioskKeyBox" class="hidden mb-4">
-      <p class="text-xs font-medium text-slate-400 mb-1">Aapki Kiosk Key</p>
+      <p class="text-xs font-medium text-slate-400 mb-1">Your Kiosk Key</p>
       <p id="kioskKeyText" class="font-mono text-sm text-accent bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 break-all select-all"></p>
       <p id="kioskKeyMeta" class="text-[11px] text-slate-500 mt-1"></p>
       <div class="flex gap-2 mt-3">
         <button type="button" id="kioskCopyKeyBtn" class="flex-1 rounded-lg border border-slate-700 text-slate-200 text-xs font-semibold py-2 hover:bg-slate-800 transition">Copy Key</button>
         <button type="button" id="kioskCopyLinkBtn" class="flex-1 rounded-lg border border-slate-700 text-slate-200 text-xs font-semibold py-2 hover:bg-slate-800 transition">Copy Setup Link</button>
       </div>
-      <p class="text-[11px] text-slate-500 mt-2">Desk phone par: kiosk app me page kholo, key paste karo &rarr; Activate. Ya "Setup Link" us phone ke browser/kiosk me kholo, key apne aap lag jayegi.</p>
+      <p class="text-[11px] text-slate-500 mt-2">On the desk phone: open the page in the kiosk app, paste the key &rarr; Activate. Or open the "Setup Link" on that phone and the key is applied automatically.</p>
     </div>
-    <p id="kioskNoKey" class="hidden text-xs text-slate-500 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-3 mb-4">Abhi koi Kiosk Key nahi hai. Neeche se banao.</p>
+    <p id="kioskNoKey" class="hidden text-xs text-slate-500 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-3 mb-4">There is no Kiosk Key yet. Generate one below.</p>
 
     <p id="kioskSetupError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 mb-3"></p>
     <button type="button" id="kioskGenerateBtn" class="w-full rounded-lg bg-accent text-slate-950 text-sm font-semibold py-2 hover:opacity-90 transition">Generate Kiosk Key</button>
-    <button type="button" id="kioskRevokeBtn" class="hidden w-full mt-2 rounded-lg border border-rose-500/40 text-rose-400 text-sm font-semibold py-2 hover:bg-rose-500/10 transition">Revoke Key (desk phone band karo)</button>
-    <p class="text-[11px] text-slate-500 mt-3">Dobara generate karne par purani key turant band ho jaati hai, aur desk phone par nayi key daalni padegi.</p>
+    <button type="button" id="kioskRevokeBtn" class="hidden w-full mt-2 rounded-lg border border-rose-500/40 text-rose-400 text-sm font-semibold py-2 hover:bg-rose-500/10 transition">Revoke Key (lock the desk phone)</button>
+    <p class="text-[11px] text-slate-500 mt-3">Generating a new key immediately disables the old one, and the new key must be entered on the desk phone.</p>
   </div>
 </div>
 

@@ -33,6 +33,7 @@ let currentAdminPermissions = {
   deleteMembers: false,
   manageSettings: false,
   whatsappBroadcast: false,
+  kioskSetup: false,
 };
 
 // The full set of togglable staff permissions, with the label + helper
@@ -47,6 +48,7 @@ const PERMISSION_DEFS = [
   { key: "deleteMembers", label: "Delete a member", hint: "Permanently remove a member and their check-in history." },
   { key: "manageSettings", label: "Gym settings & pricing", hint: "Change gym name, currency, and membership plan pricing." },
   { key: "whatsappBroadcast", label: "Send WhatsApp messages", hint: "Send a WhatsApp reminder to an individual member from the dashboard." },
+  { key: "kioskSetup", label: "Kiosk setup", hint: "See, generate or revoke the gym desk-phone Kiosk Key. Revoking locks the desk phone until a new key is entered." },
 ];
 
 function defaultStaffPermissions() {
@@ -279,13 +281,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     btn.closest(".settings-plan-row").remove();
   });
 
-  // Kiosk Setup modal (owner-only) — gym ki Kiosk Key generate/copy/revoke.
+  // Kiosk Setup modal (owner, ya staff jise `kioskSetup` permission mili) — Kiosk Key generate/copy/revoke.
   document.getElementById("kioskSetupBtn").addEventListener("click", openKioskSetupModal);
   document.getElementById("kioskSetupBtn").addEventListener("click", () => toggleProfileMenu(true));
   document.getElementById("kioskSetupCloseBtn").addEventListener("click", closeKioskSetupModal);
   document.getElementById("kioskSetupBackdrop").addEventListener("click", closeKioskSetupModal);
   document.getElementById("kioskGenerateBtn").addEventListener("click", (e) => {
-    closeKioskSetupModal(); // reauth modal ke saath z-50 par overlap na ho
+    closeKioskSetupModal(); // avoid overlapping the reauth modal (both are z-50)
     requestReauth("generate-kiosk-key", null, e.currentTarget, { hadKey: !!currentKioskKey });
   });
   document.getElementById("kioskRevokeBtn").addEventListener("click", (e) => {
@@ -656,14 +658,12 @@ function applyRolePermissions() {
   // stays owner-only — it isn't one of the delegable permissions.
   const staffAccessBtn = document.getElementById("staffAccessBtn");
   if (staffAccessBtn) staffAccessBtn.classList.toggle("hidden", !isOwner);
-  // Kiosk Setup bhi owner-only hai (key sirf owner dekh/bana sakta hai).
-  const kioskSetupBtn = document.getElementById("kioskSetupBtn");
-  if (kioskSetupBtn) kioskSetupBtn.classList.toggle("hidden", !isOwner);
 
   const permGatedIds = {
     gymSettingsBtn: "manageSettings",   // gym's own membership plan pricing / config
     openAddMemberBtn: "addMembers",     // manual registration
     revenueStatCard: "payments",        // Revenue (This Month) stat
+    kioskSetupBtn: "kioskSetup",        // desk-phone Kiosk Key (owner always; staff only if granted)
   };
   Object.entries(permGatedIds).forEach(([id, permKey]) => {
     const el = document.getElementById(id);
@@ -2747,9 +2747,9 @@ async function executeRemoveStaff(email, btn) {
 }
 
 // ------------------------------------------------------------ kiosk key --
-// Owner-only. gymKeys/{key} me ek random key rakhi jaati hai (doc ID = key);
-// desk phone par wahi key daalne se member page "kiosk" ban jata hai. Rules
-// (isKiosk) key doc ke maujood rehne par hi kiosk ko access dete hain.
+// Owner, or staff granted the `kioskSetup` permission. A random key is stored in gymKeys/{key} (doc ID = key);
+// entering that key on the desk phone turns the member page into a "kiosk". Rules
+// (isKiosk) only give the kiosk access while that key doc still exists.
 let currentKioskKey = "";
 
 function generateKioskKeyString() {
@@ -2816,15 +2816,15 @@ async function loadKioskKeyIntoModal() {
       document.getElementById("kioskKeyText").textContent = formatKioskKey(doc.id);
       const ts = doc.data().createdAt;
       document.getElementById("kioskKeyMeta").textContent =
-        ts && ts.toDate ? "Banayi gayi: " + ts.toDate().toLocaleString() : "";
+        ts && ts.toDate ? "Created: " + ts.toDate().toLocaleString() : "";
       box.classList.remove("hidden");
       revokeBtn.classList.remove("hidden");
       noKey.classList.add("hidden");
-      genBtn.textContent = "Regenerate Key (purani band)";
+      genBtn.textContent = "Regenerate Key (disables old key)";
     }
   } catch (err) {
     console.error(err);
-    errorEl.textContent = "Key load nahi ho payi. Dobara try karo.";
+    errorEl.textContent = "Could not load the key. Please try again.";
     errorEl.classList.remove("hidden");
   }
 }
@@ -2845,7 +2845,7 @@ async function executeGenerateKioskKey(btn) {
     const user = auth.currentUser;
     const batch = db.batch();
     const old = await db.collection("gymKeys").get();
-    old.forEach((d) => batch.delete(d.ref)); // ek time par ek hi active key
+    old.forEach((d) => batch.delete(d.ref)); // only one active key at a time
     const newKey = generateKioskKeyString();
     batch.set(db.collection("gymKeys").doc(newKey), {
       createdBy: user && user.email ? user.email : "owner",
@@ -2856,7 +2856,7 @@ async function executeGenerateKioskKey(btn) {
     openKioskSetupModal();
   } catch (err) {
     console.error(err);
-    showAlert("Kiosk Key nahi ban payi. Dobara try karo.");
+    showAlert("Could not generate the Kiosk Key. Please try again.");
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
   }
@@ -2874,7 +2874,7 @@ async function executeRevokeKioskKey(btn) {
     openKioskSetupModal();
   } catch (err) {
     console.error(err);
-    showAlert("Key revoke nahi ho payi. Dobara try karo.");
+    showAlert("Could not revoke the key. Please try again.");
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
   }
@@ -3152,11 +3152,11 @@ function requestReauth(type, member, btn, extra) {
     titleEl.textContent = "Update staff permissions?";
     msgEl.textContent = `This changes what ${extra.email} can control on this dashboard, effective immediately. Confirm your identity to continue.`;
   } else if (type === "generate-kiosk-key") {
-    titleEl.textContent = extra && extra.hadKey ? "Naya Kiosk Key banayein?" : "Kiosk Key banayein?";
-    msgEl.textContent = extra && extra.hadKey ? "Purani key turant band ho jayegi aur desk phone par nayi key daalni padegi. Confirm your identity to continue." : "Is gym ke desk phone ke liye ek nayi key banegi. Confirm your identity to continue.";
+    titleEl.textContent = extra && extra.hadKey ? "Generate a new Kiosk Key?" : "Generate Kiosk Key?";
+    msgEl.textContent = extra && extra.hadKey ? "The old key stops working immediately and the new key must be entered on the desk phone. Confirm your identity to continue." : "This creates a new key for this gym's desk phone. Confirm your identity to continue.";
   } else if (type === "revoke-kiosk-key") {
-    titleEl.textContent = "Kiosk Key revoke karein?";
-    msgEl.textContent = "Desk phone par member lookup, check-in aur registration turant band ho jayenge jab tak nayi key na daalo. Confirm your identity to continue.";
+    titleEl.textContent = "Revoke Kiosk Key?";
+    msgEl.textContent = "Member lookup, check-in and registration on the desk phone stop immediately until a new key is entered. Confirm your identity to continue.";
   } else {
     titleEl.textContent = "Confirm payment update";
     msgEl.textContent = `This marks ${member.name}'s payment as PAID. Confirm your identity to continue.`;
