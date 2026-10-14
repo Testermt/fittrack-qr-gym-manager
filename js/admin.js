@@ -328,6 +328,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     toggleProfileMenu(true);
     openPlanFeaturesModal(false);
   });
+  document.getElementById("fullBackupBtn").addEventListener("click", (e) => {
+    toggleProfileMenu(true);
+    exportFullBackup(e.currentTarget);
+  });
+  document.getElementById("backupReminderFullBtn").addEventListener("click", (e) => exportFullBackup(e.currentTarget));
+  document.getElementById("backupReminderCsvBtn").addEventListener("click", exportMembersToCsv);
+  document.getElementById("backupReminderLaterBtn").addEventListener("click", snoozeBackupReminder);
   document.getElementById("exportCsvBtn").addEventListener("click", () => {
     toggleProfileMenu(true);
     exportMembersToCsv();
@@ -658,6 +665,8 @@ function applyRolePermissions() {
   // stays owner-only — it isn't one of the delegable permissions.
   const staffAccessBtn = document.getElementById("staffAccessBtn");
   if (staffAccessBtn) staffAccessBtn.classList.toggle("hidden", !isOwner);
+  const fullBackupMenuBtn = document.getElementById("fullBackupBtn");
+  if (fullBackupMenuBtn) fullBackupMenuBtn.classList.toggle("hidden", !isOwner);
 
   const permGatedIds = {
     gymSettingsBtn: "manageSettings",   // gym's own membership plan pricing / config
@@ -999,6 +1008,7 @@ function subscribeMembers() {
       renderMemberTable();
       renderStats();
       renderNotifications();
+      updateBackupReminder();
     },
     (err) => console.error("members listener error:", err)
   );
@@ -3395,11 +3405,41 @@ async function manualCheckIn(member, btn) {
 
 
 /**
+ * Downloads a Blob as a file via a temporary <a> tag (browser-side, no backend).
+ */
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/** One CSV cell, always quoted. Text that starts with = + - @ (or tab/CR) is
+ *  prefixed with ' so Excel/Sheets can never run it as a formula -- member
+ *  names/addresses come from the public registration form, so they are not
+ *  trusted. Numbers are written as-is (a negative "Days Remaining" stays -5). */
+function csvCell(value) {
+  let v = String(value ?? "");
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(v)) v = "'" + v;
+  return `"${v.replace(/"/g, '""')}"`;
+}
+
+/** Firestore Timestamp -> ISO string; anything else is returned as-is. */
+function tsToIso(v) {
+  return v && typeof v.toDate === "function" ? v.toDate().toISOString() : (v ?? "");
+}
+
+/**
  * Exports the currently loaded member list (allMembers -- already in
- * memory, so this is a zero-extra-read operation) as a CSV file the
- * browser downloads directly. No backend/Cloud Function involved -- just
- * builds the CSV string client-side and triggers a download via a
- * temporary <a> tag, same trick used everywhere for browser-side exports.
+ * memory, so this is a zero-extra-read operation) as a CSV file. The first
+ * columns are the human-readable ones the owner sees on screen; the last
+ * columns hold the raw stored values (plan ID, ISO dates, freeze/cancel
+ * info, opt-ins) so the file loses nothing about a member. Members only --
+ * for check-ins, payments and refunds use "Full Backup".
  */
 function exportMembersToCsv() {
   if (!allMembers.length) {
@@ -3407,11 +3447,13 @@ function exportMembersToCsv() {
     return;
   }
 
-  const headers = ["Name", "Phone", "Address", "Plan", "Join Date", "Expiry Date", "Days Remaining", "Payment Status", "Dues Owed", "Approved", "Monthly Check-ins"];
-
-  // Wrap each field in quotes and escape any embedded quotes, so commas or
-  // quote characters inside a member's name/address don't break columns.
-  const escapeCsvField = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const headers = [
+    "Name", "Phone", "Address", "Plan", "Join Date", "Expiry Date", "Days Remaining",
+    "Payment Status", "Dues Owed", "Approved", "Monthly Check-ins",
+    // raw stored values
+    "Plan ID", "Join Date (raw)", "Expiry Date (raw)", "Frozen", "Freeze Start", "Total Frozen Days",
+    "Cancelled At", "WhatsApp Bot Opt-in", "WhatsApp Marketing Opt-in", "Created At",
+  ];
 
   const rows = allMembers.map((m) => [
     m.name,
@@ -3425,22 +3467,131 @@ function exportMembersToCsv() {
     m.duesAmount || 0,
     m.approved === true ? "Yes" : "No",
     m.monthlyCheckinCount || 0,
-  ].map(escapeCsvField).join(","));
+    m.plan,
+    m.joinDate,
+    m.expiryDate,
+    m.isFrozen === true ? "Yes" : "No",
+    tsToIso(m.freezeStartDate),
+    m.totalFrozenDays || 0,
+    tsToIso(m.cancelledAt),
+    m.whatsappBotOptIn === true ? "Yes" : "No",
+    m.whatsappMarketingOptIn === true ? "Yes" : "No",
+    tsToIso(m.createdAt),
+  ].map(csvCell).join(","));
 
-  const csvContent = [headers.map(escapeCsvField).join(","), ...rows].join("\r\n");
+  const csvContent = [headers.map(csvCell).join(","), ...rows].join("\r\n");
 
   // BOM prefix so Excel (including on Windows) opens the file with correct
   // UTF-8 rendering instead of mangling non-ASCII characters in names.
   const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  const today = toDateKey(new Date());
-  link.href = url;
-  link.download = `${GYM_SETTINGS.name.replace(/\s+/g, "-")}-members-${today}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, `${GYM_SETTINGS.name.replace(/\s+/g, "-")}-members-${toDateKey(new Date())}.csv`);
+  recordBackupDone();
+}
+
+/** Recursively makes Firestore data JSON-safe (Timestamp -> ISO string). */
+function backupSerialize(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (typeof value.toDate === "function") return value.toDate().toISOString();
+  if (Array.isArray(value)) return value.map(backupSerialize);
+  const out = {};
+  for (const k of Object.keys(value)) out[k] = backupSerialize(value[k]);
+  return out;
+}
+
+/**
+ * Full backup (owner only): every document of members, checkins, payments,
+ * refunds and settings in one JSON file. Reads straight from the server
+ * ({source: "server"}) so an offline device fails loudly instead of silently
+ * saving a partial copy from its local cache. Costs one Firestore read per
+ * document (about the same as the number of check-ins + payments + members),
+ * which is fine for a monthly backup.
+ */
+async function exportFullBackup(btn) {
+  if (currentAdminRole !== "owner") {
+    showAlert("Only the owner can download a full backup.");
+    return;
+  }
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Preparing backup…"; }
+  try {
+    const names = ["members", "checkins", "payments", "refunds", "settings"];
+    const snaps = await Promise.all(names.map((n) => db.collection(n).get({ source: "server" })));
+    const collections = {};
+    const counts = {};
+    names.forEach((n, i) => {
+      collections[n] = snaps[i].docs.map((d) => ({ id: d.id, data: backupSerialize(d.data()) }));
+      counts[n] = collections[n].length;
+    });
+    const backup = {
+      app: "FitTrack",
+      version: 1,
+      gymId: GYM_ID,
+      gymName: GYM_SETTINGS.name,
+      exportedAt: new Date().toISOString(),
+      counts,
+      collections,
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    downloadBlob(blob, `${GYM_SETTINGS.name.replace(/\s+/g, "-")}-full-backup-${toDateKey(new Date())}.json`);
+    recordBackupDone();
+    showAlert(`Backup downloaded: ${counts.members} members, ${counts.checkins} check-ins, ${counts.payments} payments, ${counts.refunds} refunds.`);
+  } catch (err) {
+    console.error(err);
+    showAlert("Could not create the backup. Please check your internet connection and try again.");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
+}
+
+// ------------------------------------------------------- backup reminder --
+// Owner-only banner on the dashboard: shows when no backup has ever been
+// downloaded from this device, or the last one is BACKUP_INTERVAL_DAYS old.
+// "Later" hides it for BACKUP_SNOOZE_DAYS. The last-backup time lives in
+// localStorage (per device/browser), so a new phone shows the reminder again
+// -- harmless, just download once more.
+const BACKUP_INTERVAL_DAYS = 30;
+const BACKUP_SNOOZE_DAYS = 3;
+
+function backupStorageKey(name) { return `fittrack:${GYM_ID}:${name}`; }
+function readBackupNumber(name) {
+  try { return Number(localStorage.getItem(backupStorageKey(name))) || 0; } catch (_) { return 0; }
+}
+function writeBackupNumber(name, value) {
+  try {
+    if (value === null) localStorage.removeItem(backupStorageKey(name));
+    else localStorage.setItem(backupStorageKey(name), String(value));
+  } catch (_) {}
+}
+
+function recordBackupDone() {
+  writeBackupNumber("lastBackupAt", Date.now());
+  writeBackupNumber("backupSnoozeUntil", null);
+  updateBackupReminder();
+}
+
+function snoozeBackupReminder() {
+  writeBackupNumber("backupSnoozeUntil", Date.now() + BACKUP_SNOOZE_DAYS * 86400000);
+  updateBackupReminder();
+}
+
+function updateBackupReminder() {
+  const el = document.getElementById("backupReminder");
+  if (!el) return;
+  if (currentAdminRole !== "owner" || !allMembers.length) {
+    el.classList.add("hidden");
+    return;
+  }
+  const last = readBackupNumber("lastBackupAt");
+  const daysSince = last ? Math.floor((Date.now() - last) / 86400000) : null;
+  const due = last === 0 || daysSince >= BACKUP_INTERVAL_DAYS;
+  if (!due || Date.now() < readBackupNumber("backupSnoozeUntil")) {
+    el.classList.add("hidden");
+    return;
+  }
+  document.getElementById("backupReminderText").textContent = last
+    ? `Your last backup was ${daysSince} day${daysSince === 1 ? "" : "s"} ago. Download a fresh one so your gym data is safe.`
+    : "You haven't downloaded a backup yet. Download one so your gym data is safe.";
+  el.classList.remove("hidden");
 }
 
 function sendWhatsAppReminder(member) {

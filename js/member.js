@@ -51,6 +51,17 @@ function isValidKioskKeyShape(k) { return /^[A-Za-z0-9]{24,64}$/.test(k); }
 function getStoredKioskKey() { try { return localStorage.getItem(KIOSK_KEY_STORAGE) || ""; } catch (_) { return ""; } }
 function storeKioskKey(k) { try { localStorage.setItem(KIOSK_KEY_STORAGE, k); } catch (_) {} }
 function clearStoredKioskKey() { try { localStorage.removeItem(KIOSK_KEY_STORAGE); } catch (_) {} }
+/** false when the kiosk app's WebView has DOM storage turned off (or wipes it): the key
+ *  (and the Firebase login) then cannot survive closing the app. */
+function kioskStorageWorks() {
+  try {
+    const k = "__ftStorageTest";
+    localStorage.setItem(k, "1");
+    const ok = localStorage.getItem(k) === "1";
+    localStorage.removeItem(k);
+    return ok;
+  } catch (_) { return false; }
+}
 
 function kioskTimeout(ms) {
   return new Promise((_, reject) => setTimeout(() => reject({ code: "kiosk/timeout" }), ms));
@@ -95,11 +106,31 @@ async function verifyKioskStillValid() {
   }
 }
 
+let kioskRevalidating = false;
+/** Called when the rules start rejecting this device. Before locking, re-register the saved
+ *  key once: if it still works the rejection was a blip (token/session hiccup) and nothing is
+ *  cleared. Returns "restored" | "locked" | "unknown" (offline/other -> try again later). */
 async function handleKioskRevoked() {
-  clearStoredKioskKey();
-  const u = auth.currentUser;
-  if (u && u.isAnonymous) { try { await auth.signOut(); } catch (_) {} }
-  location.reload();
+  if (kioskRevalidating) return "unknown";
+  kioskRevalidating = true;
+  try {
+    const key = getStoredKioskKey();
+    if (key) {
+      try {
+        await activateKioskKey(key);
+        return "restored";
+      } catch (ex) {
+        if (!(ex && ex.code === "permission-denied")) return "unknown";
+      }
+    }
+    clearStoredKioskKey();
+    const u = auth.currentUser;
+    if (u && u.isAnonymous) { try { await auth.signOut(); } catch (_) {} }
+    location.reload();
+    return "locked";
+  } finally {
+    kioskRevalidating = false;
+  }
 }
 
 /** Used in catch blocks: if a permission-denied error is really caused by a revoked key,
@@ -107,8 +138,7 @@ async function handleKioskRevoked() {
 async function kioskRevokedCheck(err) {
   if (!err || err.code !== "permission-denied") return false;
   if (await verifyKioskStillValid()) return false;
-  handleKioskRevoked();
-  return true;
+  return (await handleKioskRevoked()) === "locked";
 }
 
 function kioskErrorMessage(ex) {
@@ -134,6 +164,7 @@ function showKioskOverlay(statusText, errorText) {
       '<div style="font-size:40px">🔒</div>' +
       '<h2 style="margin:8px 0 4px;font-size:20px;font-weight:700;color:#0F172A">Kiosk Setup</h2>' +
       '<p style="margin:0 0 16px;font-size:14px;color:#64748B">Enter the gym owner&rsquo;s Kiosk Key (Admin panel &rarr; Kiosk Setup). You only need to do this once.</p>' +
+      '<p id="kioskStorageWarn" style="display:none;margin:0 0 12px;padding:10px;border-radius:10px;background:#FEF3C7;color:#92400E;font-size:12px;text-align:left"></p>' +
       '<form id="kioskKeyForm" autocomplete="off">' +
       '<input id="kioskKeyInput" type="text" placeholder="Kiosk Key" required autocapitalize="off" autocorrect="off" spellcheck="false" style="width:100%;box-sizing:border-box;padding:12px;margin-bottom:10px;border:1px solid #CBD5E1;border-radius:12px;font-size:16px;font-family:monospace">' +
       '<p id="kioskStatus" style="min-height:18px;margin:0 0 4px;font-size:13px;color:#64748B"></p>' +
@@ -145,6 +176,13 @@ function showKioskOverlay(statusText, errorText) {
     document.getElementById("kioskKeyForm").addEventListener("submit", handleKioskKeySubmit);
   }
   el.style.display = "flex";
+  const warn = document.getElementById("kioskStorageWarn");
+  if (!kioskStorageWorks()) {
+    warn.textContent = "This app cannot save data on the device (browser storage is turned off or cleared on exit), so the key cannot be remembered after the app is closed. In the kiosk app settings, enable DOM storage and do not clear data on exit.";
+    warn.style.display = "block";
+  } else {
+    warn.style.display = "none";
+  }
   document.getElementById("kioskStatus").textContent = statusText || "";
   document.getElementById("kioskErr").textContent = errorText || "";
 }
@@ -207,6 +245,7 @@ function consumeSetupKeyFromUrl() {
       finishKioskGate();
     } catch (ex) {
       if (ex && ex.code === "permission-denied") clearStoredKioskKey();
+      else window.addEventListener("online", () => location.reload(), { once: true }); // key is saved; retry when internet returns
       showKioskOverlay("", kioskErrorMessage(ex));
     }
     return;

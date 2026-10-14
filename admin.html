@@ -257,6 +257,7 @@
       <button id="staffAccessBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">👥</span> Staff Access</button>
       <button id="kioskSetupBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">📟</span> Kiosk Setup</button>
       <button id="exportCsvBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">⬇</span> Export CSV</button>
+      <button id="fullBackupBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">💾</span> Full Backup</button>
       <!-- 👉 Future settings items go here, same button/classes pattern -->
       <div class="border-t border-slate-800"></div>
       <button id="logoutBtn" type="button"
@@ -270,6 +271,18 @@
 
 
     <main class="max-w-6xl mx-auto px-4 sm:px-5 py-5 sm:py-6 space-y-6 sm:space-y-8">
+
+      <!-- Monthly backup reminder (owner only, shown by updateBackupReminder() in admin.js) -->
+      <section id="backupReminder" class="hidden rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+        <p class="text-sm font-semibold text-amber-300 mb-1">💾 Time for your monthly backup</p>
+        <p id="backupReminderText" class="text-xs text-slate-300 mb-3"></p>
+        <div class="flex flex-wrap gap-2">
+          <button id="backupReminderFullBtn" type="button" class="rounded-lg bg-accent text-slate-950 text-xs font-semibold px-3 py-2 hover:opacity-90 transition">Full Backup</button>
+          <button id="backupReminderCsvBtn" type="button" class="rounded-lg border border-slate-600 text-slate-200 text-xs font-semibold px-3 py-2 hover:bg-slate-800 transition">Members CSV</button>
+          <button id="backupReminderLaterBtn" type="button" class="rounded-lg text-slate-400 text-xs font-medium px-3 py-2 hover:text-slate-200 transition">Remind me later</button>
+        </div>
+      </section>
+
 
       <!-- Stats -->
       <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
