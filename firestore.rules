@@ -193,7 +193,10 @@ service cloud.firestore {
         ||
         (hasPerm('editMemberDetails') && hasPerm('payments')
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['plan', 'planLabel', 'expiryDate', 'paymentStatus', 'duesAmount', 'updatedAt']))
+               .hasOnly(['plan', 'planLabel', 'expiryDate', 'paymentStatus', 'duesAmount', 'cancelledAt', 'updatedAt'])
+          // cancelledAt may only be REMOVED here (renewing a cancelled member),
+          // never set — setting it still needs the `refunds` permission.
+          && !('cancelledAt' in request.resource.data))
         ||
         (hasPerm('refunds')
           && request.resource.data.diff(resource.data).affectedKeys()
@@ -228,7 +231,10 @@ service cloud.firestore {
                 && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.approved == true
                 // Frozen/paused members can't check in until an admin resumes
                 // their membership (see admin.js executeFreezeMember/Resume).
-                && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('isFrozen', false) != true;
+                && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('isFrozen', false) != true
+                // Cancelled/refunded members can't check in either (was only
+                // enforced in the client UI before).
+                && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('cancelledAt', null) == null;
                 
   allow get: if isKiosk() || isVerifiedAdminDirect();
   allow list: if isVerifiedAdminDirect();
@@ -241,7 +247,12 @@ service cloud.firestore {
     // revenue history. Editing or deleting an existing payment record stays
     // owner-only (the client never does this — it's an accountability log).
     match /payments/{paymentId} {
-      allow create, read: if hasPerm('payments');
+      allow read: if hasPerm('payments');
+      allow create: if hasPerm('payments')
+        || (hasPerm('refunds')
+            && request.resource.data.type == 'refund'
+            && request.resource.data.amount is number
+            && request.resource.data.amount < 0);
       allow update, delete: if isOwnerAdmin();
     }
 

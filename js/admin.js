@@ -1854,6 +1854,12 @@ async function handleRenewSubmit(e) {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
 
+      // Renewing a cancelled/refunded member reactivates them: drop the
+      // cancelledAt flag, otherwise every status check in the app (admin
+      // table, stats, kiosk, check-in) keeps treating them as CANCELLED.
+      // The refund itself stays logged in `refunds` + the negative payment.
+      if (freshMember.cancelledAt) update.cancelledAt = firebase.firestore.FieldValue.delete();
+
       if (collectNow) {
         // Collecting now settles this cycle AND any dues already owed.
         update.paymentStatus = "paid";
@@ -2023,6 +2029,9 @@ async function executeRefundMigration(member, amount, reason) {
       if (!freshDoc.exists) throw new Error("Member no longer exists.");
       const freshMember = { id: freshDoc.id, ...freshDoc.data() };
       const { plan, daysRemaining } = computeSuggestedRefund(freshMember);
+      // Two staff logins refunding the same member at once (or a stale
+      // screen) must not refund twice.
+      if (freshMember.cancelledAt) throw new Error("Already cancelled/refunded.");
 
       transaction.set(refundsCol.doc(), {
         memberId: freshMember.id,
@@ -2037,6 +2046,22 @@ async function executeRefundMigration(member, amount, reason) {
         processedBy: auth.currentUser ? auth.currentUser.email : null,
         timestamp: firebase.firestore.FieldValue.serverTimestamp(),
       });
+      // Money going OUT is also recorded in `payments` as a negative entry,
+      // so Monthly Revenue and the monthly history table (which sum
+      // `payments`) automatically show NET revenue (collected - refunded).
+      transaction.set(paymentsCol.doc(), {
+        memberId: freshMember.id,
+        name: freshMember.name,
+        phone: freshMember.phone,
+        plan: freshMember.plan,
+        amount: -Math.abs(amount),
+        type: "refund",
+        method: "refund",
+        dateKey: today,
+        note: reason ? `Refund: ${reason}` : "Refund",
+        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+
 
       // Ends the membership immediately — expiry is cut to today, so the
       // member table shows EXPIRED right away instead of counting down the
@@ -3756,7 +3781,7 @@ function subscribeMonthlyHistory() {
         if (!monthlyData[monthKey]) {
           monthlyData[monthKey] = { count: 0, total: 0 };
         }
-        monthlyData[monthKey].count += 1;
+        if (p.type !== "refund") monthlyData[monthKey].count += 1; // refunds only reduce the total
         monthlyData[monthKey].total += (p.amount || 0);
       });
 
