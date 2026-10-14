@@ -206,7 +206,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     currentAdminRole = "owner";
     auth.signOut();
   });
-  document.getElementById("memberSearch").addEventListener("input", renderMemberTable);
+  document.getElementById("memberSearch").addEventListener("input", () => {
+    resetMemberListScroll();
+    renderMemberTable();
+  });
 
   // Status Filter Buttons listener
   const filterGroup = document.getElementById("memberFilterGroup");
@@ -216,6 +219,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!btn) return;
       currentMemberFilter = btn.dataset.filter;
       updateMemberFilterStyles();
+      resetMemberListScroll();
       renderMemberTable();
     });
     updateMemberFilterStyles();
@@ -275,6 +279,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     btn.closest(".settings-plan-row").remove();
   });
 
+  // Kiosk Setup modal (owner-only) — gym ki Kiosk Key generate/copy/revoke.
+  document.getElementById("kioskSetupBtn").addEventListener("click", openKioskSetupModal);
+  document.getElementById("kioskSetupBtn").addEventListener("click", () => toggleProfileMenu(true));
+  document.getElementById("kioskSetupCloseBtn").addEventListener("click", closeKioskSetupModal);
+  document.getElementById("kioskSetupBackdrop").addEventListener("click", closeKioskSetupModal);
+  document.getElementById("kioskGenerateBtn").addEventListener("click", (e) => {
+    closeKioskSetupModal(); // reauth modal ke saath z-50 par overlap na ho
+    requestReauth("generate-kiosk-key", null, e.currentTarget, { hadKey: !!currentKioskKey });
+  });
+  document.getElementById("kioskRevokeBtn").addEventListener("click", (e) => {
+    closeKioskSetupModal();
+    requestReauth("revoke-kiosk-key", null, e.currentTarget);
+  });
+  document.getElementById("kioskCopyKeyBtn").addEventListener("click", (e) => kioskCopyText(currentKioskKey, e.currentTarget));
+  document.getElementById("kioskCopyLinkBtn").addEventListener("click", (e) => kioskCopyText(buildKioskSetupLink(currentKioskKey), e.currentTarget));
   // Staff Access modal (owner-only) — add/remove front-desk staff logins.
   document.getElementById("staffAccessBtn").addEventListener("click", openStaffAccessModal);
   document.getElementById("staffAccessCloseBtn").addEventListener("click", closeStaffAccessModal);
@@ -637,6 +656,9 @@ function applyRolePermissions() {
   // stays owner-only — it isn't one of the delegable permissions.
   const staffAccessBtn = document.getElementById("staffAccessBtn");
   if (staffAccessBtn) staffAccessBtn.classList.toggle("hidden", !isOwner);
+  // Kiosk Setup bhi owner-only hai (key sirf owner dekh/bana sakta hai).
+  const kioskSetupBtn = document.getElementById("kioskSetupBtn");
+  if (kioskSetupBtn) kioskSetupBtn.classList.toggle("hidden", !isOwner);
 
   const permGatedIds = {
     gymSettingsBtn: "manageSettings",   // gym's own membership plan pricing / config
@@ -1338,6 +1360,12 @@ function buildMemberActionsHtml(m, dotSizeClass) {
 
 
 
+
+/** Search/filter badalne par member list wapas upar se dikhao (list ka apna scroll hai). */
+function resetMemberListScroll() {
+  const area = document.getElementById("memberScrollArea");
+  if (area) area.scrollTop = 0;
+}
 
 function renderMemberTable() {
   const query = document.getElementById("memberSearch").value.trim().toLowerCase();
@@ -2718,6 +2746,140 @@ async function executeRemoveStaff(email, btn) {
   }
 }
 
+// ------------------------------------------------------------ kiosk key --
+// Owner-only. gymKeys/{key} me ek random key rakhi jaati hai (doc ID = key);
+// desk phone par wahi key daalne se member page "kiosk" ban jata hai. Rules
+// (isKiosk) key doc ke maujood rehne par hi kiosk ko access dete hain.
+let currentKioskKey = "";
+
+function generateKioskKeyString() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let out = "";
+  while (out.length < 24) {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    for (const b of bytes) {
+      if (b < 248 && out.length < 24) out += chars[b % 62]; // 248 = 62*4 -> modulo bias nahi
+    }
+  }
+  return out;
+}
+
+function formatKioskKey(key) {
+  return key.match(/.{1,6}/g).join("-");
+}
+
+function buildKioskSetupLink(key) {
+  const base = location.href.replace(/[^/]*$/, "") + "index.html?kiosk=1";
+  return base + "#setup=" + key;
+}
+
+async function kioskCopyText(text, btn) {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (_) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (__) {}
+    ta.remove();
+  }
+  if (btn) {
+    const old = btn.textContent;
+    btn.textContent = "Copied ✓";
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  }
+}
+
+async function loadKioskKeyIntoModal() {
+  const errorEl = document.getElementById("kioskSetupError");
+  errorEl.classList.add("hidden");
+  const box = document.getElementById("kioskKeyBox");
+  const noKey = document.getElementById("kioskNoKey");
+  const genBtn = document.getElementById("kioskGenerateBtn");
+  const revokeBtn = document.getElementById("kioskRevokeBtn");
+  try {
+    const snap = await db.collection("gymKeys").limit(1).get();
+    if (snap.empty) {
+      currentKioskKey = "";
+      box.classList.add("hidden");
+      revokeBtn.classList.add("hidden");
+      noKey.classList.remove("hidden");
+      genBtn.textContent = "Generate Kiosk Key";
+    } else {
+      const doc = snap.docs[0];
+      currentKioskKey = doc.id;
+      document.getElementById("kioskKeyText").textContent = formatKioskKey(doc.id);
+      const ts = doc.data().createdAt;
+      document.getElementById("kioskKeyMeta").textContent =
+        ts && ts.toDate ? "Banayi gayi: " + ts.toDate().toLocaleString() : "";
+      box.classList.remove("hidden");
+      revokeBtn.classList.remove("hidden");
+      noKey.classList.add("hidden");
+      genBtn.textContent = "Regenerate Key (purani band)";
+    }
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = "Key load nahi ho payi. Dobara try karo.";
+    errorEl.classList.remove("hidden");
+  }
+}
+
+function openKioskSetupModal() {
+  document.getElementById("kioskSetupModal").classList.remove("hidden");
+  loadKioskKeyIntoModal();
+}
+
+function closeKioskSetupModal() {
+  document.getElementById("kioskSetupModal").classList.add("hidden");
+}
+
+async function executeGenerateKioskKey(btn) {
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Generating…"; }
+  try {
+    const user = auth.currentUser;
+    const batch = db.batch();
+    const old = await db.collection("gymKeys").get();
+    old.forEach((d) => batch.delete(d.ref)); // ek time par ek hi active key
+    const newKey = generateKioskKeyString();
+    batch.set(db.collection("gymKeys").doc(newKey), {
+      createdBy: user && user.email ? user.email : "owner",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await batch.commit();
+    currentKioskKey = newKey;
+    openKioskSetupModal();
+  } catch (err) {
+    console.error(err);
+    showAlert("Kiosk Key nahi ban payi. Dobara try karo.");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
+}
+
+async function executeRevokeKioskKey(btn) {
+  const originalLabel = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Revoking…"; }
+  try {
+    const old = await db.collection("gymKeys").get();
+    const batch = db.batch();
+    old.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    currentKioskKey = "";
+    openKioskSetupModal();
+  } catch (err) {
+    console.error(err);
+    showAlert("Key revoke nahi ho payi. Dobara try karo.");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
+}
+
 async function handleGymSettingsSubmit(e) {
   e.preventDefault();
   const errorEl = document.getElementById("gymSettingsError");
@@ -2937,6 +3099,10 @@ async function dispatchReauthedAction({ type, member, btn, extra }) {
     await executeRemoveStaff(extra.email, btn);
   } else if (type === "edit-staff-permissions") {
     await executeEditStaffPermissions(extra.email, extra.permissions, btn);
+  } else if (type === "generate-kiosk-key") {
+    await executeGenerateKioskKey(btn);
+  } else if (type === "revoke-kiosk-key") {
+    await executeRevokeKioskKey(btn);
   }
 }
 
@@ -2985,6 +3151,12 @@ function requestReauth(type, member, btn, extra) {
   } else if (type === "edit-staff-permissions") {
     titleEl.textContent = "Update staff permissions?";
     msgEl.textContent = `This changes what ${extra.email} can control on this dashboard, effective immediately. Confirm your identity to continue.`;
+  } else if (type === "generate-kiosk-key") {
+    titleEl.textContent = extra && extra.hadKey ? "Naya Kiosk Key banayein?" : "Kiosk Key banayein?";
+    msgEl.textContent = extra && extra.hadKey ? "Purani key turant band ho jayegi aur desk phone par nayi key daalni padegi. Confirm your identity to continue." : "Is gym ke desk phone ke liye ek nayi key banegi. Confirm your identity to continue.";
+  } else if (type === "revoke-kiosk-key") {
+    titleEl.textContent = "Kiosk Key revoke karein?";
+    msgEl.textContent = "Desk phone par member lookup, check-in aur registration turant band ho jayenge jab tak nayi key na daalo. Confirm your identity to continue.";
   } else {
     titleEl.textContent = "Confirm payment update";
     msgEl.textContent = `This marks ${member.name}'s payment as PAID. Confirm your identity to continue.`;

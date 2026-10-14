@@ -32,8 +32,192 @@ const isKioskDevice = new URLSearchParams(location.search).get("kiosk") === "1";
 // handleRegisterSubmit.
 const STATUS_CHECK_TIMEOUT_MS = 6000;
 
+// ==================== KIOSK KEY GATE ====================
+// Is page par check-in / registration / member lookup sirf tab chalta hai
+// jab gym owner ki "Kiosk Key" (Admin panel -> Kiosk Setup) is device par
+// ek baar daali gayi ho. Key localStorage me save rehti hai; Firestore rules
+// bhi (isKiosk() -> kioskSessions + gymKeys) yahi check karte hain -- ye
+// lock screen sirf UI hai, asli security rules me hai.
+// Flow: key daalo -> anonymous sign-in -> kioskSessions/{uid} me key likho
+// (rules tabhi allow karte hain jab gymKeys/{key} exist kare) -> probe read.
+const KIOSK_KEY_STORAGE = "ftKioskKey";
+const KIOSK_PROBE_PHONE = "0000000000"; // sirf access check ke liye, doc exist karna zaroori nahi
+let kioskGateResolved = false;
+let kioskGateResolve;
+const kioskAuthReady = new Promise((resolve) => { kioskGateResolve = resolve; });
+
+function normalizeKioskKey(raw) { return String(raw || "").replace(/[^A-Za-z0-9]/g, ""); }
+function isValidKioskKeyShape(k) { return /^[A-Za-z0-9]{24,64}$/.test(k); }
+function getStoredKioskKey() { try { return localStorage.getItem(KIOSK_KEY_STORAGE) || ""; } catch (_) { return ""; } }
+function storeKioskKey(k) { try { localStorage.setItem(KIOSK_KEY_STORAGE, k); } catch (_) {} }
+function clearStoredKioskKey() { try { localStorage.removeItem(KIOSK_KEY_STORAGE); } catch (_) {} }
+
+function kioskTimeout(ms) {
+  return new Promise((_, reject) => setTimeout(() => reject({ code: "kiosk/timeout" }), ms));
+}
+
+function finishKioskGate() {
+  hideKioskOverlay();
+  if (kioskGateResolved) return;
+  kioskGateResolved = true;
+  kioskGateResolve();
+  // Session kabhi chala gaya (sign-out) to wapas lock screen par.
+  auth.onAuthStateChanged((u) => { if (!u) location.reload(); });
+  // Owner ne key revoke ki ho to jaldi pata chale (har 10 min + app wapas khulne par).
+  const recheck = async () => { if (!(await verifyKioskStillValid())) handleKioskRevoked(); };
+  setInterval(recheck, 10 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) recheck(); });
+}
+
+/** Key ko is device par activate karta hai. Fail hone par error throw karta hai. */
+async function activateKioskKey(key) {
+  const work = (async () => {
+    let user = auth.currentUser;
+    if (!user) user = (await auth.signInAnonymously()).user;
+    await db.collection("kioskSessions").doc(user.uid).set({
+      key,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    // Confirm: kya rules ab is device ko kiosk maante hain?
+    await db.collection("members").doc(KIOSK_PROBE_PHONE).get({ source: "server" });
+  })();
+  await Promise.race([work, kioskTimeout(12000)]);
+  storeKioskKey(key);
+}
+
+/** true = abhi bhi valid (ya internet nahi -> pata nahi, valid maano). false = revoke ho chuki. */
+async function verifyKioskStillValid() {
+  try {
+    await db.collection("members").doc(KIOSK_PROBE_PHONE).get({ source: "server" });
+    return true;
+  } catch (err) {
+    return !(err && err.code === "permission-denied");
+  }
+}
+
+async function handleKioskRevoked() {
+  clearStoredKioskKey();
+  const u = auth.currentUser;
+  if (u && u.isAnonymous) { try { await auth.signOut(); } catch (_) {} }
+  location.reload();
+}
+
+/** Catch blocks me use hota hai: agar permission-denied ka asli kaaran revoked key hai to
+ *  lock screen par bhej deta hai aur true return karta hai. */
+async function kioskRevokedCheck(err) {
+  if (!err || err.code !== "permission-denied") return false;
+  if (await verifyKioskStillValid()) return false;
+  handleKioskRevoked();
+  return true;
+}
+
+function kioskErrorMessage(ex) {
+  const code = ex && ex.code;
+  if (code === "permission-denied") return "Key galat hai ya owner ne revoke kar di hai.";
+  if (code === "auth/operation-not-allowed") return "Firebase Console me Authentication -> Anonymous sign-in enable karo.";
+  if (code === "auth/network-request-failed" || code === "unavailable" || code === "kiosk/timeout")
+    return "Internet nahi hai ya slow hai. Dobara try karo.";
+  return "Activate nahi ho paya. Dobara try karo.";
+}
+
+function showKioskOverlay(statusText, errorText) {
+  let el = document.getElementById("kioskLockOverlay");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "kioskLockOverlay";
+    el.style.cssText =
+      "position:fixed;inset:0;z-index:99999;background:#F4F1EC;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,sans-serif;";
+    const card = document.createElement("div");
+    card.style.cssText =
+      "width:100%;max-width:380px;background:#fff;border-radius:20px;padding:28px;box-shadow:0 10px 30px rgba(0,0,0,.12);text-align:center;";
+    card.innerHTML =
+      '<div style="font-size:40px">🔒</div>' +
+      '<h2 style="margin:8px 0 4px;font-size:20px;font-weight:700;color:#0F172A">Kiosk Setup</h2>' +
+      '<p style="margin:0 0 16px;font-size:14px;color:#64748B">Gym owner ki Kiosk Key daalo (Admin panel &rarr; Kiosk Setup). Ye sirf ek baar karna hai.</p>' +
+      '<form id="kioskKeyForm" autocomplete="off">' +
+      '<input id="kioskKeyInput" type="text" placeholder="Kiosk Key" required autocapitalize="off" autocorrect="off" spellcheck="false" style="width:100%;box-sizing:border-box;padding:12px;margin-bottom:10px;border:1px solid #CBD5E1;border-radius:12px;font-size:16px;font-family:monospace">' +
+      '<p id="kioskStatus" style="min-height:18px;margin:0 0 4px;font-size:13px;color:#64748B"></p>' +
+      '<p id="kioskErr" style="min-height:18px;margin:0 0 10px;font-size:13px;color:#DC2626"></p>' +
+      '<button id="kioskBtn" type="submit" style="width:100%;padding:12px;border:0;border-radius:12px;background:#F97316;color:#fff;font-size:16px;font-weight:700">Activate</button>' +
+      '</form>';
+    el.appendChild(card);
+    document.body.appendChild(el);
+    document.getElementById("kioskKeyForm").addEventListener("submit", handleKioskKeySubmit);
+  }
+  el.style.display = "flex";
+  document.getElementById("kioskStatus").textContent = statusText || "";
+  document.getElementById("kioskErr").textContent = errorText || "";
+}
+
+function hideKioskOverlay() {
+  const el = document.getElementById("kioskLockOverlay");
+  if (el) el.style.display = "none";
+}
+
+async function handleKioskKeySubmit(e) {
+  e.preventDefault();
+  const err = document.getElementById("kioskErr");
+  const btn = document.getElementById("kioskBtn");
+  const key = normalizeKioskKey(document.getElementById("kioskKeyInput").value);
+  err.textContent = "";
+  if (!isValidKioskKeyShape(key)) {
+    err.textContent = "Key poori daalo (24+ letters/numbers).";
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "Checking...";
+  try {
+    await activateKioskKey(key);
+    document.getElementById("kioskKeyInput").value = "";
+    finishKioskGate();
+  } catch (ex) {
+    err.textContent = kioskErrorMessage(ex);
+    btn.disabled = false;
+    btn.textContent = "Activate";
+  }
+}
+
+/** Admin panel ka "Setup Link" (...?kiosk=1#setup=KEY) kholne par key apne aap uthata hai
+ *  aur address bar se turant hata deta hai. */
+function consumeSetupKeyFromUrl() {
+  try {
+    const raw = new URLSearchParams(location.hash.replace(/^#/, "")).get("setup");
+    if (!raw) return "";
+    history.replaceState(null, "", location.pathname + location.search);
+    const key = normalizeKioskKey(raw);
+    return isValidKioskKeyShape(key) ? key : "";
+  } catch (_) { return ""; }
+}
+
+(async function initKioskGate() {
+  try { await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {}
+  const initialUser = await new Promise((resolve) => {
+    const unsub = auth.onAuthStateChanged((u) => { unsub(); resolve(u); });
+  });
+  const linkKey = consumeSetupKeyFromUrl();
+  const storedKey = getStoredKioskKey();
+  const key = linkKey || storedKey;
+
+  if (key && initialUser && !linkKey) { finishKioskGate(); return; } // normal restart (offline bhi chalega)
+
+  if (key) { // link se nayi key, ya login session gaya par key saved hai
+    showKioskOverlay("Activate ho raha hai...");
+    try {
+      await activateKioskKey(key);
+      finishKioskGate();
+    } catch (ex) {
+      if (ex && ex.code === "permission-denied") clearStoredKioskKey();
+      showKioskOverlay("", kioskErrorMessage(ex));
+    }
+    return;
+  }
+  showKioskOverlay();
+})();
+
 // ---------------------------------------------------------------- setup --
 document.addEventListener("DOMContentLoaded", async () => {
+  // Kiosk login ke bina page aage nahi badhega (lock screen dikhega).
+  await kioskAuthReady;
   // Wait for settings/gymConfig (name, currency, plans) before rendering
   // anything that reads GYM_SETTINGS/PLANS. This resolves quickly from
   // cache/defaults even offline — see loadGymConfig() in firebase-config.js.
@@ -451,6 +635,7 @@ async function handleRegisterSubmit(e) {
     openWelcomeModal(name, plan.label, formatDate(expiryDate));
   } catch (err) {
     console.error(err);
+    if (await kioskRevokedCheck(err)) return;
     if (isOfflineError(err)) {
       showBannerWithRetry(
         "registerBanner",
@@ -531,6 +716,7 @@ async function handleStatusCheck(e) {
     
   } catch (err) {
     console.error(err);
+    if (await kioskRevokedCheck(err)) return;
     if (isOfflineError(err)) {
       showBannerWithRetry(
         "statusBanner",
@@ -800,6 +986,7 @@ async function performAutoCheckin(member) {
     loadMemberCheckinHistory(member.id);
   } catch (err) {
     console.error("Auto check-in failed:", err);
+    if (await kioskRevokedCheck(err)) return;
     // A permission-denied error here almost always means today's check-in
     // already exists (a race with the read above) or the member isn't
     // approved yet — either way, treat it the same as "already checked in".

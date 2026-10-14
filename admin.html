@@ -84,6 +84,11 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 1.2rem; flex-shrink: 0;
   }
+  /* Member Directory: sirf list scroll hoti hai (title/search/filters upar fixed rehte hain),
+     poora page nahi. Card ki max height screen ke hisaab se hai. */
+  .member-dir-card { display: flex; flex-direction: column; max-height: calc(100vh - 6.5rem); max-height: calc(100dvh - 6.5rem); }
+  .member-scroll-area { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  @media (min-width: 768px) { .member-dir-card { max-height: calc(100vh - 8rem); max-height: calc(100dvh - 8rem); } }
 </style>
 </head>
 <body class="min-h-screen bg-base text-slate-200 antialiased">
@@ -250,6 +255,7 @@
       <button id="planFeaturesBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">📦</span> Plan &amp; Features</button>
       <button id="gymSettingsBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">⚙</span> Gym Settings</button>
       <button id="staffAccessBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">👥</span> Staff Access</button>
+      <button id="kioskSetupBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">📟</span> Kiosk Setup</button>
       <button id="exportCsvBtn" type="button" class="more-menu-item w-full flex items-center gap-2.5 text-left px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 transition"><span class="text-accent">⬇</span> Export CSV</button>
       <!-- 👉 Future settings items go here, same button/classes pattern -->
       <div class="border-t border-slate-800"></div>
@@ -369,7 +375,7 @@
 
 
         <!-- Member directory -->
-        <section class="md:col-span-2 lg:col-span-2 rounded-2xl border border-slate-800 bg-panel shadow-sm p-4 sm:p-5">
+        <section class="member-dir-card md:col-span-2 lg:col-span-2 rounded-2xl border border-slate-800 bg-panel shadow-sm p-4 sm:p-5">
           <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
             <h2 class="font-semibold text-slate-100 whitespace-nowrap">Member Directory</h2>
             <div class="flex items-center gap-2 flex-1 justify-end flex-wrap">
@@ -398,6 +404,7 @@
 </div>
 
 
+          <div id="memberScrollArea" class="member-scroll-area">
           <div class="hidden md:block overflow-x-auto">
             <table class="text-sm">
               <thead>
@@ -419,6 +426,7 @@
           <div id="memberCardList" class="md:hidden space-y-3"></div>
 
           <p id="memberEmptyState" class="hidden text-sm text-slate-600 text-center py-8">No members found.</p>
+          </div>
         </section>
       </div>
     </main>
@@ -571,6 +579,36 @@
     </div>
   </div>
 </template>
+
+<!-- Kiosk Setup modal: owner-only. Owner yahan se apne gym ki Kiosk Key banata hai
+     (gymKeys/{key} in Firestore), jo desk phone par ek baar daalni hoti hai. -->
+<div id="kioskSetupModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div id="kioskSetupBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-panel shadow-sm p-6 shadow-xl">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-slate-50">Kiosk Setup</h3>
+      <button type="button" id="kioskSetupCloseBtn" class="text-slate-500 hover:text-slate-300 transition text-xl leading-none">&times;</button>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">Gym ke desk phone par member page tabhi chalega jab ye key wahan daali ho. Key sirf aap (owner) dekh sakte ho.</p>
+
+    <div id="kioskKeyBox" class="hidden mb-4">
+      <p class="text-xs font-medium text-slate-400 mb-1">Aapki Kiosk Key</p>
+      <p id="kioskKeyText" class="font-mono text-sm text-accent bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 break-all select-all"></p>
+      <p id="kioskKeyMeta" class="text-[11px] text-slate-500 mt-1"></p>
+      <div class="flex gap-2 mt-3">
+        <button type="button" id="kioskCopyKeyBtn" class="flex-1 rounded-lg border border-slate-700 text-slate-200 text-xs font-semibold py-2 hover:bg-slate-800 transition">Copy Key</button>
+        <button type="button" id="kioskCopyLinkBtn" class="flex-1 rounded-lg border border-slate-700 text-slate-200 text-xs font-semibold py-2 hover:bg-slate-800 transition">Copy Setup Link</button>
+      </div>
+      <p class="text-[11px] text-slate-500 mt-2">Desk phone par: kiosk app me page kholo, key paste karo &rarr; Activate. Ya "Setup Link" us phone ke browser/kiosk me kholo, key apne aap lag jayegi.</p>
+    </div>
+    <p id="kioskNoKey" class="hidden text-xs text-slate-500 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-3 mb-4">Abhi koi Kiosk Key nahi hai. Neeche se banao.</p>
+
+    <p id="kioskSetupError" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2 mb-3"></p>
+    <button type="button" id="kioskGenerateBtn" class="w-full rounded-lg bg-accent text-slate-950 text-sm font-semibold py-2 hover:opacity-90 transition">Generate Kiosk Key</button>
+    <button type="button" id="kioskRevokeBtn" class="hidden w-full mt-2 rounded-lg border border-rose-500/40 text-rose-400 text-sm font-semibold py-2 hover:bg-rose-500/10 transition">Revoke Key (desk phone band karo)</button>
+    <p class="text-[11px] text-slate-500 mt-3">Dobara generate karne par purani key turant band ho jaati hai, aur desk phone par nayi key daalni padegi.</p>
+  </div>
+</div>
 
 <!-- Staff Access modal: owner-only. Lets the owner grant/revoke front-desk
      staff logins (role: "staff" in the admins collection) themselves,

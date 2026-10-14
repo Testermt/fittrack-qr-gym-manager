@@ -21,6 +21,19 @@ service cloud.firestore {
     // Admin SDK, same as the whitelist itself — there's no in-app admin
     // management UI). Missing/absent `role` defaults to 'owner' so an
     // existing admin who predates this field isn't accidentally locked out.
+    // Gym ke desk phone (kiosk) ka access. Owner admin panel -> Kiosk Setup
+    // se ek random key banata hai (gymKeys/{key}); desk phone par wo key
+    // daalne se kioskSessions/{uid} bante hain (neeche). Kiosk tabhi valid hai
+    // jab uske session ki key ka gymKeys doc ABHI bhi maujood ho -- owner
+    // key revoke/regenerate kare to purane sab desk phones turant band.
+    // Kiosk ko admin/staff powers NAHI milti -- sirf member lookup, check-in
+    // aur registration.
+    function isKiosk() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/kioskSessions/$(request.auth.uid))
+        && exists(/databases/$(database)/documents/gymKeys/$(get(/databases/$(database)/documents/kioskSessions/$(request.auth.uid)).data.key));
+    }
+
     function adminRole() {
       return get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.get('role', 'owner');
     }
@@ -112,7 +125,8 @@ service cloud.firestore {
       allow create: if
         // Public self-registration: always starts unapproved & unpaid —
         // this branch is unchanged from before.
-        (hasValidMemberShape()
+        (isKiosk()
+          && hasValidMemberShape()
           && request.resource.data.paymentStatus == "pending"
           && request.resource.data.approved == false)
         ||
@@ -126,7 +140,7 @@ service cloud.firestore {
           && request.resource.data.paymentStatus in ['pending', 'paid']
           && request.resource.data.approved == true);
 
-      allow get: if true;
+      allow get: if isKiosk() || isVerifiedAdminDirect();
       allow list: if isVerifiedAdminDirect();
       // Deleting a member record: owner, or staff granted `deleteMembers`.
       allow delete: if hasPerm('deleteMembers');
@@ -185,7 +199,8 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['expiryDate', 'cancelledAt', 'updatedAt']))
         ||
-        (request.resource.data.diff(resource.data).affectedKeys()
+        (isKiosk()
+          && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['monthlyCheckinCount', 'checkinMonthKey'])
           && request.resource.data.monthlyCheckinCount is int
           && request.resource.data.monthlyCheckinCount >= 0
@@ -201,7 +216,8 @@ service cloud.firestore {
     // admin-only so nobody can enumerate every check-in (and thus every
     // memberId) across the whole gym.
     match /checkins/{checkinId} {
-  allow create: if request.resource.data.memberId is string
+  allow create: if isKiosk()
+                && request.resource.data.memberId is string
                 && request.resource.data.phone is string
                 && request.resource.data.phone.size() >= 7
                 && request.resource.data.dateKey is string
@@ -214,7 +230,7 @@ service cloud.firestore {
                 // their membership (see admin.js executeFreezeMember/Resume).
                 && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('isFrozen', false) != true;
                 
-  allow get: if true;
+  allow get: if isKiosk() || isVerifiedAdminDirect();
   allow list: if isVerifiedAdminDirect();
   allow update, delete: if isVerifiedAdminDirect();
 }
@@ -271,6 +287,35 @@ service cloud.firestore {
       allow delete: if isOwnerAdmin();
     }
 
+
+    // Gym keys: sirf owner banata/padhta/delete karta hai. Doc ID hi key hai
+    // (24-64 random letters/numbers). Update kabhi nahi -- regenerate = purani
+    // delete + nayi create. Kiosk/public/staff koi isko read nahi kar sakta.
+    match /gymKeys/{key} {
+      allow get, list: if isOwnerAdmin();
+      allow create: if isOwnerAdmin()
+        && key.matches('^[A-Za-z0-9]{24,64}$')
+        && request.resource.data.keys().hasOnly(['createdBy', 'createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if isOwnerAdmin();
+      allow update: if false;
+    }
+
+    // Kiosk sessions: desk phone (anonymous sign-in) apna session doc banata
+    // hai, aur rules tabhi allow karte hain jab diya hua key gymKeys me ho --
+    // yehi "key sahi hai" ka proof hai. Sirf apna doc get/create/update/delete.
+    match /kioskSessions/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['key', 'createdAt'])
+        && request.resource.data.key is string
+        && request.resource.data.key.matches('^[A-Za-z0-9]{24,64}$')
+        && request.resource.data.createdAt == request.time
+        && exists(/databases/$(database)/documents/gymKeys/$(request.resource.data.key));
+      allow delete: if request.auth != null && request.auth.uid == uid;
+      allow list: if false;
+    }
 
     // Admins collection: Locked down, with two narrow owner-only exceptions
     // added for in-app staff management (Staff Access modal in admin.js).
