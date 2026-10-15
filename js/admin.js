@@ -28,6 +28,7 @@ let currentAdminRole = "owner";
 let currentAdminPermissions = {
   addMembers: false,
   editMemberDetails: false,
+  freezeMembers: false,
   payments: false,
   refunds: false,
   deleteMembers: false,
@@ -42,7 +43,8 @@ let currentAdminPermissions = {
 // a brand-new staff login in executeAddStaff.
 const PERMISSION_DEFS = [
   { key: "addMembers", label: "Add new members", hint: "Manually register a member (walk-in registration) from the dashboard." },
-  { key: "editMemberDetails", label: "Edit member details", hint: "Freeze/Resume a membership. Combined with \"Payments\" below, also lets them Renew a plan." },
+  { key: "editMemberDetails", label: "Edit member details", hint: "Combined with \"Payments\" below, lets them Renew a plan." },
+  { key: "freezeMembers", label: "Freeze / Pause membership", hint: "Pause a member for a number of days and resume early. Off = staff can't freeze or resume anyone." },
   { key: "payments", label: "Payments & revenue", hint: "Mark payment as received, view revenue stats/history, and see the UPI settings." },
   { key: "refunds", label: "Refunds & cancellation", hint: "Cancel a membership and process a refund." },
   { key: "deleteMembers", label: "Delete a member", hint: "Permanently remove a member and their check-in history." },
@@ -72,6 +74,11 @@ function hasPermission(key) {
 function applyAdminDocData(data) {
   currentAdminRole = data && data.role === "staff" ? "staff" : "owner";
   currentAdminPermissions = Object.assign(defaultStaffPermissions(), (data && data.permissions) || {});
+  // Staff docs saved before the Freeze permission existed have no
+  // `freezeMembers` key: keep their old behaviour (freeze was part of
+  // "Edit member details") until the owner sets it explicitly.
+  const savedPerms = (data && data.permissions) || {};
+  if (!("freezeMembers" in savedPerms)) currentAdminPermissions.freezeMembers = savedPerms.editMemberDetails === true;
 }
 
 let currentMemberFilter = "all";
@@ -254,6 +261,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("refundCloseBtn").addEventListener("click", closeRefundModal);
   document.getElementById("refundBackdrop").addEventListener("click", closeRefundModal);
   document.getElementById("refundForm").addEventListener("submit", handleRefundSubmit);
+
+  // Freeze modal
+  document.getElementById("freezeCancelBtn").addEventListener("click", closeFreezeModal);
+  document.getElementById("freezeCloseBtn").addEventListener("click", closeFreezeModal);
+  document.getElementById("freezeBackdrop").addEventListener("click", closeFreezeModal);
+  document.getElementById("freezeForm").addEventListener("submit", handleFreezeSubmit);
+  document.getElementById("freezeDaysInput").addEventListener("input", updateFreezePreview);
 
   // Change Phone Number modal
   document.getElementById("phoneChangeCancelBtn").addEventListener("click", closePhoneChangeModal);
@@ -1000,7 +1014,7 @@ function subscribeMembers() {
   // 🔥 Security rules unchanged hain — sirf .orderBy hataya hai taaki index error na aaye
   unsubMembers = membersCol.onSnapshot(
     (snap) => {
-      allMembers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      allMembers = snap.docs.map((d) => applyPendingCreditRenewal(applyElapsedFreeze({ id: d.id, ...d.data() }))); // freezes whose dates have passed show as already ended
       
       // JavaScript mein securely sort karna (No database index required)
       allMembers.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -1009,6 +1023,8 @@ function subscribeMembers() {
       renderStats();
       renderNotifications();
       updateBackupReminder();
+      autoResumeExpiredFreezes(allMembers); // ends freezes whose planned end date has arrived
+      settlePendingCreditRenewals(allMembers); // saves credit renewals made from the member kiosk
     },
     (err) => console.error("members listener error:", err)
   );
@@ -1416,6 +1432,7 @@ function renderMemberTable() {
     const isFrozen = m.isFrozen === true;
     const dues = m.duesAmount || 0; // 🔥 accumulated unpaid amount from credit renewals
     const frozenDaysSoFar = isFrozen && m.freezeStartDate ? Math.max(0, daysBetweenKeys(m.freezeStartDate, toDateKey(new Date()))) : 0;
+    const frozenLabel = m.freezeDays ? `${frozenDaysSoFar}/${m.freezeDays}d` : `${frozenDaysSoFar}d`;
 
     // ---- desktop/tablet table row (md and up) ----
     const tr = document.createElement("tr");
@@ -1433,7 +1450,7 @@ function renderMemberTable() {
         <!-- 🔥 Unapproved members: sirf "Pending Approval" dikhega, ACTIVE/EXPIRED nahi (kyunki abhi member confirm hi nahi hai) -->
         ${isApproved ? (isFrozen ? `
           <span class="badge bg-violet-500/15 text-violet-300">PAUSED</span>
-          <p class="text-xs text-slate-500 mt-1">${frozenDaysSoFar}d paused so far</p>
+          <p class="text-xs text-slate-500 mt-1">${frozenLabel} paused${m.freezeUntil ? ` · till ${formatDate(m.freezeUntil)}` : " so far"}</p>
         ` : isCancelled ? `
           <span class="badge bg-slate-500/15 text-slate-400">CANCELLED</span>
           <p class="text-xs text-slate-500 mt-1">Refunded ${formatDate(m.cancelledAt)}</p>
@@ -1491,7 +1508,7 @@ function renderMemberTable() {
 
       <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-400 mt-2.5 pt-2.5 border-t border-slate-800/70">
         <p class="truncate"><span class="text-slate-600">Plan:</span> ${planLabelText}</p>
-        <p class="truncate"><span class="text-slate-600">Expiry:</span> ${formatDate(m.expiryDate)} · ${isFrozen ? `paused ${frozenDaysSoFar}d` : (isActive ? days + "d left" : Math.abs(days) + "d ago")}</p>
+        <p class="truncate"><span class="text-slate-600">Expiry:</span> ${formatDate(m.expiryDate)} · ${isFrozen ? `paused ${frozenLabel}` : (isActive ? days + "d left" : Math.abs(days) + "d ago")}</p>
         ${m.address ? `<p class="col-span-2 truncate" title="${escapeHtml(m.address)}"><span class="text-slate-600">Address:</span> ${escapeHtml(m.address)}</p>` : ""}
       </div>
 
@@ -1531,8 +1548,8 @@ function openRowMenuFor(btn, member) {
   // Renew changes plan/expiry AND payment status/dues together, so it
   // needs both permissions — matching the combined branch in firestore.rules.
   const canRenew = hasPermission("editMemberDetails") && hasPermission("payments") && wrapper.dataset.renew === "true";
-  const canFreeze = hasPermission("editMemberDetails") && wrapper.dataset.freeze === "true";
-  const canResume = hasPermission("editMemberDetails") && wrapper.dataset.resume === "true";
+  const canFreeze = hasPermission("freezeMembers") && wrapper.dataset.freeze === "true";
+  const canResume = hasPermission("freezeMembers") && wrapper.dataset.resume === "true";
   const canRefund = hasPermission("refunds") && wrapper.dataset.refund === "true";
   const canChangePhone = isOwner && wrapper.dataset.changePhone === "true";
   const canDelete = hasPermission("deleteMembers");
@@ -1578,12 +1595,12 @@ function openRowMenuFor(btn, member) {
     closeRowMenu();
     if (action === "renew") openRenewModal(member);
     if (action === "mark-paid") requestReauth("mark-paid", member, btn);
-    if (action === "freeze") executeFreezeMember(member, btn);
+    if (action === "freeze") openFreezeModal(member);
     if (action === "resume") executeResumeMember(member, btn);
     if (action === "refund") openRefundModal(member);
     if (action === "whatsapp") sendWhatsAppReminder(member);
     if (action === "change-phone") openPhoneChangeModal(member);
-    if (action === "delete") requestReauth("delete", member, btn);
+    if (action === "delete") startDeleteMember(member, btn);
   });
 
   openRowMenu = { menuEl: menu };
@@ -1854,6 +1871,15 @@ async function handleRenewSubmit(e) {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
 
+      // A kiosk credit renewal that isn't saved yet would be applied on top of
+      // this renewal a moment later (double extension) — wait for it to settle.
+      if (freshMember.creditRenewPlan) throw new Error("A credit renewal was just made at the kiosk — wait a second and renew again.");
+
+      // A freeze whose dates just ended but isn't saved yet would get its
+      // frozen days added on top of this renewal a moment later. Let the
+      // dashboard settle it first (takes a second), then renew.
+      if (freezeHasElapsed(freshMember)) throw new Error("This member's freeze just ended — wait a second and renew again.");
+
       // Renewing a cancelled/refunded member reactivates them: drop the
       // cancelledAt flag, otherwise every status check in the app (admin
       // table, stats, kiosk, check-in) keeps treating them as CANCELLED.
@@ -1864,6 +1890,7 @@ async function handleRenewSubmit(e) {
         // Collecting now settles this cycle AND any dues already owed.
         update.paymentStatus = "paid";
         update.duesAmount = 0;
+        update.creditMonths = firebase.firestore.FieldValue.delete(); // dues cleared -> credit allowance resets
         transaction.set(paymentsCol.doc(), {
           memberId: freshMember.id,
           name: freshMember.name,
@@ -1880,6 +1907,7 @@ async function handleRenewSubmit(e) {
         // pending, and the amount owed accumulates instead of resetting.
         update.paymentStatus = "pending";
         update.duesAmount = existingDues + plan.price;
+        update.creditMonths = (freshMember.creditMonths || 0) + planMonths(plan);
       }
 
       transaction.update(memberRef, update);
@@ -1903,32 +1931,131 @@ async function handleRenewSubmit(e) {
 // forward by exactly the number of days they were paused, so they get
 // back every day they paid for.
 
-async function executeFreezeMember(member, btn) {
-  if (member.isFrozen) return;
-  if (daysUntil(member.expiryDate) < 0) return; // expired plan has nothing running to pause
-  if (!(await showConfirm(`Freeze ${member.name}'s membership? Their expiry date won't move while paused, and they won't be able to check in until you resume it.`, { title: "Freeze membership?" }))) return;
+// Admin/owner decides how many days each freeze lasts; these are only sanity limits.
+const FREEZE_MIN_DAYS = 1;    // admin decides the length freely...
+const FREEZE_MAX_DAYS = 365;  // ...this is only a typo guard (e.g. 3000 days)
+let pendingFreezeMember = null;
 
-  const originalLabel = btn ? btn.textContent : "";
-  if (btn) { btn.disabled = true; }
+function openFreezeModal(member) {
+  if (!hasPermission("freezeMembers")) return;
+  // UI already hides this for cancelled/expired members; guard again for stale renders.
+  if (member.isFrozen || member.cancelledAt || daysUntil(member.expiryDate) < 0) return;
+  pendingFreezeMember = member;
+  document.getElementById("freezeMemberName").textContent = member.name;
+  const input = document.getElementById("freezeDaysInput");
+  input.min = FREEZE_MIN_DAYS;
+  input.max = FREEZE_MAX_DAYS;
+  input.value = FREEZE_MIN_DAYS;
+  document.getElementById("freezeError").classList.add("hidden");
+  updateFreezePreview();
+  document.getElementById("freezeModal").classList.remove("hidden");
+}
+
+function closeFreezeModal() {
+  document.getElementById("freezeModal").classList.add("hidden");
+  pendingFreezeMember = null;
+}
+
+function updateFreezePreview() {
+  const days = Number(document.getElementById("freezeDaysInput").value);
+  const el = document.getElementById("freezePreview");
+  if (!Number.isInteger(days) || days < FREEZE_MIN_DAYS || days > FREEZE_MAX_DAYS) {
+    el.textContent = `Enter between ${FREEZE_MIN_DAYS} and ${FREEZE_MAX_DAYS} days.`;
+    return;
+  }
+  const until = addDaysToDateKey(toDateKey(new Date()), days);
+  el.textContent = `Paused for exactly ${days} day${days === 1 ? "" : "s"}: today → ${formatDate(until)}. Expiry moves forward by ${days} day${days === 1 ? "" : "s"}, and the membership restarts by itself on ${formatDate(until)}. Resuming earlier only credits the days actually paused.`;
+}
+
+async function handleFreezeSubmit(e) {
+  e.preventDefault();
+  if (!hasPermission("freezeMembers")) { closeFreezeModal(); return; }
+  if (!pendingFreezeMember) return;
+  const member = pendingFreezeMember;
+  const errorEl = document.getElementById("freezeError");
+  const submitBtn = document.getElementById("freezeSubmitBtn");
+  errorEl.classList.add("hidden");
+
+  const days = Number(document.getElementById("freezeDaysInput").value);
+  if (!Number.isInteger(days) || days < FREEZE_MIN_DAYS || days > FREEZE_MAX_DAYS) {
+    errorEl.textContent = `Freeze must be between ${FREEZE_MIN_DAYS} and ${FREEZE_MAX_DAYS} days.`;
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  const originalLabel = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Freezing…";
   try {
-    await membersCol.doc(member.id).update({
-      isFrozen: true,
-      freezeStartDate: toDateKey(new Date()),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    const today = toDateKey(new Date());
+    const ref = membersCol.doc(member.id);
+    await db.runTransaction(async (t) => {
+      // Re-read fresh: another staff login may have frozen/cancelled/renewed meanwhile.
+      const snap = await t.get(ref);
+      if (!snap.exists) throw new Error("Member not found.");
+      const fresh = snap.data();
+      if (fresh.isFrozen) throw new Error("Already frozen.");
+      if (fresh.cancelledAt) throw new Error("This membership is cancelled.");
+      if (daysUntil(fresh.expiryDate) < 0) throw new Error("Membership already expired.");
+      t.update(ref, {
+        isFrozen: true,
+        freezeStartDate: today,
+        freezeDays: days,                                   // what the admin set
+        freezeUntil: addDaysToDateKey(today, days),         // calendar end date
+        // Same moment as a Timestamp, so Firestore rules (which can't parse
+        // date strings) can block check-ins by date with no dashboard needed.
+        freezeUntilTs: firebase.firestore.Timestamp.fromDate(
+          (() => { const [y, mo, d] = addDaysToDateKey(today, days).split("-").map(Number); return new Date(y, mo - 1, d); })()
+        ),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
     });
+    closeFreezeModal();
   } catch (err) {
     console.error(err);
-    showAlert("Could not freeze membership. Please try again.");
+    errorEl.textContent = err && err.message && !/permission|insufficient/i.test(err.message)
+      ? err.message
+      : "Could not freeze membership. Please try again.";
+    errorEl.classList.remove("hidden");
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
   }
 }
 
+/** Ends a freeze inside a transaction (fresh read, so two staff / the
+ *  auto-resume can never add the paused days twice). Returns null if the
+ *  member wasn't frozen any more. */
+async function resumeMembershipTx(memberId) {
+  const ref = membersCol.doc(memberId);
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    if (!snap.exists) throw new Error("Member not found.");
+    const m = snap.data();
+    if (!m.isFrozen) return null;
+    const today = toDateKey(new Date());
+    const frozenDays = frozenDaysCredit(m, today); // exactly the days the admin set (or fewer if resumed early)
+    const newExpiry = addDaysToDateKey(m.expiryDate, frozenDays);
+    t.update(ref, {
+      isFrozen: false,
+      freezeStartDate: firebase.firestore.FieldValue.delete(),
+      freezeUntil: firebase.firestore.FieldValue.delete(),
+      freezeDays: firebase.firestore.FieldValue.delete(),
+      freezeUntilTs: firebase.firestore.FieldValue.delete(),
+      expiryDate: newExpiry,
+      totalFrozenDays: (m.totalFrozenDays || 0) + frozenDays,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    return { frozenDays, newExpiry };
+  });
+}
+
 async function executeResumeMember(member, btn) {
+  if (!hasPermission("freezeMembers")) return;
   if (!member.isFrozen) return;
 
   const today = toDateKey(new Date());
-  const frozenDays = Math.max(0, daysBetweenKeys(member.freezeStartDate || today, today));
+  const frozenDays = frozenDaysCredit(member, today);
   const newExpiry = addDaysToDateKey(member.expiryDate, frozenDays);
 
   if (!(await showConfirm(`Resume ${member.name}'s membership? They were paused for ${frozenDays} day${frozenDays === 1 ? "" : "s"} — their new expiry will be ${formatDate(newExpiry)}.`, { title: "Resume membership?" }))) return;
@@ -1936,18 +2063,69 @@ async function executeResumeMember(member, btn) {
   const originalLabel = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; }
   try {
-    await membersCol.doc(member.id).update({
-      isFrozen: false,
-      freezeStartDate: firebase.firestore.FieldValue.delete(),
-      expiryDate: newExpiry,
-      totalFrozenDays: (member.totalFrozenDays || 0) + frozenDays,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    await resumeMembershipTx(member.id);
   } catch (err) {
     console.error(err);
     showAlert("Could not resume membership. Please try again.");
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
+}
+
+// Freezes with a planned end date resume themselves: there is no backend
+// job, so any admin/staff dashboard that is open on or after `freezeUntil`
+// does it (runs on every members snapshot). Days are credited for the real
+// time the member was blocked, so nobody loses days if nobody opened the
+// dashboard on the exact date.
+// A member renewing on credit at the kiosk can only write the plan + a
+// server timestamp (not a trusted expiry), so every dashboard that is open
+// turns it into real fields: plan, planLabel, expiryDate. Until then
+// applyPendingCreditRenewal() already shows the member as renewed.
+const creditSettleInFlight = new Set();
+async function settlePendingCreditRenewals(members) {
+  if (!auth.currentUser) return;
+  for (const m of members) {
+    if (!m._creditUnsettled || creditSettleInFlight.has(m.id)) continue;
+    creditSettleInFlight.add(m.id);
+    try {
+      const ref = membersCol.doc(m.id);
+      await db.runTransaction(async (t) => {
+        const snap = await t.get(ref);
+        if (!snap.exists) return;
+        const raw = { id: snap.id, ...snap.data() };
+        if (!raw.creditRenewPlan) return; // another dashboard already did it
+        const eff = applyPendingCreditRenewal(raw);
+        t.update(ref, {
+          plan: eff.plan,
+          planLabel: eff.planLabel,
+          expiryDate: eff.expiryDate,
+          creditRenewPlan: firebase.firestore.FieldValue.delete(),
+          creditRenewedAt: firebase.firestore.FieldValue.delete(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+    } catch (err) {
+      console.error("credit renewal settle failed for", m.id, err);
+    } finally {
+      creditSettleInFlight.delete(m.id);
+    }
+  }
+}
+
+const autoResumeInFlight = new Set();
+async function autoResumeExpiredFreezes(members) {
+  if (!auth.currentUser) return; // any signed-in admin/staff may save an already-ended freeze (see firestore.rules)
+  for (const m of members) {
+    if (!m._freezeUnsettled) continue; // set by applyElapsedFreeze() when the freeze dates have passed
+    if (autoResumeInFlight.has(m.id)) continue;
+    autoResumeInFlight.add(m.id);
+    try {
+      await resumeMembershipTx(m.id);
+    } catch (err) {
+      console.error("auto-resume failed for", m.id, err);
+    } finally {
+      autoResumeInFlight.delete(m.id);
+    }
   }
 }
 
@@ -2000,6 +2178,12 @@ async function handleRefundSubmit(e) {
 
   if (!Number.isFinite(amount) || amount < 0) {
     errorEl.textContent = "Please enter a valid refund amount.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  const refundCap = computeSuggestedRefund(member).price;
+  if (refundCap > 0 && amount > refundCap) {
+    errorEl.textContent = `Refund can't be more than the plan price (${formatCurrency(refundCap)}).`;
     errorEl.classList.remove("hidden");
     return;
   }
@@ -2147,9 +2331,15 @@ async function handlePhoneChangeSubmit(e) {
     // doesn't go through passkey/password verification only to hit an
     // avoidable "already exists" error afterwards.
     const existing = await membersCol.doc(newPhone).get();
+    // An earlier attempt that died half-way leaves the new doc behind with an
+    // in-progress marker — that one is safe to resume instead of blocking.
     if (existing.exists) {
-      showPhoneChangeError("A member with this phone number already exists.");
-      return;
+      const ed = existing.data();
+      const isResume = ed.phoneChangeInProgress === true && ed.migratedFromPhone === oldPhone;
+      if (!isResume) {
+        showPhoneChangeError("A member with this phone number already exists.");
+        return;
+      }
     }
     const oldSnap = await membersCol.doc(oldPhone).get();
     if (!oldSnap.exists) {
@@ -2171,7 +2361,22 @@ async function handlePhoneChangeSubmit(e) {
   }
 }
 
-/** Runs the actual doc migration — only called after requestReauth("phone-change", …) succeeds. */
+/** Runs the actual doc migration — only called after requestReauth("phone-change", …) succeeds.
+ *  Order matters and every step is safe to re-run:
+ *   1 new doc + in-progress marker  2 check-ins  3 payments & refunds
+ *   4 extra fields (clears marker)  5 delete old doc LAST.
+ *  If it dies half-way the old doc is untouched; just run the same phone
+ *  change again and it resumes where it stopped. */
+async function migrateRecordsToNewPhone(col, oldPhone, newPhone) {
+  const snap = await col.where("memberId", "==", oldPhone).get();
+  const CHUNK = 400;
+  for (let i = 0; i < snap.docs.length; i += CHUNK) {
+    const batch = db.batch();
+    snap.docs.slice(i, i + CHUNK).forEach((d) => batch.update(d.ref, { memberId: newPhone, phone: newPhone }));
+    await batch.commit();
+  }
+}
+
 async function executePhoneChangeMigration(member, newPhone, btn) {
   const oldPhone = member.id;
   try {
@@ -2183,34 +2388,42 @@ async function executePhoneChangeMigration(member, newPhone, btn) {
     }
     const oldData = oldSnap.data();
 
-    // 1) Create the new doc with just the base shape the create rule
-    //    requires, `phone` swapped to the new number.
-    const baseData = {};
-    for (const key of MEMBER_BASE_SHAPE_KEYS) {
-      if (key === "phone") { baseData.phone = newPhone; continue; }
-      if (key in oldData) baseData[key] = oldData[key];
+    // 1) New doc with only the base shape the create rule allows, then mark
+    //    it as "migration in progress" so a retry can recognise and resume it.
+    const newSnap = await newDocRef.get();
+    if (newSnap.exists) {
+      const nd = newSnap.data();
+      if (!(nd.phoneChangeInProgress === true && nd.migratedFromPhone === oldPhone)) {
+        showAlert("A member with this phone number already exists.");
+        return;
+      }
+    } else {
+      const baseData = {};
+      for (const key of MEMBER_BASE_SHAPE_KEYS) {
+        if (key === "phone") { baseData.phone = newPhone; continue; }
+        if (key in oldData) baseData[key] = oldData[key];
+      }
+      baseData.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+      await newDocRef.set(baseData);
+      try {
+        await newDocRef.update({ migratedFromPhone: oldPhone, phoneChangeInProgress: true });
+      } catch (markerErr) {
+        await newDocRef.delete().catch(() => {}); // don't leave an unmarked orphan
+        throw markerErr;
+      }
     }
-    baseData.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
-    await newDocRef.set(baseData);
 
-    // 2) Migrate check-in history BEFORE copying extra fields like
-    //    isFrozen onto the new doc — the checkins create rule refuses a
-    //    new check-in doc for a frozen member, and at this point the new
-    //    doc only has the base shape (no isFrozen yet), so migrating a
-    //    paused member's history still goes through. Re-created under the
-    //    new deterministic ID (`${newPhone}_${dateKey}`) so the kiosk's
-    //    history lookup keeps working, then old docs are deleted. Batched
-    //    in chunks to stay well under Firestore's 500-writes-per-batch limit.
+    // 2) Check-in history, re-created under the new deterministic id
+    //    (`${newPhone}_${dateKey}`) BEFORE freeze/cancel flags are copied (the
+    //    checkins rule refuses frozen/cancelled members). Chunked < 500 ops.
     const oldCheckins = await checkinsCol.where("memberId", "==", oldPhone).get();
     const CHUNK_SIZE = 200; // 200 creates + 200 deletes = 400 ops/batch
     const docs = oldCheckins.docs;
     for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
       const batch = db.batch();
-      const chunk = docs.slice(i, i + CHUNK_SIZE);
-      chunk.forEach((doc) => {
+      docs.slice(i, i + CHUNK_SIZE).forEach((doc) => {
         const data = doc.data();
-        const newCheckinRef = checkinsCol.doc(`${newPhone}_${data.dateKey}`);
-        batch.set(newCheckinRef, {
+        batch.set(checkinsCol.doc(`${newPhone}_${data.dateKey}`), {
           memberId: newPhone,
           name: data.name || member.name,
           phone: newPhone,
@@ -2225,9 +2438,12 @@ async function executePhoneChangeMigration(member, newPhone, btn) {
       await batch.commit();
     }
 
-    // 3) Now copy over everything else (dues, freeze state, check-in
-    //    counters…) — an admin update has no field restriction, unlike
-    //    create, so this can carry any extra fields the old doc had.
+    // 3) Payment + refund history follows the member to the new number so
+    //    revenue/audit records don't get orphaned under the old phone.
+    await migrateRecordsToNewPhone(paymentsCol, oldPhone, newPhone);
+    await migrateRecordsToNewPhone(refundsCol, oldPhone, newPhone);
+
+    // 4) Everything else (dues, freeze/cancel state, counters…), and clear the marker.
     const extraData = {};
     for (const key of Object.keys(oldData)) {
       if (MEMBER_BASE_SHAPE_KEYS.includes(key)) continue;
@@ -2235,15 +2451,14 @@ async function executePhoneChangeMigration(member, newPhone, btn) {
     }
     extraData.migratedFromPhone = oldPhone;
     extraData.phoneChangedAt = firebase.firestore.FieldValue.serverTimestamp();
-    if (Object.keys(extraData).length > 0) {
-      await newDocRef.update(extraData);
-    }
+    extraData.phoneChangeInProgress = firebase.firestore.FieldValue.delete();
+    await newDocRef.update(extraData);
 
-    // 4) Finally, drop the old member doc now that everything's migrated.
+    // 5) Only now drop the old member doc.
     await membersCol.doc(oldPhone).delete();
   } catch (err) {
     console.error(err);
-    showAlert("Could not change phone number. Please try again.");
+    showAlert("Phone change didn't finish. Nothing is lost — run the same Change Phone Number again and it will continue from where it stopped.");
   }
 }
 
@@ -2524,6 +2739,7 @@ async function openGymSettingsModal() {
   document.getElementById("settingsGymName").value = GYM_SETTINGS.name || "";
   document.getElementById("settingsCurrencySymbol").value = GYM_SETTINGS.currencySymbol || "₹";
   document.getElementById("settingsCountryCode").value = GYM_SETTINGS.defaultCountryCode || "91";
+  document.getElementById("settingsCreditMonths").value = GYM_SETTINGS.creditRenewalMonths || 0;
 
   const rowsContainer = document.getElementById("settingsPlanRows");
   rowsContainer.innerHTML = "";
@@ -2618,7 +2834,7 @@ function renderPermissionCheckboxes(currentPermissions) {
     const row = document.createElement("label");
     row.className = "flex items-start gap-3 rounded-lg border border-slate-700 bg-slate-800/60 p-3 cursor-pointer";
     row.innerHTML = `
-      <input type="checkbox" data-perm-key="${def.key}" class="mt-1 h-4 w-4 rounded" ${perms[def.key] === true ? "checked" : ""} />
+      <input type="checkbox" data-perm-key="${def.key}" class="mt-1 h-4 w-4 rounded" ${(def.key in perms ? perms[def.key] === true : (def.key === "freezeMembers" && perms.editMemberDetails === true)) ? "checked" : ""} />
       <span>
         <span class="block text-sm font-semibold text-slate-100">${def.label}</span>
         <span class="block text-xs text-slate-400">${def.hint}</span>
@@ -2925,6 +3141,12 @@ async function handleGymSettingsSubmit(e) {
   const name = document.getElementById("settingsGymName").value.trim();
   const currencySymbol = document.getElementById("settingsCurrencySymbol").value.trim();
   const defaultCountryCode = document.getElementById("settingsCountryCode").value.trim();
+  const creditRenewalMonths = Number(document.getElementById("settingsCreditMonths").value || 0);
+  if (!Number.isInteger(creditRenewalMonths) || creditRenewalMonths < 0 || creditRenewalMonths > 24) {
+    errorEl.textContent = "Credit renewal limit must be a whole number between 0 and 24.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
 
   const plans = {};
   const rows = document.querySelectorAll("#settingsPlanRows .settings-plan-row");
@@ -2958,7 +3180,7 @@ async function handleGymSettingsSubmit(e) {
   saveBtn.disabled = true;
   saveBtn.textContent = "Saving…";
 
-  const data = { name, currencySymbol, defaultCountryCode, plans };
+  const data = { name, currencySymbol, defaultCountryCode, plans, creditRenewalMonths };
 
   try {
     await db.collection("settings").doc("gymConfig").set(data);
@@ -3324,23 +3546,37 @@ async function executeMarkAsPaid(member, btn) {
     btn.textContent = "Saving…";
   }
   try {
-    const plan = PLANS[member.plan] || { price: 0 };
-    const existingDues = member.duesAmount || 0;
-    await membersCol.doc(member.id).update({
-      paymentStatus: "paid",
-      duesAmount: 0,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    await paymentsCol.add({
-      memberId: member.id,
-      name: member.name,
-      phone: member.phone,
-      plan: member.plan,
-      amount: plan.price + existingDues,
-      method: "cash",
-      dateKey: toDateKey(new Date()),
-      note: existingDues > 0 ? `Includes ₹${existingDues} previous dues` : "",
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    const ref = membersCol.doc(member.id);
+    // One transaction: member flip + payment record succeed or fail together,
+    // so a member can never be "paid" without a revenue entry.
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) throw new Error("Member not found.");
+      const fresh = snap.data();
+      const dues = fresh.duesAmount || 0;
+      if (fresh.paymentStatus === "paid" && dues <= 0) return; // already settled (e.g. by another staff login)
+      const plan = PLANS[fresh.plan] || { price: 0 };
+      // duesAmount already INCLUDES the current cycle's price (credit renewal
+      // stores previous dues + plan price), so charging price + dues counted
+      // the plan price twice.
+      const amount = dues > 0 ? dues : plan.price;
+      t.update(ref, {
+        paymentStatus: "paid",
+        duesAmount: 0,
+        creditMonths: firebase.firestore.FieldValue.delete(), // dues cleared -> credit allowance resets
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      t.set(paymentsCol.doc(), {
+        memberId: member.id,
+        name: fresh.name,
+        phone: fresh.phone,
+        plan: fresh.plan,
+        amount,
+        method: "cash",
+        dateKey: toDateKey(new Date()),
+        note: dues > 0 ? "Pending dues settled" : "",
+        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      });
     });
   } catch (err) {
     console.error(err);
@@ -3352,6 +3588,24 @@ async function executeMarkAsPaid(member, btn) {
   }
 }
 
+/** Warns before deleting a member who still has money/membership attached. */
+async function startDeleteMember(member, btn) {
+  const warnings = [];
+  const dues = member.duesAmount || 0;
+  if (dues > 0) warnings.push(`• ${formatCurrency(dues)} dues are still unpaid — deleting erases that record.`);
+  if (member.approved !== false && !member.cancelledAt && daysUntil(member.expiryDate) >= 0) {
+    warnings.push(`• Membership is still active till ${formatDate(member.expiryDate)}. Deleting does NOT refund anything (use Cancel & Refund first if needed).`);
+  }
+  if (warnings.length) {
+    const ok = await showConfirm(
+      `${member.name} still has:\n\n${warnings.join("\n")}\n\nPayment & refund history is kept, but attendance history is deleted. Continue?`,
+      { title: "Delete anyway?" }
+    );
+    if (!ok) return;
+  }
+  requestReauth("delete", member, btn);
+}
+
 async function executeDeleteMember(member, btn) {
   const originalLabel = btn ? btn.textContent : "";
   if (btn) {
@@ -3359,17 +3613,20 @@ async function executeDeleteMember(member, btn) {
     btn.textContent = "Deleting…";
   }
   try {
-    // 1. Member ko members collection se delete karo
-    await membersCol.doc(member.id).delete();
-
-    // 2. Us member ke saare check-ins bhi checkins collection se hata do
+    // 1. Check-ins first, in chunks (Firestore batches cap at 500 writes — a
+    //    member with a long history used to fail here AFTER the member doc
+    //    was already gone, leaving orphan check-ins).
     const checkinsSnapshot = await checkinsCol.where("memberId", "==", member.id).get();
-    const batch = db.batch();
-    checkinsSnapshot.docs.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
-    await batch.commit();
+    const CHUNK = 400;
+    for (let i = 0; i < checkinsSnapshot.docs.length; i += CHUNK) {
+      const batch = db.batch();
+      checkinsSnapshot.docs.slice(i, i + CHUNK).forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+    }
 
+    // 2. Member doc LAST: if anything above fails the member still exists,
+    //    so Delete can simply be retried.
+    await membersCol.doc(member.id).delete();
   } catch (err) {
     console.error(err);
     showAlert("Could not delete member and records. Please try again.");
@@ -3414,12 +3671,18 @@ async function manualCheckIn(member, btn) {
     const currentMonthKey = `${today.slice(0, 4)}-${today.slice(5, 7)}`; // today is YYYY-MM-DD
     const isSameMonth = member.checkinMonthKey === currentMonthKey;
     const newCount = isSameMonth ? (member.monthlyCheckinCount || 0) + 1 : 1;
-    await membersCol.doc(member.id).update({
-      monthlyCheckinCount: newCount,
-      checkinMonthKey: currentMonthKey,
-    });
-    member.monthlyCheckinCount = newCount;
-    member.checkinMonthKey = currentMonthKey;
+    // The check-in itself is already saved above — a failure updating this
+    // display-only counter must not show "Could not log check-in".
+    try {
+      await membersCol.doc(member.id).update({
+        monthlyCheckinCount: newCount,
+        checkinMonthKey: currentMonthKey,
+      });
+      member.monthlyCheckinCount = newCount;
+      member.checkinMonthKey = currentMonthKey;
+    } catch (counterErr) {
+      console.warn("check-in saved, monthly counter not updated:", counterErr);
+    }
   } catch (err) {
     console.error(err);
     showAlert("Could not log check-in. Please try again.");

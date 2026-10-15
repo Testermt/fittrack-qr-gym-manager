@@ -69,16 +69,30 @@ service cloud.firestore {
     // The only valid shape for a `permissions` map — kept in sync with the
     // checkboxes in admin.js's Staff Access → Edit Permissions UI.
     function isValidPermissionsMap(p) {
+      // The 7 original keys are required; freezeMembers / kioskSetup are
+      // optional so staff docs saved before they existed stay valid.
       return p.keys().hasOnly(
                ['addMembers','editMemberDetails','payments','refunds',
-                'deleteMembers','manageSettings','whatsappBroadcast'])
+                'deleteMembers','manageSettings','whatsappBroadcast',
+                'freezeMembers','kioskSetup'])
           && p.keys().hasAll(
                ['addMembers','editMemberDetails','payments','refunds',
                 'deleteMembers','manageSettings','whatsappBroadcast'])
           && p.addMembers is bool && p.editMemberDetails is bool
           && p.payments is bool && p.refunds is bool
           && p.deleteMembers is bool && p.manageSettings is bool
-          && p.whatsappBroadcast is bool;
+          && p.whatsappBroadcast is bool
+          && (!('freezeMembers' in p) || p.freezeMembers is bool)
+          && (!('kioskSetup' in p) || p.kioskSetup is bool);
+    }
+
+    // Freeze/Resume permission. Staff docs without the key keep the old
+    // behaviour (it used to be part of editMemberDetails).
+    function hasFreezePerm() {
+      return isVerifiedAdminDirect()
+        && (adminRole() == 'owner'
+            || adminPermissions().get('freezeMembers',
+                 adminPermissions().get('editMemberDetails', false)) == true);
     }
 
 
@@ -171,13 +185,24 @@ service cloud.firestore {
           && resource.data.approved == false
           && request.resource.data.approved == true)
         ||
-        (hasPerm('editMemberDetails')
+        (hasFreezePerm()
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['isFrozen', 'freezeStartDate', 'totalFrozenDays', 'expiryDate', 'updatedAt']))
+               .hasOnly(['isFrozen', 'freezeStartDate', 'freezeDays', 'freezeUntil', 'freezeUntilTs', 'totalFrozenDays', 'expiryDate', 'updatedAt']))
+        ||
+        // Saving a freeze whose end date has ALREADY passed is bookkeeping,
+        // not a decision: any signed-in admin/staff may do it, but only for
+        // that exact case (end time reached, member goes back to unfrozen).
+        (isVerifiedAdminDirect()
+          && resource.data.get('isFrozen', false) == true
+          && resource.data.get('freezeUntilTs', null) != null
+          && request.time >= resource.data.get('freezeUntilTs', null)
+          && request.resource.data.isFrozen == false
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['isFrozen', 'freezeStartDate', 'freezeDays', 'freezeUntil', 'freezeUntilTs', 'totalFrozenDays', 'expiryDate', 'updatedAt']))
         ||
         (hasPerm('payments')
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['paymentStatus', 'duesAmount', 'updatedAt']))
+               .hasOnly(['paymentStatus', 'duesAmount', 'creditMonths', 'updatedAt']))
         ||
         // Approving an unpaid day-pass member and collecting payment in the
         // same step (see admin.js executeApproveMember's collectPaymentToo)
@@ -193,7 +218,7 @@ service cloud.firestore {
         ||
         (hasPerm('editMemberDetails') && hasPerm('payments')
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['plan', 'planLabel', 'expiryDate', 'paymentStatus', 'duesAmount', 'cancelledAt', 'updatedAt'])
+               .hasOnly(['plan', 'planLabel', 'expiryDate', 'paymentStatus', 'duesAmount', 'cancelledAt', 'creditMonths', 'updatedAt'])
           // cancelledAt may only be REMOVED here (renewing a cancelled member),
           // never set — setting it still needs the `refunds` permission.
           && !('cancelledAt' in request.resource.data))
@@ -202,7 +227,43 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['expiryDate', 'cancelledAt', 'updatedAt']))
         ||
+        // Renew on credit from the member kiosk (admin enables it with Gym
+        // Settings > Credit renewal limit). The kiosk can NOT set an expiry —
+        // it only records WHICH plan, a server timestamp, and the matching
+        // dues. Dates are derived from those and saved by the dashboard.
+        // Money-wise this is self-limiting: every credit renewal adds the
+        // plan's price to dues, capped at the admin's limit in months.
         (isKiosk()
+          && get(/databases/$(database)/documents/settings/gymConfig).data.get('creditRenewalMonths', 0) > 0
+          && resource.data.approved == true
+          && resource.data.get('cancelledAt', null) == null
+          && resource.data.get('isFrozen', false) != true
+          && resource.data.get('creditRenewPlan', null) == null
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['creditRenewPlan', 'creditRenewedAt', 'creditMonths', 'duesAmount', 'paymentStatus', 'updatedAt'])
+          && request.resource.data.creditRenewedAt == request.time
+          && request.resource.data.paymentStatus == 'pending'
+          && request.resource.data.creditRenewPlan in get(/databases/$(database)/documents/settings/gymConfig).data.plans.keys()
+          && request.resource.data.duesAmount ==
+               resource.data.get('duesAmount', 0)
+               + get(/databases/$(database)/documents/settings/gymConfig).data.plans[request.resource.data.creditRenewPlan].price
+          && request.resource.data.creditMonths ==
+               resource.data.get('creditMonths', 0)
+               + get(/databases/$(database)/documents/settings/gymConfig).data.plans[request.resource.data.creditRenewPlan]
+                   .get('months', get(/databases/$(database)/documents/settings/gymConfig).data.plans[request.resource.data.creditRenewPlan].get('days', 30) / 30.0)
+          && request.resource.data.creditMonths <=
+               get(/databases/$(database)/documents/settings/gymConfig).data.creditRenewalMonths)
+        ||
+        // Saving a kiosk credit renewal for real (plan + expiry) and clearing
+        // its markers: bookkeeping any signed-in admin/staff dashboard does.
+        (isVerifiedAdminDirect()
+          && resource.data.get('creditRenewPlan', null) != null
+          && request.resource.data.get('creditRenewPlan', null) == null
+          && request.resource.data.plan == resource.data.creditRenewPlan
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['plan', 'planLabel', 'expiryDate', 'creditRenewPlan', 'creditRenewedAt', 'updatedAt']))
+        ||
+        ((isKiosk() || isVerifiedAdminDirect())
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['monthlyCheckinCount', 'checkinMonthKey'])
           && request.resource.data.monthlyCheckinCount is int
@@ -219,7 +280,10 @@ service cloud.firestore {
     // admin-only so nobody can enumerate every check-in (and thus every
     // memberId) across the whole gym.
     match /checkins/{checkinId} {
-  allow create: if isKiosk()
+  // Kiosk (member self check-in) OR a signed-in admin/staff (manual check-in
+  // from the dashboard). Before, only the kiosk could create check-ins, so the
+  // dashboard's Check-In button was always denied.
+  allow create: if (isKiosk() || isVerifiedAdminDirect())
                 && request.resource.data.memberId is string
                 && request.resource.data.phone is string
                 && request.resource.data.phone.size() >= 7
@@ -229,9 +293,13 @@ service cloud.firestore {
                 && request.resource.data.timestamp == request.time
                 && checkinId == request.resource.data.memberId + '_' + request.resource.data.dateKey
                 && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.approved == true
-                // Frozen/paused members can't check in until an admin resumes
-                // their membership (see admin.js executeFreezeMember/Resume).
-                && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('isFrozen', false) != true
+                // Frozen/paused members can't check in until the freeze period ends.
+                // The end is date-driven (freezeUntilTs, set when the admin picks the
+                // days), so check-in works again on its own on that date even if
+                // nobody has opened the dashboard to press Resume.
+                && !(get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('isFrozen', false) == true
+                     && (get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('freezeUntilTs', null) == null
+                         || request.time < get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('freezeUntilTs', null)))
                 // Cancelled/refunded members can't check in either (was only
                 // enforced in the client UI before).
                 && get(/databases/$(database)/documents/members/$(request.resource.data.memberId)).data.get('cancelledAt', null) == null;
@@ -277,7 +345,11 @@ service cloud.firestore {
               && request.resource.data.name.size() > 0
               && request.resource.data.defaultCountryCode is string
               && request.resource.data.plans is map
-              && request.resource.data.plans.size() > 0;
+              && request.resource.data.plans.size() > 0
+              && (!('creditRenewalMonths' in request.resource.data)
+                  || (request.resource.data.creditRenewalMonths is number
+                      && request.resource.data.creditRenewalMonths >= 0
+                      && request.resource.data.creditRenewalMonths <= 24));
       }
 
       // Feature-tier doc (Basic/Prime/Advance) — controls which optional

@@ -748,7 +748,7 @@ async function handleStatusCheck(e) {
       return;
     }
     
-    currentMember = { id: doc.id, ...doc.data() };
+    currentMember = applyPendingCreditRenewal(applyElapsedFreeze({ id: doc.id, ...doc.data() })); // ended freezes show as active with the credited days
 
     renderStatusCard(currentMember, currentMember.approved !== true ? "pending-approval" : null);
     loadMemberCheckinHistory(currentMember.id);
@@ -839,7 +839,9 @@ function renderStatusCard(member, checkinStatus) {
   if (!isApproved) {
     daysLabel.textContent = "Awaiting approval — plan will start once approved";
   } else if (isFrozen) {
-    daysLabel.textContent = "Membership paused — days won't count down until resumed";
+    daysLabel.textContent = member.freezeUntil
+      ? `Membership paused until ${formatDate(member.freezeUntil)} — days won't count down meanwhile`
+      : "Membership paused — days won't count down until resumed";
   } else if (isCancelled) {
     daysLabel.textContent = "This membership was cancelled and refunded";
   } else {
@@ -914,8 +916,90 @@ function renderStatusCard(member, checkinStatus) {
   if (showRenew) {
     buildPlanPicker("renewPlanPicker", "renewPlan");
   }
+  updateCreditRenewUi();
 }
 
+
+// ------------------------------------------------- renew on credit --------
+// Admin sets "Credit renewal limit (months)" in Gym Settings (0 = off). An
+// expired member may then renew from this screen and pay later: the plan's
+// price is added to their dues, up to that many unpaid months in total.
+// They can still pay online instead, or pay the dues afterwards from the
+// same screen (the normal "Amount Due" section appears once they're active).
+function creditRemainingMonths(member) {
+  const limit = Number(GYM_SETTINGS.creditRenewalMonths) || 0;
+  return Math.max(0, limit - (Number(member.creditMonths) || 0));
+}
+
+function updateCreditRenewUi() {
+  const box = document.getElementById("creditRenewBox");
+  if (!box) return;
+  const mem = currentMember;
+  const limit = Number(GYM_SETTINGS.creditRenewalMonths) || 0;
+  const eligible = !!mem && limit > 0 && mem.approved === true && !mem.cancelledAt && !mem.isFrozen && daysUntil(mem.expiryDate) < 0;
+  box.classList.toggle("hidden", !eligible);
+  if (!eligible) return;
+
+  const remaining = creditRemainingMonths(mem);
+  const planId = document.querySelector("input[name=renewPlan]:checked")?.value;
+  const plan = PLANS[planId];
+  const fits = !!plan && planMonths(plan) <= remaining + 1e-9;
+  document.getElementById("creditRenewButton").disabled = !fits;
+
+  const left = Number.isInteger(remaining) ? remaining : remaining.toFixed(1);
+  document.getElementById("creditRenewHint").textContent = remaining <= 0
+    ? "Your credit limit is used up. Please pay your dues or renew with payment."
+    : (plan && !fits
+        ? `This plan is longer than your remaining credit (${left} month${left == 1 ? "" : "s"}). Pick a shorter plan or pay online.`
+        : `Pay later: you can renew on credit for up to ${left} more month${left == 1 ? "" : "s"}. The amount is added to your dues.`);
+}
+
+document.getElementById("renewPlanPicker")?.addEventListener("change", updateCreditRenewUi);
+
+document.getElementById("creditRenewButton")?.addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if (!currentMember) return;
+  const planId = document.querySelector("input[name=renewPlan]:checked")?.value;
+  const plan = PLANS[planId];
+  if (!plan) return;
+  const ok = window.confirm(`Renew ${plan.label} on credit?\n\n${formatCurrency(plan.price)} will be added to your dues. You can pay it any time.`);
+  if (!ok) return;
+
+  setBusy(btn, true);
+  try {
+    const ref = membersCol.doc(currentMember.id);
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) throw new Error("not-found");
+      const raw = snap.data();
+      const limit = Number(GYM_SETTINGS.creditRenewalMonths) || 0;
+      const used = Number(raw.creditMonths) || 0;
+      const months = planMonths(plan);
+      if (limit <= 0 || used + months > limit + 1e-9) throw new Error("credit-limit");
+      if (raw.cancelledAt || raw.isFrozen || raw.creditRenewPlan) throw new Error("not-eligible");
+      t.update(ref, {
+        creditRenewPlan: planId,
+        creditRenewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        creditMonths: used + months,
+        duesAmount: (Number(raw.duesAmount) || 0) + plan.price,
+        paymentStatus: "pending",
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+    const fresh = await ref.get();
+    currentMember = applyPendingCreditRenewal(applyElapsedFreeze({ id: fresh.id, ...fresh.data() }));
+    renderStatusCard(currentMember, null); // now active -> auto check-in runs, "Amount Due" shows
+    loadMemberCheckinHistory(currentMember.id);
+  } catch (err) {
+    console.error(err);
+    if (await kioskRevokedCheck(err)) return;
+    showBanner("statusBanner", err && err.message === "credit-limit"
+      ? "Credit limit reached. Please pay online or at the front desk."
+      : "Could not renew on credit. Please try again or ask the front desk.");
+  } finally {
+    setBusy(btn, false);
+  }
+});
 
 document.getElementById("renewButton")?.addEventListener("click", () => {
   const planId = document.querySelector("input[name=renewPlan]:checked")?.value;

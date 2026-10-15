@@ -70,6 +70,7 @@ let GYM_SETTINGS = {
   name: "Iron Pulse Fitness",
   currencySymbol: "₹",
   defaultCountryCode: "91",
+  creditRenewalMonths: 0, // max months a member may renew on credit from the kiosk (0 = off)
 };
 
 // Membership plans: id -> { label, months, price }
@@ -168,6 +169,7 @@ function applyGymConfig(data) {
       defaultCountryCode: data.defaultCountryCode ?? GYM_SETTINGS.defaultCountryCode,
     });
   }
+  GYM_SETTINGS.creditRenewalMonths = Number(data.creditRenewalMonths) || 0;
   if (data.plans && typeof data.plans === "object" && Object.keys(data.plans).length > 0) {
     // Replace wholesale (not merge) so a plan removed in Firestore
     // actually disappears from the picker instead of lingering from the
@@ -646,6 +648,68 @@ function daysUntil(dateKey) {
   const target = new Date(y, m - 1, d);
   target.setHours(0, 0, 0, 0);
   return Math.round((target - today) / 86400000);
+}
+
+// ---- Freeze helpers (shared by the admin dashboard and the member kiosk) ----
+// A freeze is stored as plain dates on the member doc: freezeStartDate,
+// freezeDays (what the admin set) and freezeUntil (= start + days). What
+// is "frozen right now" and how many days to credit are always CALCULATED
+// from those dates, never from whether somebody remembered to press Resume.
+
+/** Days to add to expiry for this freeze: exactly the days the admin set,
+ *  or fewer if it was resumed early. Legacy freezes (no freezeDays) = days elapsed. */
+function frozenDaysCredit(m, todayKey) {
+  const today = todayKey || toDateKey(new Date());
+  const elapsed = Math.max(0, daysBetweenKeys(m.freezeStartDate || today, today));
+  const planned = Number(m.freezeDays);
+  return Number.isFinite(planned) && planned > 0 ? Math.min(planned, elapsed) : elapsed;
+}
+
+/** True once the planned freeze period is over but the doc still says isFrozen. */
+function freezeHasElapsed(m, todayKey) {
+  const today = todayKey || toDateKey(new Date());
+  return m.isFrozen === true && !!m.freezeUntil && m.freezeUntil <= today;
+}
+
+/** Returns the member as it should be shown right now: a freeze whose dates
+ *  have passed is treated as already over (active again, expiry pushed
+ *  forward by the frozen days). Display-only — the admin dashboard
+ *  persists the same result to Firestore (see autoResumeExpiredFreezes). */
+function applyElapsedFreeze(m) {
+  const today = toDateKey(new Date());
+  if (!freezeHasElapsed(m, today)) return m;
+  const days = frozenDaysCredit(m, today);
+  return {
+    ...m,
+    isFrozen: false,
+    expiryDate: addDaysToDateKey(m.expiryDate, days),
+    totalFrozenDays: (m.totalFrozenDays || 0) + days,
+    _freezeUnsettled: true,
+  };
+}
+
+// ---- Credit renewal helpers (member kiosk + admin dashboard) ------------
+/** Length of a plan in months (day-based plans count as days/30). */
+function planMonths(plan) {
+  if (!plan) return 0;
+  return plan.months != null ? Number(plan.months) : (Number(plan.days) || 30) / 30;
+}
+
+/** A member who renewed on credit at the kiosk gets creditRenewPlan +
+ *  creditRenewedAt written on their doc (the kiosk can't compute/write a
+ *  trusted expiry date). This returns the member as they should look RIGHT
+ *  NOW: new plan, expiry = (later of renewal day / old expiry) + plan
+ *  length. The admin dashboard then saves the same result for real
+ *  (settlePendingCreditRenewals) and clears the two marker fields. */
+function applyPendingCreditRenewal(m) {
+  if (!m || !m.creditRenewPlan) return m;
+  const plan = PLANS[m.creditRenewPlan];
+  if (!plan) return m;
+  const ts = m.creditRenewedAt;
+  const renewedKey = toDateKey(ts && typeof ts.toDate === "function" ? ts.toDate() : new Date());
+  const base = m.expiryDate && m.expiryDate > renewedKey ? m.expiryDate : renewedKey;
+  const expiry = plan.days ? addDaysToDateKey(base, plan.days) : addMonthsToDateKey(base, plan.months || 1);
+  return { ...m, plan: m.creditRenewPlan, planLabel: plan.label, expiryDate: expiry, _creditUnsettled: true };
 }
 
 function formatDate(dateKey) {
